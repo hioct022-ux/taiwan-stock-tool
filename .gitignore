@@ -1,0 +1,23 @@
+# 資料庫（本機資料，不上傳）
+data/stock.db
+data/json/
+
+# Log 檔
+data/*.log
+
+# Python 暫存
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# macOS 系統檔
+.DS_Store
+
+# 環境設定（含敏感資訊）
+.env
+secrets.toml
+
+# Streamlit 本機 cache
+.streamlit/secrets.toml
