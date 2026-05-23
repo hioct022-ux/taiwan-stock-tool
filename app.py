@@ -155,6 +155,34 @@ input::placeholder, textarea::placeholder { color: #6b7280 !important; }
 init_db()
 start_scheduler()
 
+
+# ── 雲端版：從 GitHub 載入資料 ───────────
+def load_from_github_to_db(code):
+    """
+    從 GitHub 讀取 JSON 資料並存入本機 SQLite。
+    適用於 Streamlit Cloud（本機 DB 是空的）。
+    """
+    try:
+        from github_sync import load_stock_data_raw
+        from database import save_prices, save_fundamental, save_chips, save_stock_info
+        data = load_stock_data_raw(code)
+        if not data:
+            return False
+        if data.get('prices'):
+            save_prices(code, data['prices'])
+        if data.get('fundamentals'):
+            for f in data['fundamentals']:
+                save_fundamental(code, f['date'],
+                                 f.get('eps_ttm', 0), f.get('pe', 0),
+                                 f.get('pb', 0), f.get('dividend_yield', 0))
+        if data.get('chips'):
+            for c in data['chips']:
+                save_chips(code, c['date'], c)
+        return True
+    except Exception as e:
+        print(f'從 GitHub 載入 {code} 失敗：{e}')
+        return False
+
 # ── 側邊欄 ──────────────────────────────
 def render_sidebar():
     with st.sidebar:
@@ -1161,8 +1189,17 @@ def main():
     chips_list = get_chips(code, days=65)
 
     if not prices:
-        st.warning(f'找不到 {code} 的資料，請先更新資料或確認股票代碼是否正確。')
-        if st.button('立即抓取此股票資料'):
+        # 嘗試從 GitHub 載入（雲端版）
+        with st.spinner(f'從 GitHub 載入 {code} 資料中...'):
+            ok = load_from_github_to_db(code)
+        if ok:
+            prices    = get_prices(code, days=400)
+            fund_data = get_fundamentals(code, days=400)
+            chips_list = get_chips(code, days=65)
+
+    if not prices:
+        st.warning(f'找不到 {code} 的資料，請先在 Mac 版更新資料後，資料會自動同步到這裡。')
+        if st.button('立即抓取此股票資料（僅限本機）'):
             with st.spinner('抓取中...'):
                 from fetcher import fetch_history
                 fetch_history(code, months=3)

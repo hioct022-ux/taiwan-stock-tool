@@ -52,11 +52,14 @@ def daily_job():
     except Exception as e:
         print(f'[排程] 更新失敗：{e}')
 
-    # GitHub 備份
+    # GitHub 備份（自動推送資料給雲端版使用）
     try:
-        from github_sync import sync_to_github
-        sync_to_github()
-        print('[排程] GitHub 備份完成')
+        from github_sync import sync_to_github, is_github_configured
+        if is_github_configured():
+            sync_to_github()
+            print('[排程] GitHub 備份完成')
+        else:
+            print('[排程] GitHub 未設定，跳過備份')
     except Exception as e:
         print(f'[排程] GitHub 備份失敗：{e}')
 

@@ -15,9 +15,10 @@ __pycache__/
 # macOS 系統檔
 .DS_Store
 
-# 環境設定（含敏感資訊）
+# 環境設定（含敏感資訊，不上傳）
 .env
 secrets.toml
+config_local.py
 
 # Streamlit 本機 cache
 .streamlit/secrets.toml

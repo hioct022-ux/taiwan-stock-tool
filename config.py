@@ -13,10 +13,15 @@ DB_PATH  = os.path.join(BASE_DIR, 'data', 'stock.db')
 JSON_DIR = os.path.join(BASE_DIR, 'data', 'json')
 
 # ── GitHub 設定 ──────────────────────────
-# 申請 GitHub 帳號後填入以下資料
-# 暫時留空，本機版不需要填
-GITHUB_TOKEN = ''        # GitHub Personal Access Token
-GITHUB_REPO  = ''        # 格式：你的帳號/repo名稱，例如 john/stock-data
+# Token 從本機 config_local.py 讀取（安全，不會上傳到 GitHub）
+# 請依照說明建立 config_local.py，不要直接填在這裡
+try:
+    from config_local import GITHUB_TOKEN as _GH_TOKEN
+    GITHUB_TOKEN = _GH_TOKEN
+except ImportError:
+    GITHUB_TOKEN = ''
+
+GITHUB_REPO   = 'hioct022-ux/taiwan-stock-tool'
 GITHUB_BRANCH = 'main'
 
 # ── 自動排程設定 ─────────────────────────

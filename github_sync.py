@@ -5,8 +5,40 @@
 
 import os
 import json
+import requests as _req
 from datetime import datetime
 from config import GITHUB_TOKEN, GITHUB_REPO, GITHUB_BRANCH, JSON_DIR
+
+
+# ── 從公開 repo 直接讀取（不需要 Token）───
+def load_raw(path):
+    """從 GitHub raw URL 讀取檔案，適用於公開 repo，雲端版使用。"""
+    if not GITHUB_REPO:
+        return None
+    try:
+        url = (f'https://raw.githubusercontent.com/'
+               f'{GITHUB_REPO}/{GITHUB_BRANCH}/{path}')
+        r = _req.get(url, timeout=10)
+        if r.status_code == 200:
+            return r.json()
+        return None
+    except Exception:
+        return None
+
+
+def load_stock_data_raw(code):
+    """從 GitHub 讀取個股完整資料（不需要 Token）"""
+    return load_raw(f'data/json/{code}.json')
+
+
+def load_watchlist_raw():
+    """從 GitHub 讀取自選股清單（不需要 Token）"""
+    return load_raw('data/json/watchlist.json') or []
+
+
+def load_meta_raw():
+    """從 GitHub 讀取更新狀態（不需要 Token）"""
+    return load_raw('data/json/meta.json')
 
 # ── 檢查是否設定 GitHub ──────────────────
 def is_github_configured():
