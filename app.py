@@ -292,10 +292,32 @@ def render_sidebar():
                    not os.path.exists(os.path.join(os.path.dirname(__file__), 'config_local.py'))
         if not is_cloud:
             if st.button('🔄 手動更新資料', use_container_width=True):
-                with st.spinner('更新中，請稍候...'):
-                    t = manual_fetch()
-                    t.join(timeout=60)
-                st.success('更新完成！')
+                with st.status('更新資料中...', expanded=True) as _status:
+                    st.write('📥 步驟 1／2：抓取最新收盤資料...')
+                    _fetch_ok = True
+                    try:
+                        from fetcher import fetch_all
+                        fetch_all()
+                        st.write('✅ 收盤資料更新完成')
+                    except Exception as _e:
+                        st.write(f'⚠️ 資料抓取部分失敗：{_e}')
+                        _fetch_ok = False
+
+                    st.write('☁️ 步驟 2／2：同步到 GitHub...')
+                    try:
+                        from github_sync import sync_to_github, is_github_configured
+                        if is_github_configured():
+                            sync_to_github()
+                            st.write('✅ GitHub 同步完成')
+                        else:
+                            st.write('⚠️ GitHub 未設定，略過備份')
+                    except Exception as _e:
+                        st.write(f'⚠️ GitHub 同步失敗：{_e}')
+
+                    _status.update(
+                        label='✅ 更新完成！' if _fetch_ok else '⚠️ 更新完成（部分失敗）',
+                        state='complete'
+                    )
                 st.rerun()
         else:
             st.info('📡 資料由 Mac 每日自動同步\n\n如資料過舊，請在 Mac 版手動更新', icon='ℹ️')
@@ -1291,12 +1313,38 @@ def main():
             chips_list = get_chips(code, days=65)
 
     if not prices:
-        st.warning(f'找不到 {code} 的資料，請先在 Mac 版更新資料後，資料會自動同步到這裡。')
-        if st.button('立即抓取此股票資料（僅限本機）'):
-            with st.spinner('抓取中...'):
-                from fetcher import fetch_history
-                fetch_history(code, months=3)
-            st.rerun()
+        _is_local = os.path.exists(
+            os.path.join(os.path.dirname(__file__), 'config_local.py'))
+        if _is_local:
+            # 本機版：自動抓取歷史資料（首次查詢非自選股）
+            with st.status(f'首次查詢 {code}，正在抓取歷史資料...', expanded=True) as _st:
+                st.write('📥 抓取價格與基本面資料...')
+                try:
+                    from fetcher import fetch_history
+                    fetch_history(code, months=3)
+                    st.write('✅ 價格資料完成')
+                except Exception as _e:
+                    st.write(f'⚠️ 價格資料失敗：{_e}')
+
+                st.write('📥 抓取籌碼資料...')
+                try:
+                    from fetcher import fetch_chips_history
+                    fetch_chips_history(code, months=3)
+                    st.write('✅ 籌碼資料完成')
+                except Exception as _e:
+                    st.write(f'⚠️ 籌碼資料失敗：{_e}')
+
+                _st.update(label='資料載入完成', state='complete')
+
+            prices     = get_prices(code, days=400)
+            fund_data  = get_fundamentals(code, days=400)
+            chips_list = get_chips(code, days=65)
+        else:
+            st.warning(f'找不到 {code} 的資料，請先在 Mac 版更新資料後，資料會自動同步到這裡。')
+            return
+
+    if not prices:
+        st.warning(f'無法載入 {code} 的資料，請確認股票代碼是否正確，或先執行手動更新。')
         return
 
     # 取得股票名稱
