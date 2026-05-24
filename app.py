@@ -164,36 +164,6 @@ input::placeholder, textarea::placeholder { color: #6b7280 !important; }
 init_db()
 start_scheduler()
 
-# ── 隱藏右下角 GitHub/Fork 徽章（components.html 才會真正執行 JS）──
-import streamlit.components.v1 as _components
-_components.html("""
-<script>
-(function() {
-    function removeBadges() {
-        // 從父頁面 DOM 找 fixed 定位且含 github 連結的容器
-        try {
-            var doc = window.parent.document;
-            doc.querySelectorAll('*').forEach(function(el) {
-                var s = window.parent.getComputedStyle(el);
-                if (s.position === 'fixed' || s.position === 'absolute') {
-                    var links = el.querySelectorAll(
-                        'a[href*="github.com"], a[href*="streamlit.io"], a[href*="streamlit.app"]'
-                    );
-                    if (links.length > 0) {
-                        el.style.setProperty('display','none','important');
-                    }
-                }
-            });
-        } catch(e) {}
-    }
-    var n = 0;
-    var t = setInterval(function(){ removeBadges(); if(++n>15) clearInterval(t); }, 800);
-    new MutationObserver(removeBadges).observe(
-        window.parent.document.body, {childList:true, subtree:true}
-    );
-})();
-</script>
-""", height=0)
 
 
 # ── 雲端版：從 GitHub 載入資料 ───────────
@@ -1222,8 +1192,20 @@ MACD：DIF={macd_dif} / DEF={macd_def} / 柱狀={macd_hist}
 def main():
     render_sidebar()
 
+    # iPad / 手機：側邊欄收起後的開啟按鈕
+    st.markdown('''
+    <style>
+    [data-testid="collapsedControl"] { display: flex !important; opacity: 1 !important; }
+    </style>
+    ''', unsafe_allow_html=True)
+    with st.sidebar:
+        pass  # 確保側邊欄已初始化
+
     if 'current_code' not in st.session_state:
         st.markdown('## 📈 台股投資分析工具')
+        if st.button('☰ 開啟選單', help='點此展開左側選單'):
+            st.session_state['sidebar_open'] = True
+            st.rerun()
         st.info('請從左側側邊欄搜尋股票，或點選自選股清單中的股票開始分析。')
         return
 
