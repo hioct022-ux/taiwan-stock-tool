@@ -51,10 +51,15 @@ st.markdown('''
     [class*="badge_container"],
     a[href*="github.com/streamlit"],
     a[href*="streamlit.io"] { display: none !important; }
-    /* ── 隱藏頁尾 & 選單 ── */
+    /* ── 隱藏頁尾 & 選單，但保留側邊欄展開按鈕 ── */
     #MainMenu  { visibility: hidden !important; }
     footer     { visibility: hidden !important; }
     header     { visibility: hidden !important; }
+    /* 側邊欄收合後的展開箭頭保持可見 */
+    [data-testid="collapsedControl"] {
+        visibility: visible !important;
+        display: flex !important;
+    }
 
     .main { background-color: #0d0f12; }
     /* 修正 metric 元件 */
