@@ -33,6 +33,24 @@ st.set_page_config(
 # ── 自訂樣式 ────────────────────────────
 st.markdown('''
 <style>
+    /* ── 縮小頂部空白 ── */
+    .block-container {
+        padding-top: 1.2rem !important;
+        padding-bottom: 1rem !important;
+    }
+    [data-testid="stAppViewContainer"] > section:first-child {
+        padding-top: 0 !important;
+    }
+    /* ── 隱藏 Streamlit Cloud 的 GitHub / Fork 徽章 ── */
+    .viewerBadge_container__r5tak { display: none !important; }
+    .viewerBadge_link__qRIco      { display: none !important; }
+    [data-testid="stToolbarActions"] { display: none !important; }
+    #stDecoration                  { display: none !important; }
+    /* ── 隱藏頁尾 & 選單 ── */
+    #MainMenu  { visibility: hidden !important; }
+    footer     { visibility: hidden !important; }
+    header     { visibility: hidden !important; }
+
     .main { background-color: #0d0f12; }
     /* 修正 metric 元件 */
     [data-testid="stMetric"] {
