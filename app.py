@@ -33,6 +33,8 @@ st.set_page_config(
 # ── 自訂樣式 ────────────────────────────
 st.markdown('''
 <style>
+    /* ── 隱藏側邊欄收起按鈕 ── */
+    [data-testid="stSidebarCollapseButton"] { display: none !important; }
     .main { background-color: #0d0f12; }
     /* 修正 metric 元件 */
     [data-testid="stMetric"] {
@@ -154,6 +156,34 @@ input::placeholder, textarea::placeholder { color: #6b7280 !important; }
 # ── 初始化 ──────────────────────────────
 init_db()
 start_scheduler()
+
+# ── 雲端版啟動：從 GitHub 載入自選股清單和股票名稱 ──
+def _cloud_init():
+    """雲端版啟動時，從 GitHub 把自選股清單和名稱載入本機 SQLite"""
+    try:
+        is_cloud = not os.path.exists(
+            os.path.join(os.path.dirname(__file__), 'config_local.py'))
+        if not is_cloud:
+            return
+        from github_sync import load_watchlist_raw
+        from database import save_stock_info, add_watchlist, get_watchlist
+        # 只在自選股清單是空的時候才載入
+        if get_watchlist():
+            return
+        watchlist = load_watchlist_raw()
+        for w in watchlist:
+            code = w.get('code','')
+            name = w.get('name','')
+            tag  = w.get('tag','其他')
+            if code and name:
+                save_stock_info(code, name, '', '')
+                add_watchlist(code, name, tag)
+        if watchlist:
+            print(f'[雲端初始化] 載入 {len(watchlist)} 支自選股')
+    except Exception as e:
+        print(f'[雲端初始化] 失敗：{e}')
+
+_cloud_init()
 
 # ── 清除 sidebar localStorage，強制每次展開 ──
 import streamlit.components.v1 as _components
