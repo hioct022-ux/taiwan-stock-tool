@@ -199,13 +199,19 @@ def render_sidebar():
             unsafe_allow_html=True
         )
 
-        # 手動更新按鈕
-        if st.button('🔄 手動更新資料', use_container_width=True):
-            with st.spinner('更新中，請稍候...'):
-                t = manual_fetch()
-                t.join(timeout=60)
-            st.success('更新完成！')
-            st.rerun()
+        # 手動更新按鈕（僅本機版顯示，雲端版無法連台灣交易所）
+        is_cloud = os.environ.get('STREAMLIT_SHARING_MODE') or \
+                   os.environ.get('IS_STREAMLIT_CLOUD') or \
+                   not os.path.exists(os.path.join(os.path.dirname(__file__), 'config_local.py'))
+        if not is_cloud:
+            if st.button('🔄 手動更新資料', use_container_width=True):
+                with st.spinner('更新中，請稍候...'):
+                    t = manual_fetch()
+                    t.join(timeout=60)
+                st.success('更新完成！')
+                st.rerun()
+        else:
+            st.info('📡 資料由 Mac 每日自動同步\n\n如資料過舊，請在 Mac 版手動更新', icon='ℹ️')
 
         st.markdown('---')
 

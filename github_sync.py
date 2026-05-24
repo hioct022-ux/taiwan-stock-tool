@@ -121,7 +121,7 @@ def sync_to_github(code=None):
             with open(fpath, 'r', encoding='utf-8') as f:
                 content = f.read()
 
-            github_path = f'data/{fname}'
+            github_path = f'data/json/{fname}'
             now_str = datetime.now().strftime('%Y-%m-%d %H:%M')
 
             try:
