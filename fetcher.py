@@ -247,17 +247,29 @@ def fetch_margin():
         data = r.json()
         date_str = datetime.now().strftime('%Y-%m-%d')
 
-        # 找融資融券彙總表（第二個 table）
+        # ── 找融資融券彙總表，同時取得 API 回傳的實際交易日期 ──
+        def parse_date_tw(date_tw, fallback):
+            try:
+                if len(date_tw) == 7:
+                    return f'{int(date_tw[:3])+1911}-{date_tw[3:5]}-{date_tw[5:7]}'
+            except Exception:
+                pass
+            return fallback
+
         tables = data.get('tables', [])
         margin_table = None
         for t in tables:
             if '融資融券彙總' in t.get('title', ''):
                 margin_table = t
+                # 修正：從 API 回傳的實際日期更新 date_str（避免週末日期錯誤）
+                date_str = parse_date_tw(
+                    data.get('date', today),
+                    datetime.now().strftime('%Y-%m-%d')
+                )
                 break
 
         if not margin_table:
             # 嘗試前一個交易日
-            from datetime import timedelta
             yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y%m%d')
             url2 = f'https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN?date={yesterday}&selectType=ALL&response=json'
             r2 = requests.get(url2, headers=HEADERS, timeout=15, verify=False)
@@ -266,15 +278,10 @@ def fetch_margin():
             for t in tables2:
                 if '融資融券彙總' in t.get('title', ''):
                     margin_table = t
-                    # 取得實際日期
-                    date_tw = data2.get('date', yesterday)
-                    try:
-                        y = int(date_tw[:3]) + 1911
-                        m = date_tw[3:5]
-                        d = date_tw[5:7]
-                        date_str = f'{y}-{m}-{d}'
-                    except:
-                        pass
+                    date_str = parse_date_tw(
+                        data2.get('date', yesterday),
+                        (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+                    )
                     break
 
         if margin_table:
