@@ -193,13 +193,23 @@ def _cloud_init():
 
 _cloud_init()
 
-# ── 清除 sidebar localStorage，強制每次展開 ──
+# ── JS：清除sidebar localStorage + 移除收起按鈕 ──
 import streamlit.components.v1 as _components
 _components.html("""
 <script>
 (function() {
+    var p = window.parent;
+
+    // 1. 移除側邊欄收起按鈕
+    function removeCollapseBtn() {
+        try {
+            var btn = p.document.querySelector('[data-testid="stSidebarCollapseButton"]');
+            if (btn) btn.remove();
+        } catch(e) {}
+    }
+
+    // 2. 清除 localStorage sidebar 狀態（只做一次，避免無限 reload）
     try {
-        var p = window.parent;
         var flag = p.sessionStorage.getItem('_sb_reset');
         if (!flag) {
             var removed = false;
@@ -212,8 +222,22 @@ _components.html("""
             if (removed) {
                 p.sessionStorage.setItem('_sb_reset', '1');
                 p.location.reload();
+                return;
             }
         }
+    } catch(e) {}
+
+    // 3. 持續監聽 DOM，每次 React re-render 後重新移除按鈕
+    removeCollapseBtn();
+    var n = 0;
+    var t = setInterval(function() {
+        removeCollapseBtn();
+        if (++n > 30) clearInterval(t);
+    }, 500);
+    try {
+        new MutationObserver(removeCollapseBtn).observe(
+            p.document.body, {childList: true, subtree: true}
+        );
     } catch(e) {}
 })();
 </script>
