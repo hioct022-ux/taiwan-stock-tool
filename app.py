@@ -38,9 +38,23 @@ st.markdown('''
         padding-top: 1.2rem !important;
         padding-bottom: 1rem !important;
     }
-    /* ── 隱藏頁尾（不動 header，避免影響側邊欄按鈕）── */
+    /* ── 隱藏頁尾 ── */
     #MainMenu  { visibility: hidden !important; }
     footer     { visibility: hidden !important; }
+    /* ── 強制側邊欄永遠顯示，不可收起 ── */
+    [data-testid="stSidebar"] {
+        display: block !important;
+        transform: translateX(0) !important;
+        visibility: visible !important;
+        min-width: 240px !important;
+    }
+    /* 隱藏收起按鈕，避免使用者誤觸 */
+    [data-testid="collapsedControl"],
+    [data-testid="stSidebarCollapseButton"],
+    button[aria-label="Close sidebar"],
+    button[aria-label="Collapse sidebar"] {
+        display: none !important;
+    }
 
     .main { background-color: #0d0f12; }
     /* 修正 metric 元件 */
@@ -1192,20 +1206,8 @@ MACD：DIF={macd_dif} / DEF={macd_def} / 柱狀={macd_hist}
 def main():
     render_sidebar()
 
-    # iPad / 手機：側邊欄收起後的開啟按鈕
-    st.markdown('''
-    <style>
-    [data-testid="collapsedControl"] { display: flex !important; opacity: 1 !important; }
-    </style>
-    ''', unsafe_allow_html=True)
-    with st.sidebar:
-        pass  # 確保側邊欄已初始化
-
     if 'current_code' not in st.session_state:
         st.markdown('## 📈 台股投資分析工具')
-        if st.button('☰ 開啟選單', help='點此展開左側選單'):
-            st.session_state['sidebar_open'] = True
-            st.rerun()
         st.info('請從左側側邊欄搜尋股票，或點選自選股清單中的股票開始分析。')
         return
 
