@@ -51,14 +51,20 @@ st.markdown('''
     [class*="badge_container"],
     a[href*="github.com/streamlit"],
     a[href*="streamlit.io"] { display: none !important; }
-    /* ── 隱藏頁尾 & 選單，但保留側邊欄展開按鈕 ── */
+    /* ── 隱藏頁尾 & 選單 ── */
     #MainMenu  { visibility: hidden !important; }
     footer     { visibility: hidden !important; }
-    header     { visibility: hidden !important; }
-    /* 側邊欄收合後的展開箭頭保持可見 */
+    /* header 只隱藏漢堡選單和裝飾，不隱藏整個 header */
+    [data-testid="stHeader"]        { background: transparent !important; }
+    [data-testid="stToolbar"]       { display: none !important; }
+    [data-testid="stDecoration"]    { display: none !important; }
+    [data-testid="stStatusWidget"]  { display: none !important; }
+    .stDeployButton                 { display: none !important; }
+    /* 側邊欄展開箭頭一定要保持可見 */
     [data-testid="collapsedControl"] {
         visibility: visible !important;
         display: flex !important;
+        opacity: 1 !important;
     }
 
     .main { background-color: #0d0f12; }
@@ -180,31 +186,28 @@ input::placeholder, textarea::placeholder { color: #6b7280 !important; }
 <script>
 (function() {
     function removeBadges() {
-        // 移除所有包含 github.com 或 streamlit.io 連結的元素
-        document.querySelectorAll('a').forEach(function(a) {
-            var href = a.getAttribute('href') || '';
-            if (href.includes('github.com') || href.includes('streamlit.io')) {
-                var el = a;
-                // 往上找到最外層的 badge 容器再移除
-                for (var i = 0; i < 5; i++) {
-                    if (el.parentElement && el.parentElement !== document.body) {
-                        el = el.parentElement;
-                    } else { break; }
+        // 找右下角 fixed 定位且含 github 連結的容器，直接隱藏
+        var allEls = document.querySelectorAll('body *');
+        allEls.forEach(function(el) {
+            var style = window.getComputedStyle(el);
+            if (style.position === 'fixed') {
+                var links = el.querySelectorAll('a[href*="github.com"], a[href*="streamlit.io"], a[href*="streamlit.app"]');
+                if (links.length > 0) {
+                    el.style.setProperty('display', 'none', 'important');
                 }
-                el.style.display = 'none';
             }
         });
-        // 直接移除已知 class/id
-        ['stDecoration','MainMenu'].forEach(function(id) {
-            var el = document.getElementById(id);
-            if (el) el.style.display = 'none';
-        });
     }
-    // 頁面載入後執行，並監聽 DOM 變化持續清除
+    // 每秒檢查一次，共10次，確保抓到所有非同步載入的元素
+    var count = 0;
+    var timer = setInterval(function() {
+        removeBadges();
+        count++;
+        if (count >= 10) clearInterval(timer);
+    }, 1000);
+    // 同時用 MutationObserver 補抓
     var observer = new MutationObserver(removeBadges);
     observer.observe(document.body, { childList: true, subtree: true });
-    setTimeout(removeBadges, 500);
-    setTimeout(removeBadges, 2000);
 })();
 </script>
 ''', unsafe_allow_html=True)
