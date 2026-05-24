@@ -269,20 +269,25 @@ def fetch_margin():
                 break
 
         if not margin_table:
-            # 嘗試前一個交易日
-            yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y%m%d')
-            url2 = f'https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN?date={yesterday}&selectType=ALL&response=json'
-            r2 = requests.get(url2, headers=HEADERS, timeout=15, verify=False)
-            data2 = r2.json()
-            tables2 = data2.get('tables', [])
-            for t in tables2:
-                if '融資融券彙總' in t.get('title', ''):
-                    margin_table = t
-                    date_str = parse_date_tw(
-                        data2.get('date', yesterday),
-                        (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
-                    )
-                    break
+            # 往前最多找 5 天（應對連假）
+            for days_back in range(1, 6):
+                prev = (datetime.now() - timedelta(days=days_back)).strftime('%Y%m%d')
+                prev_std = (datetime.now() - timedelta(days=days_back)).strftime('%Y-%m-%d')
+                url2 = f'https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN?date={prev}&selectType=ALL&response=json'
+                try:
+                    r2 = requests.get(url2, headers=HEADERS, timeout=15, verify=False)
+                    data2 = r2.json()
+                    for t in data2.get('tables', []):
+                        if '融資融券彙總' in t.get('title', ''):
+                            margin_table = t
+                            date_str = parse_date_tw(data2.get('date', prev), prev_std)
+                            break
+                    if margin_table:
+                        print(f'融資融券：使用 {date_str} 的資料')
+                        break
+                    time.sleep(0.3)
+                except Exception:
+                    pass
 
         if margin_table:
             for row in margin_table.get('data', []):
