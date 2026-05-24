@@ -155,6 +155,31 @@ input::placeholder, textarea::placeholder { color: #6b7280 !important; }
 init_db()
 start_scheduler()
 
+# ── 清除 sidebar localStorage，強制每次展開 ──
+import streamlit.components.v1 as _components
+_components.html("""
+<script>
+(function() {
+    try {
+        var p = window.parent;
+        var flag = p.sessionStorage.getItem('_sb_reset');
+        if (!flag) {
+            var removed = false;
+            Object.keys(p.localStorage).forEach(function(k) {
+                if (k.toLowerCase().includes('sidebar')) {
+                    p.localStorage.removeItem(k);
+                    removed = true;
+                }
+            });
+            if (removed) {
+                p.sessionStorage.setItem('_sb_reset', '1');
+                p.location.reload();
+            }
+        }
+    } catch(e) {}
+})();
+</script>
+""", height=0)
 
 # ── 雲端版：從 GitHub 載入資料 ───────────
 def load_from_github_to_db(code):
