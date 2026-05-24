@@ -33,8 +33,14 @@ st.set_page_config(
 # ── 自訂樣式 ────────────────────────────
 st.markdown('''
 <style>
-    /* ── 隱藏側邊欄收起按鈕 ── */
-    [data-testid="stSidebarCollapseButton"] { display: none !important; }
+    /* ── 隱藏側邊欄收起按鈕（多種 selector 全覆蓋）── */
+    [data-testid="stSidebarCollapseButton"],
+    [data-testid="stSidebarHeader"] button,
+    [data-testid="stSidebarContent"] > div:first-child button,
+    section[data-testid="stSidebar"] button[kind="header"],
+    section[data-testid="stSidebar"] > div > div > button {
+        display: none !important;
+    }
     .main { background-color: #0d0f12; }
     /* 修正 metric 元件 */
     [data-testid="stMetric"] {
