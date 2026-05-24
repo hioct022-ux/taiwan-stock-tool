@@ -62,10 +62,14 @@ def export_to_json(code=None):
     with open(os.path.join(JSON_DIR, 'meta.json'), 'w', encoding='utf-8') as f:
         json.dump(meta, f, ensure_ascii=False, indent=2)
 
-    # 匯出自選股
+    # 匯出自選股（保護：清單是空的就不覆蓋，避免意外清空 GitHub 上的記錄）
     watchlist = get_watchlist()
-    with open(os.path.join(JSON_DIR, 'watchlist.json'), 'w', encoding='utf-8') as f:
-        json.dump(watchlist, f, ensure_ascii=False, indent=2)
+    wl_path = os.path.join(JSON_DIR, 'watchlist.json')
+    if watchlist:
+        with open(wl_path, 'w', encoding='utf-8') as f:
+            json.dump(watchlist, f, ensure_ascii=False, indent=2)
+    else:
+        print('⚠️  自選股清單是空的，跳過覆蓋 watchlist.json（保留 GitHub 上的版本）')
 
     # 匯出個股資料
     if code:
