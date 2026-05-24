@@ -381,6 +381,28 @@ def fetch_all():
     except Exception as e:
         errors.append(f'融資融券：{e}')
 
+    time.sleep(1)
+
+    # ── 自選股歷史補齊（資料不足 60 天就自動補抓）──
+    try:
+        from database import get_watchlist, get_prices as _gp
+        watchlist = get_watchlist()
+        for w in watchlist:
+            code = w['code']
+            existing = _gp(code, days=60)
+            if len(existing) < 60:
+                print(f'[補齊] {code} 價格歷史不足（{len(existing)} 筆），補抓中...')
+                fetch_history(code, months=3)
+                time.sleep(1)
+            from database import get_chips as _gc
+            existing_chips = _gc(code, days=60)
+            if len(existing_chips) < 30:
+                print(f'[補齊] {code} 籌碼歷史不足（{len(existing_chips)} 筆），補抓中...')
+                fetch_chips_history(code, months=3)
+                time.sleep(1)
+    except Exception as e:
+        errors.append(f'歷史補齊：{e}')
+
     if errors:
         msg = '部分失敗：' + '、'.join(errors)
         log_update('WARNING', msg)
