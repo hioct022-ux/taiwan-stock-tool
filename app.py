@@ -41,6 +41,14 @@ st.markdown('''
     /* ── 隱藏頁尾 ── */
     #MainMenu  { visibility: hidden !important; }
     footer     { visibility: hidden !important; }
+    /* ── 側邊欄永遠展開 ── */
+    section[data-testid="stSidebar"] {
+        transform: translateX(0px) !important;
+        display: flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        min-width: 244px !important;
+    }
 
     .main { background-color: #0d0f12; }
     /* 修正 metric 元件 */
