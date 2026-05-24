@@ -38,34 +38,9 @@ st.markdown('''
         padding-top: 1.2rem !important;
         padding-bottom: 1rem !important;
     }
-    [data-testid="stAppViewContainer"] > section:first-child {
-        padding-top: 0 !important;
-    }
-    /* ── 隱藏 Streamlit Cloud 的 GitHub / Fork 徽章（CSS 嘗試）── */
-    .viewerBadge_container__r5tak,
-    .viewerBadge_link__qRIco,
-    [data-testid="stToolbarActions"],
-    [data-testid="stDecoration"],
-    #stDecoration,
-    [class*="viewerBadge"],
-    [class*="badge_container"],
-    a[href*="github.com/streamlit"],
-    a[href*="streamlit.io"] { display: none !important; }
-    /* ── 隱藏頁尾 & 選單 ── */
+    /* ── 隱藏頁尾（不動 header，避免影響側邊欄按鈕）── */
     #MainMenu  { visibility: hidden !important; }
     footer     { visibility: hidden !important; }
-    /* header 只隱藏漢堡選單和裝飾，不隱藏整個 header */
-    [data-testid="stHeader"]        { background: transparent !important; }
-    [data-testid="stToolbar"]       { display: none !important; }
-    [data-testid="stDecoration"]    { display: none !important; }
-    [data-testid="stStatusWidget"]  { display: none !important; }
-    .stDeployButton                 { display: none !important; }
-    /* 側邊欄展開箭頭一定要保持可見 */
-    [data-testid="collapsedControl"] {
-        visibility: visible !important;
-        display: flex !important;
-        opacity: 1 !important;
-    }
 
     .main { background-color: #0d0f12; }
     /* 修正 metric 元件 */
@@ -183,38 +158,42 @@ input::placeholder, textarea::placeholder { color: #6b7280 !important; }
 [data-testid="stDataFrame"] * { color: #f0f4f8 !important; }
 
 </style>
-<script>
-(function() {
-    function removeBadges() {
-        // 找右下角 fixed 定位且含 github 連結的容器，直接隱藏
-        var allEls = document.querySelectorAll('body *');
-        allEls.forEach(function(el) {
-            var style = window.getComputedStyle(el);
-            if (style.position === 'fixed') {
-                var links = el.querySelectorAll('a[href*="github.com"], a[href*="streamlit.io"], a[href*="streamlit.app"]');
-                if (links.length > 0) {
-                    el.style.setProperty('display', 'none', 'important');
-                }
-            }
-        });
-    }
-    // 每秒檢查一次，共10次，確保抓到所有非同步載入的元素
-    var count = 0;
-    var timer = setInterval(function() {
-        removeBadges();
-        count++;
-        if (count >= 10) clearInterval(timer);
-    }, 1000);
-    // 同時用 MutationObserver 補抓
-    var observer = new MutationObserver(removeBadges);
-    observer.observe(document.body, { childList: true, subtree: true });
-})();
-</script>
 ''', unsafe_allow_html=True)
 
 # ── 初始化 ──────────────────────────────
 init_db()
 start_scheduler()
+
+# ── 隱藏右下角 GitHub/Fork 徽章（components.html 才會真正執行 JS）──
+import streamlit.components.v1 as _components
+_components.html("""
+<script>
+(function() {
+    function removeBadges() {
+        // 從父頁面 DOM 找 fixed 定位且含 github 連結的容器
+        try {
+            var doc = window.parent.document;
+            doc.querySelectorAll('*').forEach(function(el) {
+                var s = window.parent.getComputedStyle(el);
+                if (s.position === 'fixed' || s.position === 'absolute') {
+                    var links = el.querySelectorAll(
+                        'a[href*="github.com"], a[href*="streamlit.io"], a[href*="streamlit.app"]'
+                    );
+                    if (links.length > 0) {
+                        el.style.setProperty('display','none','important');
+                    }
+                }
+            });
+        } catch(e) {}
+    }
+    var n = 0;
+    var t = setInterval(function(){ removeBadges(); if(++n>15) clearInterval(t); }, 800);
+    new MutationObserver(removeBadges).observe(
+        window.parent.document.body, {childList:true, subtree:true}
+    );
+})();
+</script>
+""", height=0)
 
 
 # ── 雲端版：從 GitHub 載入資料 ───────────
