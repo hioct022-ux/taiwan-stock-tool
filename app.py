@@ -41,11 +41,16 @@ st.markdown('''
     [data-testid="stAppViewContainer"] > section:first-child {
         padding-top: 0 !important;
     }
-    /* ── 隱藏 Streamlit Cloud 的 GitHub / Fork 徽章 ── */
-    .viewerBadge_container__r5tak { display: none !important; }
-    .viewerBadge_link__qRIco      { display: none !important; }
-    [data-testid="stToolbarActions"] { display: none !important; }
-    #stDecoration                  { display: none !important; }
+    /* ── 隱藏 Streamlit Cloud 的 GitHub / Fork 徽章（CSS 嘗試）── */
+    .viewerBadge_container__r5tak,
+    .viewerBadge_link__qRIco,
+    [data-testid="stToolbarActions"],
+    [data-testid="stDecoration"],
+    #stDecoration,
+    [class*="viewerBadge"],
+    [class*="badge_container"],
+    a[href*="github.com/streamlit"],
+    a[href*="streamlit.io"] { display: none !important; }
     /* ── 隱藏頁尾 & 選單 ── */
     #MainMenu  { visibility: hidden !important; }
     footer     { visibility: hidden !important; }
@@ -167,6 +172,36 @@ input::placeholder, textarea::placeholder { color: #6b7280 !important; }
 [data-testid="stDataFrame"] * { color: #f0f4f8 !important; }
 
 </style>
+<script>
+(function() {
+    function removeBadges() {
+        // 移除所有包含 github.com 或 streamlit.io 連結的元素
+        document.querySelectorAll('a').forEach(function(a) {
+            var href = a.getAttribute('href') || '';
+            if (href.includes('github.com') || href.includes('streamlit.io')) {
+                var el = a;
+                // 往上找到最外層的 badge 容器再移除
+                for (var i = 0; i < 5; i++) {
+                    if (el.parentElement && el.parentElement !== document.body) {
+                        el = el.parentElement;
+                    } else { break; }
+                }
+                el.style.display = 'none';
+            }
+        });
+        // 直接移除已知 class/id
+        ['stDecoration','MainMenu'].forEach(function(id) {
+            var el = document.getElementById(id);
+            if (el) el.style.display = 'none';
+        });
+    }
+    // 頁面載入後執行，並監聽 DOM 變化持續清除
+    var observer = new MutationObserver(removeBadges);
+    observer.observe(document.body, { childList: true, subtree: true });
+    setTimeout(removeBadges, 500);
+    setTimeout(removeBadges, 2000);
+})();
+</script>
 ''', unsafe_allow_html=True)
 
 # ── 初始化 ──────────────────────────────
