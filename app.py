@@ -41,20 +41,6 @@ st.markdown('''
     /* ── 隱藏頁尾 ── */
     #MainMenu  { visibility: hidden !important; }
     footer     { visibility: hidden !important; }
-    /* ── 強制側邊欄永遠顯示，不可收起 ── */
-    [data-testid="stSidebar"] {
-        display: block !important;
-        transform: translateX(0) !important;
-        visibility: visible !important;
-        min-width: 240px !important;
-    }
-    /* 隱藏收起按鈕，避免使用者誤觸 */
-    [data-testid="collapsedControl"],
-    [data-testid="stSidebarCollapseButton"],
-    button[aria-label="Close sidebar"],
-    button[aria-label="Collapse sidebar"] {
-        display: none !important;
-    }
 
     .main { background-color: #0d0f12; }
     /* 修正 metric 元件 */
