@@ -33,23 +33,6 @@ st.set_page_config(
 # ── 自訂樣式 ────────────────────────────
 st.markdown('''
 <style>
-    /* ── 縮小頂部空白 ── */
-    .block-container {
-        padding-top: 1.2rem !important;
-        padding-bottom: 1rem !important;
-    }
-    /* ── 隱藏頁尾 ── */
-    #MainMenu  { visibility: hidden !important; }
-    footer     { visibility: hidden !important; }
-    /* ── 側邊欄永遠展開 ── */
-    section[data-testid="stSidebar"] {
-        transform: translateX(0px) !important;
-        display: flex !important;
-        visibility: visible !important;
-        opacity: 1 !important;
-        min-width: 244px !important;
-    }
-
     .main { background-color: #0d0f12; }
     /* 修正 metric 元件 */
     [data-testid="stMetric"] {
@@ -172,26 +155,6 @@ input::placeholder, textarea::placeholder { color: #6b7280 !important; }
 init_db()
 start_scheduler()
 
-# ── 清除側邊欄 localStorage，確保每次都展開 ──
-import streamlit.components.v1 as _components
-_components.html("""
-<script>
-try {
-    var p = window.parent;
-    // 清除 Streamlit 儲存的側邊欄收起狀態
-    Object.keys(p.localStorage).forEach(function(k) {
-        if (k.toLowerCase().includes('sidebar')) {
-            p.localStorage.removeItem(k);
-        }
-    });
-    // 直接找收起的側邊欄展開按鈕並點擊
-    setTimeout(function() {
-        var btn = p.document.querySelector('[data-testid="collapsedControl"] button');
-        if (btn) btn.click();
-    }, 500);
-} catch(e) {}
-</script>
-""", height=0)
 
 # ── 雲端版：從 GitHub 載入資料 ───────────
 def load_from_github_to_db(code):
