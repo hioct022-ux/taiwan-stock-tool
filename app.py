@@ -33,13 +33,15 @@ st.set_page_config(
 # ── 自訂樣式 ────────────────────────────
 st.markdown('''
 <style>
-    /* ── 隱藏側邊欄收起按鈕（多種 selector 全覆蓋）── */
-    [data-testid="stSidebarCollapseButton"],
-    [data-testid="stSidebarHeader"] button,
-    [data-testid="stSidebarContent"] > div:first-child button,
-    section[data-testid="stSidebar"] button[kind="header"],
-    section[data-testid="stSidebar"] > div > div > button {
+    /* ── 隱藏側邊欄收起按鈕 ── */
+    div[data-testid="stSidebarCollapseButton"] {
         display: none !important;
+        visibility: hidden !important;
+        width: 0 !important;
+        height: 0 !important;
+        overflow: hidden !important;
+        position: absolute !important;
+        pointer-events: none !important;
     }
     .main { background-color: #0d0f12; }
     /* 修正 metric 元件 */
