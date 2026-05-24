@@ -24,17 +24,19 @@ def clean_num(s):
 
 def twse_date_to_std(d):
     d = str(d).strip()
-    # 有斜線：115/05/22
+    # 有斜線：115/05/22（民國）或 2026/05/22（西元）
     if '/' in d:
         parts = d.split('/')
         if len(parts) == 3:
-            return f'{int(parts[0])+1911}-{parts[1]}-{parts[2]}'
-    # 無斜線8碼：1150522 或 20260522
-    if len(d) == 7:
-        # 民國7碼：1150522
+            year = int(parts[0])
+            if year < 1911:   # 民國年
+                year += 1911
+            return f'{year}-{parts[1].zfill(2)}-{parts[2].zfill(2)}'
+    # 7碼：只有開頭是 '1' 才是民國（如 1150522）
+    if len(d) == 7 and d[0] == '1':
         return f'{int(d[:3])+1911}-{d[3:5]}-{d[5:7]}'
+    # 8碼西元：20260522
     if len(d) == 8:
-        # 西元8碼：20260522
         return f'{d[:4]}-{d[4:6]}-{d[6:8]}'
     return d
 
@@ -250,8 +252,11 @@ def fetch_margin():
         # ── 找融資融券彙總表，同時取得 API 回傳的實際交易日期 ──
         def parse_date_tw(date_tw, fallback):
             try:
-                if len(date_tw) == 7:
-                    return f'{int(date_tw[:3])+1911}-{date_tw[3:5]}-{date_tw[5:7]}'
+                s = str(date_tw).strip()
+                if len(s) == 7 and s[0] == '1':   # 民國年 1YYMMDD
+                    return f'{int(s[:3])+1911}-{s[3:5]}-{s[5:7]}'
+                if len(s) == 8 and s[0] == '2':   # 西元年 YYYYMMDD
+                    return f'{s[:4]}-{s[4:6]}-{s[6:8]}'
             except Exception:
                 pass
             return fallback
@@ -470,13 +475,14 @@ def fetch_chips_history(code, months=3):
                 # 取得 API 回傳的實際交易日期（民國年7碼，如 1150522）
                 date_tw = data.get('date', '')
                 try:
-                    if len(date_tw) == 7:
-                        date_std = (f'{int(date_tw[:3])+1911}'
-                                    f'-{date_tw[3:5]}-{date_tw[5:7]}')
+                    s = str(date_tw).strip()
+                    if len(s) == 7 and s[0] == '1':   # 民國年 1YYMMDD
+                        date_std = f'{int(s[:3])+1911}-{s[3:5]}-{s[5:7]}'
+                    elif len(s) == 8 and s[0] == '2':  # 西元年 YYYYMMDD
+                        date_std = f'{s[:4]}-{s[4:6]}-{s[6:8]}'
                     else:
-                        # 防呆：格式不符時用查詢日期推算
-                        date_std = (f'{date_str[:4]}-{date_str[4:6]}'
-                                    f'-{date_str[6:8]}')
+                        # 用查詢日期推算
+                        date_std = f'{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}'
                 except Exception:
                     date_std = today.strftime('%Y-%m-%d')
 
