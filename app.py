@@ -167,15 +167,31 @@ start_scheduler()
 
 # ── 雲端版啟動：從 GitHub 載入自選股清單和股票名稱 ──
 def _cloud_init():
-    """雲端版啟動時，從 GitHub 把自選股清單和名稱載入本機 SQLite"""
+    """雲端版啟動時，從 GitHub 把自選股清單和全市場股票清單載入本機 SQLite"""
     try:
         is_cloud = not os.path.exists(
             os.path.join(os.path.dirname(__file__), 'config_local.py'))
         if not is_cloud:
             return
-        from github_sync import load_watchlist_raw
-        from database import save_stock_info, add_watchlist, get_watchlist
-        # 只在自選股清單是空的時候才載入
+        from github_sync import load_watchlist_raw, load_stocks_raw
+        from database import save_stock_info, add_watchlist, get_watchlist, get_conn
+
+        # ── 載入全市場股票清單（讓搜尋功能可以找到所有股票）──
+        conn = get_conn()
+        c = conn.cursor()
+        c.execute('SELECT COUNT(*) FROM stocks')
+        stock_count = c.fetchone()[0]
+        conn.close()
+
+        if stock_count < 100:   # 不足才重新載入
+            stocks = load_stocks_raw()
+            for s in stocks:
+                save_stock_info(s.get('code',''), s.get('name',''),
+                                s.get('market',''), s.get('industry',''))
+            if stocks:
+                print(f'[雲端初始化] 載入 {len(stocks)} 支股票清單')
+
+        # ── 載入自選股清單 ──
         if get_watchlist():
             return
         watchlist = load_watchlist_raw()

@@ -35,6 +35,10 @@ def load_watchlist_raw():
     """從 GitHub 讀取自選股清單（不需要 Token）"""
     return load_raw('data/json/watchlist.json') or []
 
+def load_stocks_raw():
+    """從 GitHub 讀取全市場股票清單（不需要 Token）"""
+    return load_raw('data/json/stocks.json') or []
+
 
 def load_meta_raw():
     """從 GitHub 讀取更新狀態（不需要 Token）"""
@@ -47,9 +51,26 @@ def is_github_configured():
 # ── 匯出資料為 JSON ──────────────────────
 def export_to_json(code=None):
     from database import (get_prices, get_fundamentals,
-                          get_chips, get_watchlist, get_last_update)
+                          get_chips, get_watchlist, get_last_update,
+                          get_conn)
 
     os.makedirs(JSON_DIR, exist_ok=True)
+
+    # 匯出全市場股票清單（供雲端版搜尋用）
+    try:
+        conn = get_conn()
+        c = conn.cursor()
+        c.execute('SELECT code, name, market, industry FROM stocks ORDER BY code')
+        rows = c.fetchall()
+        conn.close()
+        if rows:
+            stocks_list = [{'code': r[0], 'name': r[1],
+                            'market': r[2], 'industry': r[3]} for r in rows]
+            with open(os.path.join(JSON_DIR, 'stocks.json'), 'w', encoding='utf-8') as f:
+                json.dump(stocks_list, f, ensure_ascii=False)
+            print(f'匯出股票清單：{len(stocks_list)} 支')
+    except Exception as e:
+        print(f'匯出股票清單失敗：{e}')
 
     # 匯出更新紀錄
     last = get_last_update()
