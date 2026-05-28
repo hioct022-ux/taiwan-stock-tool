@@ -350,6 +350,19 @@ def init_cloud_data():
 
     print('雲端模式：從 JSON 匯入資料...')
 
+    # ── 清除格式異常的日期資料（如 2113-60-52）──
+    try:
+        conn = get_conn()
+        deleted = conn.execute(
+            "DELETE FROM chips WHERE date NOT LIKE '20__-__-__'"
+        ).rowcount
+        conn.commit()
+        conn.close()
+        if deleted:
+            print(f'  清除異常日期資料：{deleted} 筆')
+    except Exception as e:
+        print(f'  清除異常日期失敗：{e}')
+
     # ── 股票清單（每次更新）──
     try:
         with open(os.path.join(JSON_DIR, 'stocks.json'), encoding='utf-8') as f:
