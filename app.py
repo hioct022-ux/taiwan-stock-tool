@@ -260,8 +260,39 @@ def render_sidebar():
             if status.get('last_time'):
                 st.caption(f'🕐 上次嘗試更新：{status["last_time"]}')
 
-            # 手動更新按鈕（本機限定）
-            if st.button('🔄 手動更新資料', use_container_width=True):
+            # 更新並同步一鍵按鈕（本機限定）
+            if st.button('🚀 更新並同步到雲端', use_container_width=True):
+                with st.status('更新並同步中...', expanded=True) as _status:
+                    # Step 1: 抓資料
+                    st.write('📥 步驟 1／2　抓取最新收盤資料...')
+                    _fetch_ok = True
+                    try:
+                        from fetcher import fetch_all
+                        fetch_all()
+                        st.write('✅ 資料更新完成')
+                    except Exception as _e:
+                        st.write(f'⚠️ 抓取部分失敗：{_e}')
+                        _fetch_ok = False
+                    # Step 2: 同步 GitHub
+                    st.write('📤 步驟 2／2　同步到 GitHub...')
+                    try:
+                        from github_sync import sync_via_git
+                        ok, msg = sync_via_git()
+                        if ok:
+                            st.write(f'✅ {msg}')
+                            st.write('🌐 雲端版約 1 分鐘後自動更新')
+                        else:
+                            st.write(f'⚠️ 同步失敗：{msg}')
+                    except Exception as _e:
+                        st.write(f'❌ 同步失敗：{_e}')
+                    _status.update(
+                        label='✅ 完成！' if _fetch_ok else '⚠️ 完成（抓取部分失敗）',
+                        state='complete'
+                    )
+                st.rerun()
+
+            # 單獨手動更新（不同步）
+            if st.button('🔄 僅更新資料', use_container_width=True):
                 with st.status('更新資料中...', expanded=True) as _status:
                     st.write('📥 抓取最新收盤資料...')
                     _fetch_ok = True
@@ -277,24 +308,6 @@ def render_sidebar():
                         state='complete'
                     )
                 st.rerun()
-
-            st.markdown('---')
-
-            # 一鍵同步到 GitHub（本機限定）
-            if st.button('📤 同步到 GitHub', use_container_width=True):
-                with st.status('同步中...', expanded=True) as _gs:
-                    st.write('📦 匯出資料為 JSON...')
-                    try:
-                        from github_sync import sync_via_git
-                        ok, msg = sync_via_git()
-                        if ok:
-                            st.write(f'✅ {msg}')
-                            st.write('其他裝置重新整理即可看到最新資料')
-                        else:
-                            st.write(f'⚠️ {msg}')
-                    except Exception as _e:
-                        st.write(f'❌ 同步失敗：{_e}')
-                    _gs.update(label='同步完成', state='complete')
 
             st.markdown('---')
 
