@@ -340,31 +340,17 @@ def load_meta_from_github():
 def init_cloud_data():
     """
     雲端版啟動時呼叫。
-    把 GitHub 同步過來的 data/json/*.json 匯入 SQLite DB，
-    讓後續的 app.py 讀 DB 一切正常。
-    只在 DB 為空時執行（避免每次重啟都覆蓋）。
+    策略：
+    - 大盤(TAIEX)、法人排行(T86)、除權息、自選股、股票清單：每次都更新（日常資料）
+    - 各股票歷史資料：只在 DB 為空時才匯入（避免每次重啟都花時間覆蓋）
     """
     from database import (get_prices, save_prices, save_fundamental,
                           save_chips, save_stock_info, get_watchlist,
                           add_watchlist, get_conn)
 
-    print('雲端模式：檢查是否需要從 JSON 初始化資料...')
+    print('雲端模式：從 JSON 匯入資料...')
 
-    # 判斷 DB 是否為空（用 watchlist 或 prices 判斷）
-    try:
-        conn = get_conn()
-        count = conn.execute('SELECT COUNT(*) FROM prices').fetchone()[0]
-        conn.close()
-        if count > 100:
-            print(f'雲端模式：DB 已有 {count} 筆資料，略過 JSON 匯入')
-            return
-    except Exception:
-        pass
-
-    print('雲端模式：DB 為空，從 JSON 匯入...')
-    imported = 0
-
-    # ── 股票清單 ──
+    # ── 股票清單（每次更新）──
     try:
         with open(os.path.join(JSON_DIR, 'stocks.json'), encoding='utf-8') as f:
             stocks = json.load(f)
@@ -374,7 +360,7 @@ def init_cloud_data():
     except Exception as e:
         print(f'  股票清單匯入失敗：{e}')
 
-    # ── 自選股清單 ──
+    # ── 自選股清單（每次更新）──
     try:
         with open(os.path.join(JSON_DIR, 'watchlist.json'), encoding='utf-8') as f:
             wl = json.load(f)
@@ -384,7 +370,61 @@ def init_cloud_data():
     except Exception as e:
         print(f'  自選股匯入失敗：{e}')
 
-    # ── 各股票資料 ──
+    # ── 大盤 TAIEX（每次更新）──
+    try:
+        with open(os.path.join(JSON_DIR, 'TAIEX.json'), encoding='utf-8') as f:
+            taiex = json.load(f)
+        prices = taiex.get('prices', [])
+        if prices:
+            save_stock_info('TAIEX', '加權指數', 'TWSE', '大盤')
+            save_prices('TAIEX', prices)
+            print(f'  大盤 TAIEX：{len(prices)} 筆（更新至 {prices[-1]["date"]}）')
+    except Exception as e:
+        print(f'  TAIEX 匯入失敗：{e}')
+
+    # ── 法人排行 T86（每次更新）──
+    try:
+        with open(os.path.join(JSON_DIR, 't86.json'), encoding='utf-8') as f:
+            t86 = json.load(f)
+        date = t86.get('date')
+        if date:
+            from database import save_t86_ranking
+            all_rows = {}
+            for key in ('trust_top', 'trust_bot', 'foreign_top',
+                        'foreign_bot', 'total_top', 'total_bot'):
+                for r in t86.get(key, []):
+                    all_rows[r['code']] = r
+            save_t86_ranking(date, list(all_rows.values()))
+            print(f'  T86 法人排行：{date}，{len(all_rows)} 筆')
+    except Exception as e:
+        print(f'  T86 匯入失敗：{e}')
+
+    # ── 除權息（每次更新）──
+    try:
+        with open(os.path.join(JSON_DIR, 'exdividend.json'), encoding='utf-8') as f:
+            exd = json.load(f)
+        rows = exd.get('rows', [])
+        if rows:
+            from database import save_exdividend
+            save_exdividend(rows)
+            print(f'  除權息：{len(rows)} 筆')
+    except Exception as e:
+        print(f'  除權息匯入失敗：{e}')
+
+    # ── 各股票歷史資料（只在 DB 資料不足時才匯入）──
+    try:
+        conn = get_conn()
+        count = conn.execute('SELECT COUNT(*) FROM prices').fetchone()[0]
+        conn.close()
+    except Exception:
+        count = 0
+
+    if count > 200:
+        print(f'雲端模式：個股 DB 已有 {count} 筆，略過個股 JSON 匯入')
+        return
+
+    print('雲端模式：個股資料不足，從 JSON 匯入...')
+    imported = 0
     for fname in os.listdir(JSON_DIR):
         if not fname.endswith('.json'):
             continue
@@ -405,47 +445,6 @@ def init_cloud_data():
             imported += 1
         except Exception as e:
             print(f'  {code} 匯入失敗：{e}')
-
-    # ── 大盤 TAIEX ──
-    try:
-        with open(os.path.join(JSON_DIR, 'TAIEX.json'), encoding='utf-8') as f:
-            taiex = json.load(f)
-        prices = taiex.get('prices', [])
-        if prices:
-            save_stock_info('TAIEX', '加權指數', 'TWSE', '大盤')
-            save_prices('TAIEX', prices)
-            print(f'  大盤 TAIEX：{len(prices)} 筆')
-    except Exception as e:
-        print(f'  TAIEX 匯入失敗：{e}')
-
-    # ── 法人排行 T86 ──
-    try:
-        with open(os.path.join(JSON_DIR, 't86.json'), encoding='utf-8') as f:
-            t86 = json.load(f)
-        date = t86.get('date')
-        if date:
-            from database import save_t86_ranking
-            all_rows = {}
-            for key in ('trust_top', 'trust_bot', 'foreign_top',
-                        'foreign_bot', 'total_top', 'total_bot'):
-                for r in t86.get(key, []):
-                    all_rows[r['code']] = r
-            save_t86_ranking(date, list(all_rows.values()))
-            print(f'  T86 法人排行：{date}，{len(all_rows)} 筆')
-    except Exception as e:
-        print(f'  T86 匯入失敗：{e}')
-
-    # ── 除權息 ──
-    try:
-        with open(os.path.join(JSON_DIR, 'exdividend.json'), encoding='utf-8') as f:
-            exd = json.load(f)
-        rows = exd.get('rows', [])
-        if rows:
-            from database import save_exdividend
-            save_exdividend(rows)
-            print(f'  除權息：{len(rows)} 筆')
-    except Exception as e:
-        print(f'  除權息匯入失敗：{e}')
 
     print(f'雲端模式：JSON 匯入完成，{imported} 支股票')
 
