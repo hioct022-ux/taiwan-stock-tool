@@ -164,6 +164,13 @@ input::placeholder, textarea::placeholder { color: #6b7280 !important; }
 </style>
 ''', unsafe_allow_html=True)
 
+# ── 圖表顯示 helper（禁用觸控拖曳/縮放，避免 iPad 變形）──
+_CHART_CONFIG = {'scrollZoom': False, 'displayModeBar': False, 'doubleClick': False}
+
+def show_chart(fig, key=None):
+    fig.update_layout(dragmode=False)
+    st.plotly_chart(fig, use_container_width=True, config=_CHART_CONFIG, key=key)
+
 # ── 初始化 ──────────────────────────────
 init_db()
 
@@ -492,7 +499,7 @@ def render_price_chart(ind, name):
         yaxis2=dict(showgrid=True, gridcolor='#252a38'),
         margin=dict(l=0, r=0, t=40, b=0)
     )
-    st.plotly_chart(fig, width='stretch')
+    show_chart(fig)
 
 # ── 頁籤一：技術面 ──────────────────────
 def render_technical(result, name):
@@ -818,7 +825,7 @@ def render_chips(result, code, name, chips_list):
             yaxis=dict(gridcolor='#2a2f3e', tickformat=',d')
         )
         st.markdown('**三大法人每日淨買賣超（張）**')
-        st.plotly_chart(fig_chips, use_container_width=True)
+        show_chart(fig_chips)
 
     st.markdown('---')
     st.markdown('#### 融資融券')
@@ -882,7 +889,7 @@ def render_chips(result, code, name, chips_list):
         fig_margin.update_yaxes(
             title_text='融券餘額（張）', gridcolor='#2a2f3e',
             tickformat=',d', secondary_y=True)
-        st.plotly_chart(fig_margin, use_container_width=True)
+        show_chart(fig_margin)
     else:
         st.caption('融資融券歷史資料不足，請先按手動更新補齊歷史資料')
 
@@ -1005,7 +1012,7 @@ def render_chips(result, code, name, chips_list):
             paper_bgcolor='#0d0f12', font=dict(color='#e2e8f0'),
             height=280, margin=dict(l=0, r=0, t=0, b=0), showlegend=True
         )
-        st.plotly_chart(fig_own, width='stretch')
+        show_chart(fig_own)
 
         # ── 動態判斷文字（依真實資料）──────────────
         if _fp is not None:
@@ -1055,7 +1062,7 @@ def render_chips(result, code, name, chips_list):
                     paper_bgcolor='#0d0f12', font=dict(color='#e2e8f0', size=11),
                     height=280, margin=dict(l=0, r=0, t=0, b=0), showlegend=False
                 )
-                st.plotly_chart(fig_ep, width='stretch')
+                show_chart(fig_ep)
             st.caption(f'資料來源：TWSE　最後更新：{etf_last[:10] if etf_last else "未知"}')
 
         elif etf_fallback:
@@ -1076,7 +1083,7 @@ def render_chips(result, code, name, chips_list):
                     paper_bgcolor='#0d0f12', font=dict(color='#e2e8f0'),
                     height=280, margin=dict(l=0, r=0, t=0, b=0), showlegend=True
                 )
-                st.plotly_chart(fig2, width='stretch')
+                show_chart(fig2)
             st.caption('資料來源：參考資料（備援）')
 
         else:
@@ -1672,7 +1679,7 @@ def render_market():
             yaxis=dict(showgrid=True, gridcolor='#252a38'),
             margin=dict(l=0, r=0, t=40, b=0)
         )
-        st.plotly_chart(fig, use_container_width=True)
+        show_chart(fig)
 
     st.markdown('---')
 
