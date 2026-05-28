@@ -781,6 +781,9 @@ def fetch_t86():
         print('T86：無需補抓')
         return
 
+    def shares_to_lots(val):
+        return int(clean_num(val) / 1000)
+
     # 逐日嘗試抓取，成功儲存後繼續下一天
     any_saved = False
     for target_date in candidates:
@@ -803,10 +806,6 @@ def fetch_t86():
         if not rows_raw:
             print(f'T86 無資料（{target_date}）')
             continue
-
-    def shares_to_lots(val):
-        """股數轉張（千股為一張）；負值用 int() 截斷，避免 // 向下取整偏差"""
-        return int(clean_num(val) / 1000)
 
         rows = []
         for r in rows_raw:
