@@ -751,6 +751,7 @@ def fetch_t86():
     單位：股數（需除以 1000 轉換為張）
     """
     from database import save_t86_ranking, get_t86_last_date, get_latest_price_date
+    from datetime import timedelta
 
     # 取得 TWSE 最新交易日（用 2330 當基準）
     twse_date = get_latest_price_date('2330')
@@ -764,63 +765,84 @@ def fetch_t86():
         print(f'T86 排行資料已是最新（{last}），略過')
         return
 
-    date_str = twse_date.replace('-', '')  # YYYYMMDD
-    url = (f'https://www.twse.com.tw/rwd/zh/fund/T86'
-           f'?response=json&date={date_str}&selectType=ALL')
+    # 從上次日期+1天逐日往後補，最多試5個交易日
+    from_date = datetime.strptime(last, '%Y-%m-%d') + timedelta(days=1) if last else datetime.strptime(twse_date, '%Y-%m-%d')
+    to_date   = datetime.strptime(twse_date, '%Y-%m-%d')
 
-    print(f'抓取 T86 三大法人排行（{twse_date}）...')
-    try:
-        resp = requests.get(url, headers=HEADERS, timeout=20, verify=False)
-        data = resp.json()
-    except Exception as e:
-        print(f'T86 請求失敗：{e}')
+    # 列出需要嘗試的日期（只取週一~週五，最多5天）
+    candidates = []
+    d = from_date
+    while d <= to_date and len(candidates) < 5:
+        if d.weekday() < 5:  # 非週末
+            candidates.append(d.strftime('%Y-%m-%d'))
+        d += timedelta(days=1)
+
+    if not candidates:
+        print('T86：無需補抓')
         return
 
-    if data.get('stat') != 'OK':
-        print(f'T86 回傳狀態非OK：{data.get("stat")}')
-        return
+    # 逐日嘗試抓取，成功儲存後繼續下一天
+    any_saved = False
+    for target_date in candidates:
+        date_str = target_date.replace('-', '')
+        url = (f'https://www.twse.com.tw/rwd/zh/fund/T86'
+               f'?response=json&date={date_str}&selectType=ALL')
+        print(f'抓取 T86 三大法人排行（{target_date}）...')
+        try:
+            resp = requests.get(url, headers=HEADERS, timeout=20, verify=False)
+            data = resp.json()
+        except Exception as e:
+            print(f'T86 請求失敗（{target_date}）：{e}')
+            continue
 
-    rows_raw = data.get('data', [])
-    if not rows_raw:
-        print('T86 無資料')
-        return
+        if data.get('stat') != 'OK':
+            print(f'T86 回傳狀態非OK（{target_date}）：{data.get("stat")}，略過')
+            continue
+
+        rows_raw = data.get('data', [])
+        if not rows_raw:
+            print(f'T86 無資料（{target_date}）')
+            continue
 
     def shares_to_lots(val):
         """股數轉張（千股為一張）；負值用 int() 截斷，避免 // 向下取整偏差"""
         return int(clean_num(val) / 1000)
 
-    rows = []
-    for r in rows_raw:
-        try:
-            code = str(r[0]).strip()
-            name = str(r[1]).strip()
-            # 只保留純數字代碼（一般股票），過濾 ETF 字母代碼、合計列等
-            if not code or not code.isdigit():
+        rows = []
+        for r in rows_raw:
+            try:
+                code = str(r[0]).strip()
+                name = str(r[1]).strip()
+                if not code or not code.isdigit():
+                    continue
+                if len(r) < 12:
+                    continue
+                fb    = shares_to_lots(r[2])
+                fs    = shares_to_lots(r[3])
+                fn    = shares_to_lots(r[4])
+                tb    = shares_to_lots(r[8])
+                ts    = shares_to_lots(r[9])
+                tn    = shares_to_lots(r[10])
+                dn    = shares_to_lots(r[11])
+                total = shares_to_lots(r[18]) if len(r) > 18 else (fn + tn + dn)
+                rows.append({
+                    'code': code, 'name': name,
+                    'foreign_buy': fb, 'foreign_sell': fs, 'foreign_net': fn,
+                    'trust_buy':   tb, 'trust_sell':   ts, 'trust_net':   tn,
+                    'dealer_net':  dn, 'total_net':    total,
+                })
+            except Exception:
                 continue
-            if len(r) < 12:
-                continue
-            fb    = shares_to_lots(r[2])   # 外陸資買進
-            fs    = shares_to_lots(r[3])   # 外陸資賣出
-            fn    = shares_to_lots(r[4])   # 外陸資淨買（含負值）
-            tb    = shares_to_lots(r[8])   # 投信買進
-            ts    = shares_to_lots(r[9])   # 投信賣出
-            tn    = shares_to_lots(r[10])  # 投信淨買
-            dn    = shares_to_lots(r[11])  # 自營商買賣超合計
-            total = shares_to_lots(r[18]) if len(r) > 18 else (fn + tn + dn)
-            rows.append({
-                'code': code, 'name': name,
-                'foreign_buy': fb, 'foreign_sell': fs, 'foreign_net': fn,
-                'trust_buy':   tb, 'trust_sell':   ts, 'trust_net':   tn,
-                'dealer_net':  dn, 'total_net':    total,
-            })
-        except Exception:
-            continue
 
-    if rows:
-        save_t86_ranking(twse_date, rows)
-        print(f'T86 排行儲存完成：{len(rows)} 筆（{twse_date}）')
-    else:
-        print('T86 解析後無有效資料')
+        if rows:
+            save_t86_ranking(target_date, rows)
+            print(f'T86 排行儲存完成：{len(rows)} 筆（{target_date}）')
+            any_saved = True
+        else:
+            print(f'T86 解析後無有效資料（{target_date}）')
+
+    if not any_saved:
+        print('T86：所有日期均無資料或請求失敗')
 
 # ── 抓個股歷史籌碼資料 ───────────────────
 def fetch_chips_history(code, months=3):
