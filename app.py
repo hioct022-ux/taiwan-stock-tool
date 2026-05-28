@@ -167,29 +167,29 @@ input::placeholder, textarea::placeholder { color: #6b7280 !important; }
 # ── 初始化 ──────────────────────────────
 init_db()
 
-# 雲端模式：從 JSON 匯入資料
-# 用 cache_resource + exported_at 當 key，每次推新資料就自動重新匯入
-if not IS_LOCAL:
-    def _get_meta_version():
-        """讀取 meta.json 的 exported_at，當作資料版本號"""
-        try:
-            import json as _json
-            from config import JSON_DIR as _JDIR
-            with open(os.path.join(_JDIR, 'meta.json'), encoding='utf-8') as _f:
-                return _json.load(_f).get('exported_at', 'unknown')
-        except Exception:
-            return 'unknown'
+# 雲端模式初始化（定義在 module 頂層，確保 cache_resource 正常運作）
+@st.cache_resource
+def _init_cloud_cache(version: str):
+    """每個 exported_at 版本只初始化一次（跨 session 共用）"""
+    try:
+        from github_sync import init_cloud_data
+        init_cloud_data()
+        print(f'雲端資料匯入完成（版本：{version}）')
+    except Exception as _ce:
+        print(f'雲端資料匯入失敗：{_ce}')
+    return version
 
-    @st.cache_resource
-    def _init_cloud_cache(version: str):
-        """每個 exported_at 版本只初始化一次（跨 session 共用）"""
-        try:
-            from github_sync import init_cloud_data
-            init_cloud_data()
-            print(f'雲端資料匯入完成（版本：{version}）')
-        except Exception as _ce:
-            print(f'雲端資料匯入失敗：{_ce}')
-        return version
+def _get_meta_version():
+    try:
+        import json as _json
+        from config import JSON_DIR as _JDIR
+        with open(os.path.join(_JDIR, 'meta.json'), encoding='utf-8') as _f:
+            return _json.load(_f).get('exported_at', 'unknown')
+    except Exception:
+        return 'unknown'
+
+# 雲端模式：從 JSON 匯入資料
+if not IS_LOCAL:
 
     _init_cloud_cache(_get_meta_version())
 
