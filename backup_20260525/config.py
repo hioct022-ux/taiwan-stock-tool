@@ -31,14 +31,6 @@ try:
 except ImportError:
     FINMIND_TOKEN = ''
 
-# ── 本機/雲端模式 ─────────────────────────
-# config_local.py 只存在本機，雲端沒有此檔案 → IS_LOCAL 自動為 False
-try:
-    from config_local import IS_LOCAL as _IS_LOCAL
-    IS_LOCAL = _IS_LOCAL
-except ImportError:
-    IS_LOCAL = False
-
 GITHUB_REPO   = 'hioct022-ux/taiwan-stock-tool'
 GITHUB_BRANCH = 'main'
 

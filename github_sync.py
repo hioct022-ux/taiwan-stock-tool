@@ -46,7 +46,18 @@ def load_meta_raw():
 
 # ── 檢查是否設定 GitHub ──────────────────
 def is_github_configured():
-    return bool(GITHUB_TOKEN and GITHUB_REPO)
+    if not GITHUB_TOKEN or not GITHUB_REPO:
+        return False
+    # GitHub token 只能包含 ASCII 字元（ghp_xxx 格式）
+    # 若含有非 ASCII 字元（例如中文佔位符），視為未設定
+    try:
+        GITHUB_TOKEN.encode('ascii')
+    except (UnicodeEncodeError, AttributeError):
+        return False
+    # token 長度至少 20 碼（正式 token 長度約 40 碼）
+    if len(GITHUB_TOKEN) < 20:
+        return False
+    return True
 
 # ── 匯出資料為 JSON ──────────────────────
 def export_to_json(code=None):
@@ -114,7 +125,108 @@ def export_to_json(code=None):
         except Exception as e:
             print(f'匯出 {c} 失敗：{e}')
 
+    # ── 匯出大盤（TAIEX）資料 ─────────────────
+    try:
+        taiex_prices = get_prices('TAIEX', days=250)
+        if taiex_prices:
+            with open(os.path.join(JSON_DIR, 'TAIEX.json'), 'w', encoding='utf-8') as f:
+                json.dump({'prices': taiex_prices,
+                           'exported_at': datetime.now().strftime('%Y-%m-%d %H:%M')},
+                          f, ensure_ascii=False)
+            print(f'匯出大盤 TAIEX：{len(taiex_prices)} 筆')
+    except Exception as e:
+        print(f'匯出大盤失敗：{e}')
+
+    # ── 匯出三大法人排行（T86）─────────────────
+    try:
+        from database import get_t86_ranking, get_t86_last_date
+        t86_date = get_t86_last_date()
+        if t86_date:
+            rows_trust,   _ = get_t86_ranking(t86_date, sort_by='trust_net',   top=15)
+            rows_foreign, _ = get_t86_ranking(t86_date, sort_by='foreign_net', top=15)
+            rows_total,   _ = get_t86_ranking(t86_date, sort_by='total_net',   top=15)
+            from database import get_t86_ranking_bottom
+            rows_trust_s,   _ = get_t86_ranking_bottom(t86_date, sort_by='trust_net',   top=15)
+            rows_foreign_s, _ = get_t86_ranking_bottom(t86_date, sort_by='foreign_net', top=15)
+            rows_total_s,   _ = get_t86_ranking_bottom(t86_date, sort_by='total_net',   top=15)
+            t86_data = {
+                'date': t86_date,
+                'trust_top':    rows_trust,
+                'trust_bot':    rows_trust_s,
+                'foreign_top':  rows_foreign,
+                'foreign_bot':  rows_foreign_s,
+                'total_top':    rows_total,
+                'total_bot':    rows_total_s,
+                'exported_at':  datetime.now().strftime('%Y-%m-%d %H:%M'),
+            }
+            with open(os.path.join(JSON_DIR, 't86.json'), 'w', encoding='utf-8') as f:
+                json.dump(t86_data, f, ensure_ascii=False)
+            print(f'匯出法人排行（T86）：{t86_date}')
+    except Exception as e:
+        print(f'匯出法人排行失敗：{e}')
+
+    # ── 匯出即將除權息 ─────────────────────────
+    try:
+        from database import get_exdividend_upcoming
+        ex_rows = get_exdividend_upcoming(days=45)
+        if ex_rows:
+            with open(os.path.join(JSON_DIR, 'exdividend.json'), 'w', encoding='utf-8') as f:
+                json.dump({'rows': ex_rows,
+                           'exported_at': datetime.now().strftime('%Y-%m-%d %H:%M')},
+                          f, ensure_ascii=False)
+            print(f'匯出除權息：{len(ex_rows)} 筆')
+    except Exception as e:
+        print(f'匯出除權息失敗：{e}')
+
     print(f'JSON 匯出完成，路徑：{JSON_DIR}')
+
+# ── 使用 git CLI 推送（推薦，不需要 Token）──
+def sync_via_git(code=None):
+    """
+    匯出 JSON 後用 git add / commit / push 推送到 GitHub。
+    使用本機已有的 git 認證（SSH key 或 macOS Keychain），無需額外設定 Token。
+    """
+    import subprocess
+
+    # 先匯出 JSON
+    export_to_json(code)
+
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    now_str  = datetime.now().strftime('%Y-%m-%d %H:%M')
+
+    try:
+        # git add data/json/
+        subprocess.run(
+            ['git', 'add', 'data/json/'],
+            cwd=base_dir, check=True, capture_output=True, text=True
+        )
+        # git commit（若沒有變更也不報錯）
+        result = subprocess.run(
+            ['git', 'commit', '-m', f'sync data {now_str}'],
+            cwd=base_dir, capture_output=True, text=True
+        )
+        if 'nothing to commit' in result.stdout or 'nothing to commit' in result.stderr:
+            print('資料沒有變化，無需推送')
+            return True, '資料沒有變化，無需推送'
+        # git push
+        push = subprocess.run(
+            ['git', 'push'],
+            cwd=base_dir, capture_output=True, text=True
+        )
+        if push.returncode != 0:
+            err = push.stderr.strip()
+            print(f'git push 失敗：{err}')
+            return False, f'推送失敗：{err}'
+        print(f'Git 推送成功：{now_str}')
+        return True, '同步完成'
+    except subprocess.CalledProcessError as e:
+        err = e.stderr.strip() if e.stderr else str(e)
+        print(f'Git 操作失敗：{err}')
+        return False, f'Git 失敗：{err}'
+    except Exception as e:
+        print(f'同步失敗：{e}')
+        return False, str(e)
+
 
 # ── 上傳到 GitHub ────────────────────────
 def sync_to_github(code=None):
@@ -222,6 +334,120 @@ def load_meta_from_github():
     except Exception as e:
         print(f'從 GitHub 讀取 meta 失敗：{e}')
         return None
+
+
+# ── 雲端版：從 JSON 匯入資料到 DB ──────────
+def init_cloud_data():
+    """
+    雲端版啟動時呼叫。
+    把 GitHub 同步過來的 data/json/*.json 匯入 SQLite DB，
+    讓後續的 app.py 讀 DB 一切正常。
+    只在 DB 為空時執行（避免每次重啟都覆蓋）。
+    """
+    from database import (get_prices, save_prices, save_fundamental,
+                          save_chips, save_stock_info, get_watchlist,
+                          add_watchlist, get_conn)
+
+    print('雲端模式：檢查是否需要從 JSON 初始化資料...')
+
+    # 判斷 DB 是否為空（用 watchlist 或 prices 判斷）
+    try:
+        conn = get_conn()
+        count = conn.execute('SELECT COUNT(*) FROM prices').fetchone()[0]
+        conn.close()
+        if count > 100:
+            print(f'雲端模式：DB 已有 {count} 筆資料，略過 JSON 匯入')
+            return
+    except Exception:
+        pass
+
+    print('雲端模式：DB 為空，從 JSON 匯入...')
+    imported = 0
+
+    # ── 股票清單 ──
+    try:
+        with open(os.path.join(JSON_DIR, 'stocks.json'), encoding='utf-8') as f:
+            stocks = json.load(f)
+        for s in stocks:
+            save_stock_info(s['code'], s['name'], s.get('market',''), s.get('industry',''))
+        print(f'  股票清單：{len(stocks)} 筆')
+    except Exception as e:
+        print(f'  股票清單匯入失敗：{e}')
+
+    # ── 自選股清單 ──
+    try:
+        with open(os.path.join(JSON_DIR, 'watchlist.json'), encoding='utf-8') as f:
+            wl = json.load(f)
+        for w in wl:
+            add_watchlist(w['code'], w['name'], w.get('tag',''))
+        print(f'  自選股：{len(wl)} 筆')
+    except Exception as e:
+        print(f'  自選股匯入失敗：{e}')
+
+    # ── 各股票資料 ──
+    for fname in os.listdir(JSON_DIR):
+        if not fname.endswith('.json'):
+            continue
+        code = fname[:-5]
+        if code in ('stocks', 'watchlist', 'meta', 't86', 'exdividend', 'TAIEX'):
+            continue
+        try:
+            with open(os.path.join(JSON_DIR, fname), encoding='utf-8') as f:
+                data = json.load(f)
+            prices = data.get('prices', [])
+            if prices:
+                save_prices(code, prices)
+            for fd in data.get('fundamentals', []):
+                save_fundamental(code, fd['date'], fd.get('eps_ttm'),
+                                 fd.get('pe'), fd.get('pb'), fd.get('dividend_yield'))
+            for ch in data.get('chips', []):
+                save_chips(code, ch['date'], ch)
+            imported += 1
+        except Exception as e:
+            print(f'  {code} 匯入失敗：{e}')
+
+    # ── 大盤 TAIEX ──
+    try:
+        with open(os.path.join(JSON_DIR, 'TAIEX.json'), encoding='utf-8') as f:
+            taiex = json.load(f)
+        prices = taiex.get('prices', [])
+        if prices:
+            save_stock_info('TAIEX', '加權指數', 'TWSE', '大盤')
+            save_prices('TAIEX', prices)
+            print(f'  大盤 TAIEX：{len(prices)} 筆')
+    except Exception as e:
+        print(f'  TAIEX 匯入失敗：{e}')
+
+    # ── 法人排行 T86 ──
+    try:
+        with open(os.path.join(JSON_DIR, 't86.json'), encoding='utf-8') as f:
+            t86 = json.load(f)
+        date = t86.get('date')
+        if date:
+            from database import save_t86_ranking
+            all_rows = {}
+            for key in ('trust_top', 'trust_bot', 'foreign_top',
+                        'foreign_bot', 'total_top', 'total_bot'):
+                for r in t86.get(key, []):
+                    all_rows[r['code']] = r
+            save_t86_ranking(date, list(all_rows.values()))
+            print(f'  T86 法人排行：{date}，{len(all_rows)} 筆')
+    except Exception as e:
+        print(f'  T86 匯入失敗：{e}')
+
+    # ── 除權息 ──
+    try:
+        with open(os.path.join(JSON_DIR, 'exdividend.json'), encoding='utf-8') as f:
+            exd = json.load(f)
+        rows = exd.get('rows', [])
+        if rows:
+            from database import save_exdividend
+            save_exdividend(rows)
+            print(f'  除權息：{len(rows)} 筆')
+    except Exception as e:
+        print(f'  除權息匯入失敗：{e}')
+
+    print(f'雲端模式：JSON 匯入完成，{imported} 支股票')
 
 
 if __name__ == '__main__':

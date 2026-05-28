@@ -13,14 +13,12 @@ import os
 
 sys.path.insert(0, os.path.expanduser('~/台股分析工具'))
 
-from config import VERSION, VERSION_DATE, IS_LOCAL
+from config import VERSION, VERSION_DATE
 from database import (init_db, get_prices, get_fundamentals, get_chips,
                       get_watchlist, add_watchlist, remove_watchlist,
                       update_watchlist_tag, search_stock, get_notes,
                       save_note, update_user_note, delete_note, get_last_update,
-                      get_etf_holders, get_etf_last_update, get_ownership,
-                      get_t86_ranking, get_t86_ranking_bottom, get_t86_last_date,
-                      get_exdividend, get_exdividend_upcoming, get_exdividend_by_code)
+                      get_etf_holders, get_etf_last_update, get_ownership)
 from indicators import calc_all
 from scorer import full_score, get_grade, generate_auto_note
 from scheduler import start_scheduler, get_data_status, manual_fetch
@@ -166,18 +164,7 @@ input::placeholder, textarea::placeholder { color: #6b7280 !important; }
 
 # ── 初始化 ──────────────────────────────
 init_db()
-
-# 雲端模式：從 JSON 匯入資料
-if not IS_LOCAL:
-    try:
-        from github_sync import init_cloud_data
-        init_cloud_data()
-    except Exception as _ce:
-        print(f'雲端資料匯入失敗：{_ce}')
-
-# 本機才啟動自動排程
-if IS_LOCAL:
-    start_scheduler()
+start_scheduler()
 
 
 # ── JS：清除sidebar localStorage + 移除收起按鈕 ──
@@ -234,91 +221,37 @@ _components.html("""
 def render_sidebar():
     with st.sidebar:
         st.markdown(f'### 📈 台股分析工具 {VERSION}')
-
-        # 模式標示
-        if IS_LOCAL:
-            st.markdown('<div style="background:#1c2030;border-radius:6px;padding:4px 10px;'
-                        'font-size:12px;color:#22c55e;border:1px solid #22c55e33">'
-                        '🖥️ 本機版　資料每日自動更新</div>', unsafe_allow_html=True)
-        else:
-            st.markdown('<div style="background:#1c2030;border-radius:6px;padding:4px 10px;'
-                        'font-size:12px;color:#f59e0b;border:1px solid #f59e0b33">'
-                        '☁️ 雲端版　唯讀模式</div>', unsafe_allow_html=True)
-
         st.markdown('---')
 
-        if IS_LOCAL:
-            # 資料狀態
-            status = get_data_status()
-            color_map = {'ok':'green','pending':'orange','error':'red','holiday':'blue'}
-            st.markdown(
-                f'<div class="status-bar" style="background:rgba(0,0,0,0.3);'
-                f'border-left:4px solid {color_map.get(status["status"],"gray")}">'
-                f'{status["label"]}</div>',
-                unsafe_allow_html=True
-            )
-            if status.get('last_time'):
-                st.caption(f'🕐 上次嘗試更新：{status["last_time"]}')
+        # 資料狀態
+        status = get_data_status()
+        color_map = {'ok':'green','pending':'orange','error':'red','holiday':'blue'}
+        st.markdown(
+            f'<div class="status-bar" style="background:rgba(0,0,0,0.3);'
+            f'border-left:4px solid {color_map.get(status["status"],"gray")}">'
+            f'{status["label"]}</div>',
+            unsafe_allow_html=True
+        )
 
-            # 手動更新按鈕（本機限定）
-            if st.button('🔄 手動更新資料', use_container_width=True):
-                with st.status('更新資料中...', expanded=True) as _status:
-                    st.write('📥 抓取最新收盤資料...')
-                    _fetch_ok = True
-                    try:
-                        from fetcher import fetch_all
-                        fetch_all()
-                        st.write('✅ 資料更新完成')
-                    except Exception as _e:
-                        st.write(f'⚠️ 部分失敗：{_e}')
-                        _fetch_ok = False
-                    _status.update(
-                        label='✅ 更新完成！' if _fetch_ok else '⚠️ 更新完成（部分失敗）',
-                        state='complete'
-                    )
-                st.rerun()
+        if status.get('last_time'):
+            st.caption(f'🕐 上次嘗試更新：{status["last_time"]}')
 
-            st.markdown('---')
-
-            # 一鍵同步到 GitHub（本機限定）
-            if st.button('📤 同步到 GitHub', use_container_width=True):
-                with st.status('同步中...', expanded=True) as _gs:
-                    st.write('📦 匯出資料為 JSON...')
-                    try:
-                        from github_sync import sync_via_git
-                        ok, msg = sync_via_git()
-                        if ok:
-                            st.write(f'✅ {msg}')
-                            st.write('其他裝置重新整理即可看到最新資料')
-                        else:
-                            st.write(f'⚠️ {msg}')
-                    except Exception as _e:
-                        st.write(f'❌ 同步失敗：{_e}')
-                    _gs.update(label='同步完成', state='complete')
-
-            st.markdown('---')
-
-        else:
-            # 雲端版資料時間提示
-            try:
-                from github_sync import load_meta_raw
-                meta = load_meta_raw()
-                if meta and meta.get('exported_at'):
-                    st.caption(f'📅 資料更新：{meta["exported_at"]}')
-            except Exception:
-                pass
-            st.markdown('---')
-
-        # 大盤分析
-        if st.button('📊 大盤分析', use_container_width=True):
-            st.session_state['page'] = 'market'
-            st.session_state.pop('current_code', None)
-            st.rerun()
-
-        # 法人排行
-        if st.button('🏆 法人買超排行榜', use_container_width=True):
-            st.session_state['page'] = 'ranking'
-            st.session_state.pop('current_code', None)
+        # 手動更新按鈕
+        if st.button('🔄 手動更新資料', use_container_width=True):
+            with st.status('更新資料中...', expanded=True) as _status:
+                st.write('📥 抓取最新收盤資料...')
+                _fetch_ok = True
+                try:
+                    from fetcher import fetch_all
+                    fetch_all()
+                    st.write('✅ 資料更新完成')
+                except Exception as _e:
+                    st.write(f'⚠️ 部分失敗：{_e}')
+                    _fetch_ok = False
+                _status.update(
+                    label='✅ 更新完成！' if _fetch_ok else '⚠️ 更新完成（部分失敗）',
+                    state='complete'
+                )
             st.rerun()
 
         st.markdown('---')
@@ -333,7 +266,6 @@ def render_sidebar():
                 selected = st.selectbox('搜尋結果', list(options.keys()))
                 if st.button('查看此股票', use_container_width=True):
                     st.session_state['current_code'] = options[selected]
-                    st.session_state['page'] = 'stock'
                     st.rerun()
             else:
                 st.warning('找不到符合的股票，請確認代碼是否正確')
@@ -355,32 +287,27 @@ def render_sidebar():
                         use_container_width=True
                     ):
                         st.session_state['current_code'] = w['code']
-                        st.session_state['page'] = 'stock'
                         st.rerun()
                 with col2:
-                    if IS_LOCAL and st.button('✕', key=f"del_{w['code']}"):
+                    if st.button('✕', key=f"del_{w['code']}"):
                         remove_watchlist(w['code'])
                         st.rerun()
         else:
             st.info('尚無自選股，搜尋後加入')
 
-        # 新增自選股（本機限定）
-        if IS_LOCAL:
-            st.markdown('---')
-            st.markdown('#### ➕ 新增自選股')
-            new_code = st.text_input('股票代碼', placeholder='例如：2330')
-            new_name = st.text_input('股票名稱', placeholder='例如：台積電')
-            new_tag  = st.selectbox('標籤', ['長期', '觀察中', '其他'])
-            if st.button('加入自選股', use_container_width=True):
-                if new_code and new_name:
-                    add_watchlist(new_code.strip(), new_name.strip(), new_tag)
-                    st.success(f'已加入 {new_code} {new_name}')
-                    st.rerun()
-                else:
-                    st.error('請填入代碼和名稱')
-        else:
-            st.markdown('---')
-            st.caption('✏️ 新增/刪除自選股請在本機操作後同步')
+        # 新增自選股
+        st.markdown('---')
+        st.markdown('#### ➕ 新增自選股')
+        new_code = st.text_input('股票代碼', placeholder='例如：2330')
+        new_name = st.text_input('股票名稱', placeholder='例如：台積電')
+        new_tag  = st.selectbox('標籤', ['長期', '觀察中', '其他'])
+        if st.button('加入自選股', use_container_width=True):
+            if new_code and new_name:
+                add_watchlist(new_code.strip(), new_name.strip(), new_tag)
+                st.success(f'已加入 {new_code} {new_name}')
+                st.rerun()
+            else:
+                st.error('請填入代碼和名稱')
 
 # ── 圖表：價格走勢 ───────────────────────
 def render_price_chart(ind, name):
@@ -425,27 +352,21 @@ def render_price_chart(ind, name):
         connectgaps=True
     ), row=1, col=1)
 
-    # 布林通道（淺灰色帶）
-    bb_upper_s = ind.get('bb_upper_series', [])
-    bb_lower_s = ind.get('bb_lower_series', [])
-    if bb_upper_s and bb_lower_s and len(dates) == len(bb_upper_s):
-        # 上軌（透明線，作為 fill 的頂部）
+    # 布林通道
+    bb_upper = ind.get('bb_upper')
+    bb_lower = ind.get('bb_lower')
+    if bb_upper and bb_lower and len(dates) >= 20:
         fig.add_trace(go.Scatter(
-            x=dates, y=bb_upper_s,
-            name='布林上軌',
-            mode='lines',
-            line=dict(color='rgba(180,180,180,0.4)', width=1),
-            showlegend=True
+            x=[dates[-1]], y=[bb_upper],
+            name=f'布林上軌({bb_upper})',
+            mode='markers',
+            marker=dict(color='#ef4444', size=8, symbol='line-ew')
         ), row=1, col=1)
-        # 下軌（填色到上軌之間）
         fig.add_trace(go.Scatter(
-            x=dates, y=bb_lower_s,
-            name='布林下軌',
-            mode='lines',
-            line=dict(color='rgba(180,180,180,0.4)', width=1),
-            fill='tonexty',
-            fillcolor='rgba(160,160,160,0.12)',
-            showlegend=True
+            x=[dates[-1]], y=[bb_lower],
+            name=f'布林下軌({bb_lower})',
+            mode='markers',
+            marker=dict(color='#22c55e', size=8, symbol='line-ew')
         ), row=1, col=1)
 
     # 成交量
@@ -613,15 +534,6 @@ def render_fundamental(result, code, name):
     div = fund.get('dividend_yield')
     eps = fund.get('eps_ttm')
 
-    # 除權息提示（只顯示未來的）
-    ex_records = [r for r in get_exdividend_by_code(code) if r['ex_date'] >= datetime.now().strftime('%Y-%m-%d')]
-    if ex_records:
-        latest = ex_records[0]
-        type_label = {'息': '除息', '權': '除權', '權息': '除權息'}.get(latest['div_type'], latest['div_type'])
-        st.info(f'🎁 **即將{type_label}**：{latest["ex_date"]}　'
-                f'權息值 {latest["div_value"]:.2f} 元　'
-                f'參考價 {latest["ref_price"]:.2f} 元')
-
     col1, col2 = st.columns(2)
 
     with col1:
@@ -693,25 +605,16 @@ def render_fundamental(result, code, name):
 
         if pb:
             st.metric('股價淨值比（PB）', f'{pb:.2f}倍')
-            st.info(
-                '**股價淨值比（PB）** 是股價除以每股帳面價值（淨值），'
-                '代表你付出多少錢買 1 元的公司資產。\n\n'
-                'PB=1 代表股價剛好等於帳面價值；'
-                'PB<1 代表用打折的價格買資產，通常出現在景氣低迷或市場過度悲觀時；'
-                'PB 越高代表市場願意付出更高的溢價，通常反映對公司未來獲利能力的期待。\n\n'
-                '**注意**：高科技或輕資產公司（如台積電、軟體業）因為獲利能力強，'
-                'PB 天生就偏高，不能直接與傳統製造業相比，需同產業橫向比較才有意義。'
-            )
             if pb < 1:
-                st.success(f'PB={pb:.2f}倍，股價低於帳面淨值，理論上具安全邊際，但需確認公司基本面無重大問題。')
+                st.success(f'PB={pb:.2f}倍，股價低於帳面價值，理論上有安全邊際。')
             elif pb < 1.5:
-                st.success(f'PB={pb:.2f}倍，評價偏低，市場溢價不高，適合重視資產保護的投資人。')
+                st.success(f'PB={pb:.2f}倍偏低，評價合理偏低。')
             elif pb < 3:
-                st.info(f'PB={pb:.2f}倍，評價合理，在台股一般產業的正常範圍內。')
+                st.info(f'PB={pb:.2f}倍合理，在正常範圍內。')
             elif pb < 5:
-                st.warning(f'PB={pb:.2f}倍偏高，市場給予明顯溢價，需要持續的高獲利能力來支撐。')
+                st.warning(f'PB={pb:.2f}倍偏高，需要較強的獲利能力支撐。')
             else:
-                st.error(f'PB={pb:.2f}倍極高，市場期待非常強勁的成長，若獲利不如預期股價修正風險大。')# ── 頁籤三：籌碼面 ──────────────────────
+                st.error(f'PB={pb:.2f}倍極高，需要非常強的獲利能力才能支撐此評價。')# ── 頁籤三：籌碼面 ──────────────────────
 def render_chips(result, code, name, chips_list):
     st.markdown('#### 三大法人')
 
@@ -772,41 +675,6 @@ def render_chips(result, code, name, chips_list):
                     f'{dealer_net5:+,}張</span>', unsafe_allow_html=True)
         st.caption('自營商為短線操作，參考權重較低')
 
-    # ── 三大法人歷史走勢圖 ──
-    if len(chips_list) >= 5:
-        dates_c   = [r['date'] for r in recent65]
-        f_nets    = [r.get('foreign_net', 0) for r in recent65]
-        t_nets    = [r.get('trust_net',   0) for r in recent65]
-        d_nets    = [r.get('dealer_net',  0) for r in recent65]
-
-        fig_chips = go.Figure()
-        fig_chips.add_trace(go.Bar(
-            x=dates_c, y=f_nets, name='外資淨買賣',
-            marker_color=['#22c55e' if v >= 0 else '#ef4444' for v in f_nets],
-            opacity=0.8
-        ))
-        fig_chips.add_trace(go.Scatter(
-            x=dates_c, y=t_nets, name='投信淨買賣',
-            mode='lines+markers', line=dict(color='#38bdf8', width=2),
-            marker=dict(size=4)
-        ))
-        fig_chips.add_trace(go.Scatter(
-            x=dates_c, y=d_nets, name='自營商淨買賣',
-            mode='lines', line=dict(color='#facc15', width=1.5, dash='dot')
-        ))
-        fig_chips.add_hline(y=0, line_color='#555', line_width=1)
-        fig_chips.update_layout(
-            title=None,
-            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-            font=dict(color='#e2e8f0'), height=300,
-            margin=dict(l=0, r=0, t=40, b=0),
-            legend=dict(orientation='h', y=1.0, x=0, bgcolor='rgba(0,0,0,0)'),
-            xaxis=dict(gridcolor='#2a2f3e'),
-            yaxis=dict(gridcolor='#2a2f3e', tickformat=',d')
-        )
-        st.markdown('**三大法人每日淨買賣超（張）**')
-        st.plotly_chart(fig_chips, use_container_width=True)
-
     st.markdown('---')
     st.markdown('#### 融資融券')
 
@@ -836,44 +704,6 @@ def render_chips(result, code, name, chips_list):
                     f'融券{"增加" if short_chg > 0 else "減少"}{abs(short_chg):.1f}%，'
                     f'{"代表看空的投資人增加，需注意。" if short_chg > 0 else "代表空方回補，偏正面。"}')
 
-    # ── 融資融券歷史走勢圖 ──
-    margin_vals = [r.get('margin_balance', 0) for r in recent65]
-    short_vals  = [r.get('short_balance',  0) for r in recent65]
-    if any(v > 0 for v in margin_vals) or any(v > 0 for v in short_vals):
-        dates_m = [r['date'] for r in recent65]
-        fig_margin = make_subplots(specs=[[{'secondary_y': True}]])
-        fig_margin.add_trace(go.Scatter(
-            x=dates_m, y=margin_vals, name='融資餘額',
-            mode='lines', fill='tozeroy',
-            line=dict(color='#ef4444', width=2),
-            fillcolor='rgba(239,68,68,0.15)'
-        ), secondary_y=False)
-        fig_margin.add_trace(go.Scatter(
-            x=dates_m, y=short_vals, name='融券餘額',
-            mode='lines', fill='tozeroy',
-            line=dict(color='#38bdf8', width=2),
-            fillcolor='rgba(56,189,248,0.15)'
-        ), secondary_y=True)
-        fig_margin.update_layout(
-            title=None,
-            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-            font=dict(color='#e2e8f0'), height=280,
-            margin=dict(l=0, r=0, t=40, b=0),
-            legend=dict(orientation='h', y=1.0, x=0, bgcolor='rgba(0,0,0,0)'),
-            xaxis=dict(gridcolor='#2a2f3e'),
-        )
-        st.markdown('**融資／融券餘額歷史（張）**')
-        fig_margin.update_yaxes(
-            title_text='融資餘額（張）', gridcolor='#2a2f3e',
-            tickformat=',d', secondary_y=False)
-        fig_margin.update_yaxes(
-            title_text='融券餘額（張）', gridcolor='#2a2f3e',
-            tickformat=',d', secondary_y=True)
-        st.plotly_chart(fig_margin, use_container_width=True)
-    else:
-        st.caption('融資融券歷史資料不足，請先按手動更新補齊歷史資料')
-
-    st.markdown('---')
     # ── 持股結構 + ETF 持股（同一排）──
     # 外資持股%從 DB 讀取（每日更新自 TWSE MI_QFIIS）
     _own = get_ownership(code)
@@ -1541,352 +1371,9 @@ MACD：DIF={macd_dif} / DEF={macd_def} / 柱狀={macd_hist}
         st.code(export_text)
         st.success('請從上方程式碼區塊複製（點右上角複製按鈕）')
 
-# ── 大盤走勢分析 ────────────────────────
-def render_market():
-    st.markdown('## 📊 大盤走勢分析（加權指數）')
-
-    prices = get_prices('TAIEX', days=250)
-    if not prices:
-        st.warning('尚無大盤資料，請先按左側「🔄 手動更新資料」抓取最新數據。')
-        return
-
-    ind = calc_all(prices)
-
-    close     = prices[-1]['close']
-    date      = prices[-1]['date']
-    chg       = prices[-1]['change']
-    chg_pct   = prices[-1]['change_pct']
-    prev      = prices[-2]['close'] if len(prices) >= 2 else close
-
-    # ── 頂部指標列 ─────────────────────────
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        chg_color = '🔴' if chg < 0 else '🟢'
-        chg_sign  = f'{chg:+.2f}' if chg else '0.00'
-        st.metric(
-            f'加權指數（{date}）',
-            f'{close:,.2f}',
-            delta=f'{chg_sign} ({chg_pct:+.2f}%)'
-        )
-    with col2:
-        ma20 = ind.get('ma20')
-        if ma20:
-            above = close >= ma20
-            st.metric('MA20（月線）', f'{ma20:,.2f}',
-                      delta='站上月線 ✅' if above else '跌破月線 ❌')
-        else:
-            st.metric('MA20', '資料不足')
-    with col3:
-        rsi = ind.get('rsi')
-        if rsi:
-            rsi_label = ('超買區' if rsi > 70 else '超賣區' if rsi < 30 else '健康區')
-            st.metric('RSI(14)', f'{rsi}', delta=rsi_label)
-        else:
-            st.metric('RSI(14)', '—')
-    with col4:
-        pos_65 = ind.get('pos_65')
-        h65    = ind.get('high_65')
-        l65    = ind.get('low_65')
-        if pos_65 is not None:
-            pos_label = '高檔區 ⚠️' if pos_65 >= 80 else '低檔區 ✅' if pos_65 <= 20 else '中段整理'
-            st.metric('近3個月位置', f'{pos_65}%', delta=pos_label)
-            st.caption(f'區間 {l65:,.0f} ～ {h65:,.0f}')
-        else:
-            st.metric('近3個月位置', '—')
-
-    st.caption(f'資料來源：Yahoo Finance ^TWII　｜　成交量欄位代表相對量能（較大代表當日成交活絡）')
-
-    # ── 走勢圖 ─────────────────────────────
-    dates   = ind.get('dates', [])
-    closes  = ind.get('closes', [])
-    ma5s    = ind.get('ma5_series', [])
-    ma20s   = ind.get('ma20_series', [])
-    ma60s   = ind.get('ma60_series', [])
-    volumes = ind.get('volumes', [])
-    bb_upper_s = ind.get('bb_upper_series', [])
-    bb_lower_s = ind.get('bb_lower_series', [])
-
-    if dates:
-        fig = go.Figure()
-
-        # 指數線
-        fig.add_trace(go.Scatter(
-            x=dates, y=closes, name='加權指數',
-            line=dict(color='#38bdf8', width=2)
-        ))
-
-        # 均線
-        fig.add_trace(go.Scatter(
-            x=dates, y=ma5s, name='MA5',
-            line=dict(color='#f59e0b', width=1),
-            connectgaps=True
-        ))
-        fig.add_trace(go.Scatter(
-            x=dates, y=ma20s, name='MA20',
-            line=dict(color='#a78bfa', width=1),
-            connectgaps=True
-        ))
-        fig.add_trace(go.Scatter(
-            x=dates, y=ma60s, name='MA60',
-            line=dict(color='#22c55e', width=1),
-            connectgaps=True
-        ))
-
-        # 布林通道（淺灰色帶）
-        if bb_upper_s and bb_lower_s and len(dates) == len(bb_upper_s):
-            fig.add_trace(go.Scatter(
-                x=dates, y=bb_upper_s, name='布林上軌',
-                mode='lines',
-                line=dict(color='rgba(180,180,180,0.4)', width=1),
-                showlegend=True
-            ))
-            fig.add_trace(go.Scatter(
-                x=dates, y=bb_lower_s, name='布林下軌',
-                mode='lines',
-                line=dict(color='rgba(180,180,180,0.4)', width=1),
-                fill='tonexty', fillcolor='rgba(160,160,160,0.12)',
-                showlegend=True
-            ))
-
-        fig.update_layout(
-            paper_bgcolor='#0d0f12',
-            plot_bgcolor='#141720',
-            font=dict(color='#e2e8f0', size=11),
-            height=420,
-            showlegend=True,
-            legend=dict(orientation='h', yanchor='bottom', y=1.02),
-            xaxis=dict(showgrid=True, gridcolor='#252a38'),
-            yaxis=dict(showgrid=True, gridcolor='#252a38'),
-            margin=dict(l=0, r=0, t=40, b=0)
-        )
-        st.plotly_chart(fig, use_container_width=True)
-
-    st.markdown('---')
-
-    # ── 大盤綜合判斷 ─────────────────────────
-    st.markdown('#### 大盤趨勢判斷')
-
-    ma_trend  = ind.get('ma_trend')
-    ma5       = ind.get('ma5')
-    ma60      = ind.get('ma60')
-    pos_65    = ind.get('pos_65')
-    high_65   = ind.get('high_65')
-    low_65    = ind.get('low_65')
-    macd_dif  = ind.get('macd_dif')
-    macd_def  = ind.get('macd_def')
-    macd_hist = ind.get('macd_hist')
-    k         = ind.get('k')
-    d         = ind.get('d')
-
-    col_a, col_b, col_c = st.columns(3)
-
-    with col_a:
-        st.markdown('**均線趨勢**')
-        trend_map = {
-            'bullish':  ('多頭排列 ↑', '#22c55e'),
-            'bearish':  ('空頭排列 ↓', '#ef4444'),
-            'sideways': ('均線糾結 →', '#f59e0b'),
-        }
-        t_label, t_color = trend_map.get(ma_trend, ('資料不足', '#6b7280'))
-        st.markdown(f'<span style="color:{t_color};font-size:20px;font-weight:700">'
-                    f'{t_label}</span>', unsafe_allow_html=True)
-        if ma5:  st.metric('MA5',  f'{ma5:,.2f}')
-        if ma20: st.metric('MA20', f'{ma20:,.2f}', delta=f'{close-ma20:+.2f}')
-        if ma60: st.metric('MA60', f'{ma60:,.2f}')
-        if ma_trend == 'bullish':
-            st.success(f'MA5({ma5:,.0f}) > MA20({ma20:,.0f}) > MA60({ma60:,.0f})，'
-                       f'三條均線多頭排列，大盤趨勢向上。')
-        elif ma_trend == 'bearish':
-            st.warning(f'均線空頭排列，短中長期趨勢均向下，操作需謹慎。')
-        else:
-            st.info('均線糾結，方向待確認，建議觀望為主。')
-
-    with col_b:
-        st.markdown('**動能指標**')
-        if rsi:
-            rsi_color = '#ef4444' if rsi > 75 else '#22c55e' if rsi < 35 else '#38bdf8'
-            st.markdown(f'RSI(14)：<span style="color:{rsi_color};font-size:20px;font-weight:700">'
-                        f'{rsi}</span>', unsafe_allow_html=True)
-            if rsi > 75:
-                st.warning(f'大盤 RSI={rsi} 偏高，短期指數已偏熱，留意回測壓力。')
-            elif rsi < 35:
-                st.success(f'大盤 RSI={rsi} 偏低，指數進入超賣區，可留意反彈機會。')
-            else:
-                st.info(f'RSI={rsi}，動能正常，大盤沒有明顯過熱或過冷。')
-
-        if k and d:
-            st.metric('KD', f'K={k} / D={d}')
-            if k > d:
-                st.success('KD 黃金交叉，短期大盤偏多。')
-            else:
-                st.warning('KD 死亡交叉，短期大盤偏空。')
-
-        if macd_dif and macd_def:
-            st.metric('MACD', f'DIF={macd_dif:+.1f}',
-                      delta=f'柱={macd_hist:+.1f}' if macd_hist else None)
-            if macd_dif > macd_def:
-                st.success('MACD 多頭，中期趨勢向上。')
-            else:
-                st.warning('MACD 空頭，中期趨勢向下。')
-
-    with col_c:
-        st.markdown('**近3個月位置**')
-        if pos_65 is not None:
-            pos_color = '#ef4444' if pos_65 >= 80 else '#22c55e' if pos_65 <= 20 else '#f59e0b'
-            st.markdown(f'近3個月位置：<span style="color:{pos_color};font-size:18px;font-weight:700">'
-                        f'{pos_65}%</span>', unsafe_allow_html=True)
-            st.caption(f'近3個月區間：{low_65:,.0f} ～ {high_65:,.0f}')
-            if pos_65 >= 80:
-                st.warning(f'指數位於近3個月高檔區（{pos_65}%），短期追高風險較大。')
-            elif pos_65 <= 20:
-                st.success(f'指數位於近3個月低檔區（{pos_65}%），若量能回升可留意反彈。')
-            else:
-                st.info(f'指數位於近3個月中段（{pos_65}%），方向待確認。')
-
-    # ── 近5個交易日走勢簡表 ────────────────
-    st.markdown('---')
-    st.markdown('#### 近5個交易日')
-    recent5 = prices[-5:] if len(prices) >= 5 else prices
-    cols = st.columns(len(recent5))
-    for i, row in enumerate(recent5):
-        chg_d = row['change']
-        pct_d = row['change_pct']
-        color = '#22c55e' if chg_d >= 0 else '#ef4444'
-        with cols[i]:
-            st.markdown(
-                f'<div style="text-align:center;background:#141720;border-radius:8px;'
-                f'padding:8px 4px;border:1px solid #252a38">'
-                f'<div style="font-size:11px;color:#8892a4">{row["date"][5:]}</div>'
-                f'<div style="font-size:15px;font-weight:700">{row["close"]:,.2f}</div>'
-                f'<div style="font-size:12px;color:{color}">{chg_d:+.2f} ({pct_d:+.2f}%)</div>'
-                f'<div style="font-size:11px;color:#6b7280">&nbsp;</div>'
-                f'</div>',
-                unsafe_allow_html=True
-            )
-
-
-# ── 法人買超排行榜 ───────────────────────
-def render_ranking():
-    st.markdown('## 🏆 三大法人買賣超排行榜')
-
-    last_date = get_t86_last_date()
-    if not last_date:
-        st.warning('尚無排行資料，請先按左側「🔄 手動更新資料」抓取最新數據。')
-        return
-
-    st.caption(f'資料日期：{last_date}　｜　投信含 ETF 買盤，可反映 ETF 資金動向')
-
-    tabs = st.tabs([
-        '📈 投信買超 Top15', '📉 投信賣超 Top15',
-        '📈 外資買超 Top15', '📉 外資賣超 Top15',
-        '📈 三大合計買超 Top15', '📉 三大合計賣超 Top15',
-        '🎁 即將除權息',
-    ])
-
-    def make_table(rows, net_col, net_label, is_sell=False):
-        if not rows:
-            st.info('無資料')
-            return
-        for i, r in enumerate(rows, 1):
-            net = r.get(net_col, 0)
-            color = '#ff5252' if is_sell else '#00c853'
-            buy_key  = net_col.replace('net', 'buy')
-            sell_key = net_col.replace('net', 'sell')
-            buy_val  = r.get(buy_key, 0)
-            sell_val = r.get(sell_key, 0)
-
-            c0, c1, c2, c3, c4, c5 = st.columns([0.5, 1.3, 2.8, 1.8, 1.8, 2])
-            c0.markdown(f'**#{i}**')
-            c1.markdown(f'`{r["code"]}`')
-            c2.markdown(f'**{r["name"]}**')
-            if buy_val or sell_val:
-                c3.caption(f'買 {buy_val:,}')
-                c4.caption(f'賣 {sell_val:,}')
-            c5.markdown(
-                f'<span style="color:{color};font-weight:bold">'
-                f'{net_label} {net:+,} 張</span>',
-                unsafe_allow_html=True
-            )
-        st.markdown('---')
-        st.caption('💡 在左側搜尋欄輸入代碼可查看該股詳細分析')
-
-    with tabs[0]:
-        rows, _ = get_t86_ranking(last_date, sort_by='trust_net', top=15)
-        st.markdown('#### 投信淨買超前 15 名（含 ETF 買盤）')
-        make_table(rows, 'trust_net', '投信淨')
-
-    with tabs[1]:
-        rows, _ = get_t86_ranking_bottom(last_date, sort_by='trust_net', top=15)
-        st.markdown('#### 投信淨賣超前 15 名（法人撤退訊號）')
-        make_table(rows, 'trust_net', '投信淨', is_sell=True)
-
-    with tabs[2]:
-        rows, _ = get_t86_ranking(last_date, sort_by='foreign_net', top=15)
-        st.markdown('#### 外資淨買超前 15 名')
-        make_table(rows, 'foreign_net', '外資淨')
-
-    with tabs[3]:
-        rows, _ = get_t86_ranking_bottom(last_date, sort_by='foreign_net', top=15)
-        st.markdown('#### 外資淨賣超前 15 名')
-        make_table(rows, 'foreign_net', '外資淨', is_sell=True)
-
-    with tabs[4]:
-        rows, _ = get_t86_ranking(last_date, sort_by='total_net', top=15)
-        st.markdown('#### 三大法人合計淨買超前 15 名')
-        make_table(rows, 'total_net', '合計淨')
-
-    with tabs[5]:
-        rows, _ = get_t86_ranking_bottom(last_date, sort_by='total_net', top=15)
-        st.markdown('#### 三大法人合計淨賣超前 15 名')
-        make_table(rows, 'total_net', '合計淨', is_sell=True)
-
-    with tabs[6]:
-        st.markdown('#### 未來 30 天除權息公告')
-        st.caption('資料來源：TWSE TWT49U，顯示今日起未來一個月內已公告的除權息預告')
-        ex_rows = get_exdividend_upcoming(days=30)
-        if not ex_rows:
-            st.warning('目前無未來一個月內的除權息公告，請先按左側「🔄 手動更新資料」。')
-        else:
-            type_icon = {'息': '💰', '權': '📊', '權息': '💰📊'}
-            header = st.columns([1.5, 1.2, 2.5, 1.5, 1.5, 1.5, 1])
-            header[0].caption('除權息日')
-            header[1].caption('代號')
-            header[2].caption('名稱')
-            header[3].caption('前收盤')
-            header[4].caption('參考價')
-            header[5].caption('權息值')
-            header[6].caption('類型')
-            st.markdown('---')
-            for r in ex_rows:
-                icon = type_icon.get(r['div_type'], '📌')
-                c0,c1,c2,c3,c4,c5,c6 = st.columns([1.5, 1.2, 2.5, 1.5, 1.5, 1.5, 1])
-                c0.write(r['ex_date'])
-                c1.write(f"`{r['code']}`")
-                c2.write(r['name'])
-                c3.write(f"{r['prev_close']:.2f}")
-                c4.write(f"{r['ref_price']:.2f}")
-                c5.markdown(
-                    f'<span style="color:#facc15;font-weight:bold">{r["div_value"]:.2f}</span>',
-                    unsafe_allow_html=True)
-                c6.write(f'{icon} {r["div_type"]}')
-            st.markdown('---')
-            st.caption('💡 在左側搜尋欄輸入代碼可查看該股詳細分析')
-
 # ── 主程式 ──────────────────────────────
 def main():
     render_sidebar()
-
-    page = st.session_state.get('page', 'stock')
-
-    # 大盤分析頁
-    if page == 'market':
-        render_market()
-        return
-
-    # 排行榜頁
-    if page == 'ranking':
-        render_ranking()
-        return
 
     if 'current_code' not in st.session_state:
         st.markdown('## 📈 台股投資分析工具')

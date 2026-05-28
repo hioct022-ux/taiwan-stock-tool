@@ -82,17 +82,10 @@ def calc_all(prices):
         result['bb_upper'] = round(bb.bollinger_hband().iloc[-1], 2)
         result['bb_mid']   = round(bb.bollinger_mavg().iloc[-1],  2)
         result['bb_lower'] = round(bb.bollinger_lband().iloc[-1], 2)
-        # 完整序列（供繪圖用）
-        result['bb_upper_series'] = [round(v, 2) if not pd.isna(v) else None
-                                     for v in bb.bollinger_hband().tolist()]
-        result['bb_lower_series'] = [round(v, 2) if not pd.isna(v) else None
-                                     for v in bb.bollinger_lband().tolist()]
     else:
         result['bb_upper'] = None
         result['bb_mid']   = None
         result['bb_lower'] = None
-        result['bb_upper_series'] = []
-        result['bb_lower_series'] = []
 
     # ── 量能 ────────────────────────────
     if n >= MA_MID:
