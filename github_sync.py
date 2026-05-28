@@ -411,19 +411,7 @@ def init_cloud_data():
     except Exception as e:
         print(f'  除權息匯入失敗：{e}')
 
-    # ── 各股票歷史資料（只在 DB 資料不足時才匯入）──
-    try:
-        conn = get_conn()
-        count = conn.execute('SELECT COUNT(*) FROM prices').fetchone()[0]
-        conn.close()
-    except Exception:
-        count = 0
-
-    if count > 200:
-        print(f'雲端模式：個股 DB 已有 {count} 筆，略過個股 JSON 匯入')
-        return
-
-    print('雲端模式：個股資料不足，從 JSON 匯入...')
+    # ── 各股票歷史資料（每次都更新）──
     imported = 0
     for fname in os.listdir(JSON_DIR):
         if not fname.endswith('.json'):

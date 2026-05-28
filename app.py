@@ -291,24 +291,6 @@ def render_sidebar():
                     )
                 st.rerun()
 
-            # 單獨手動更新（不同步）
-            if st.button('🔄 僅更新資料', use_container_width=True):
-                with st.status('更新資料中...', expanded=True) as _status:
-                    st.write('📥 抓取最新收盤資料...')
-                    _fetch_ok = True
-                    try:
-                        from fetcher import fetch_all
-                        fetch_all()
-                        st.write('✅ 資料更新完成')
-                    except Exception as _e:
-                        st.write(f'⚠️ 部分失敗：{_e}')
-                        _fetch_ok = False
-                    _status.update(
-                        label='✅ 更新完成！' if _fetch_ok else '⚠️ 更新完成（部分失敗）',
-                        state='complete'
-                    )
-                st.rerun()
-
             st.markdown('---')
 
         else:
