@@ -1905,7 +1905,7 @@ def main():
     need_chips = len(chips_list) < 20
     fetch_key  = f'_fetched_{code}'
 
-    if (need_price or need_chips) and not st.session_state.get(fetch_key):
+    if IS_LOCAL and (need_price or need_chips) and not st.session_state.get(fetch_key):
         st.session_state[fetch_key] = True
         with st.status(f'正在補齊 {code} 歷史資料...', expanded=True) as _st:
             if need_price:
@@ -1931,6 +1931,8 @@ def main():
         prices     = get_prices(code, days=400)
         fund_data  = get_fundamentals(code, days=400)
         chips_list = get_chips(code, days=65)
+    elif not IS_LOCAL and (need_price or need_chips):
+        st.info('☁️ 雲端版為唯讀模式，此股票資料需在本機同步後才可查看。')
 
     if not prices:
         st.warning(f'無法載入 {code} 的資料，請確認股票代碼是否正確。')
