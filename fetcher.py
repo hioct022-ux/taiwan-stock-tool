@@ -260,12 +260,14 @@ def fetch_chips():
             data2 = r2.json()
             if data2.get('stat') == 'OK':
                 # 取得實際日期
-                date_str2 = data2.get('date', yesterday)
+                date_str2 = str(data2.get('date', yesterday)).strip()
                 try:
-                    y = int(date_str2[:3]) + 1911
-                    m = date_str2[3:5]
-                    d = date_str2[5:7]
-                    date_str = f'{y}-{m}-{d}'
+                    if len(date_str2) == 7 and date_str2[0] == '1':  # 民國年 1YYMMDD
+                        date_str = f'{int(date_str2[:3])+1911}-{date_str2[3:5]}-{date_str2[5:7]}'
+                    elif len(date_str2) == 8 and date_str2[0] == '2':  # 西元年 YYYYMMDD
+                        date_str = f'{date_str2[:4]}-{date_str2[4:6]}-{date_str2[6:8]}'
+                    else:
+                        date_str = datetime.now().strftime('%Y-%m-%d')
                 except:
                     date_str = datetime.now().strftime('%Y-%m-%d')
                 for row in data2.get('data', []):
