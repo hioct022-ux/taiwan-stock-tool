@@ -167,11 +167,12 @@ input::placeholder, textarea::placeholder { color: #6b7280 !important; }
 # ── 初始化 ──────────────────────────────
 init_db()
 
-# 雲端模式：從 JSON 匯入資料
-if not IS_LOCAL:
+# 雲端模式：從 JSON 匯入資料（每個 session 只跑一次）
+if not IS_LOCAL and not st.session_state.get('_cloud_init_done'):
     try:
         from github_sync import init_cloud_data
         init_cloud_data()
+        st.session_state['_cloud_init_done'] = True
     except Exception as _ce:
         print(f'雲端資料匯入失敗：{_ce}')
 
