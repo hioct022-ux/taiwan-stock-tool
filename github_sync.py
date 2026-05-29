@@ -125,6 +125,18 @@ def export_to_json(code=None):
         except Exception as e:
             print(f'匯出 {c} 失敗：{e}')
 
+    # ── 匯出大盤融資融券 ──────────────────────
+    try:
+        from database import get_market_margin
+        mm_rows = get_market_margin(days=120)
+        if mm_rows:
+            with open(os.path.join(JSON_DIR, 'market_margin.json'), 'w', encoding='utf-8') as f:
+                json.dump({'rows': mm_rows, 'exported_at': datetime.now().strftime('%Y-%m-%d %H:%M')},
+                          f, ensure_ascii=False)
+            print(f'匯出大盤融資融券：{len(mm_rows)} 筆')
+    except Exception as e:
+        print(f'匯出大盤融資融券失敗：{e}')
+
     # ── 匯出大盤（TAIEX）資料 ─────────────────
     try:
         taiex_prices = get_prices('TAIEX', days=250)
@@ -379,6 +391,17 @@ def init_cloud_data():
         print(f'  自選股：{len(wl)} 筆')
     except Exception as e:
         print(f'  自選股匯入失敗：{e}')
+
+    # ── 大盤融資融券（每次更新）──
+    try:
+        with open(os.path.join(JSON_DIR, 'market_margin.json'), encoding='utf-8') as f:
+            mm = json.load(f)
+        from database import save_market_margin
+        for r in mm.get('rows', []):
+            save_market_margin(r['date'], r)
+        print(f'  大盤融資融券：{len(mm.get("rows", []))} 筆')
+    except Exception as e:
+        print(f'  大盤融資融券匯入失敗：{e}')
 
     # ── 大盤 TAIEX（每次更新）──
     try:

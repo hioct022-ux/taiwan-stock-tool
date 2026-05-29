@@ -20,7 +20,8 @@ from database import (init_db, get_prices, get_fundamentals, get_chips,
                       save_note, update_user_note, delete_note, get_last_update,
                       get_etf_holders, get_etf_last_update, get_ownership,
                       get_t86_ranking, get_t86_ranking_bottom, get_t86_last_date,
-                      get_exdividend, get_exdividend_upcoming, get_exdividend_by_code)
+                      get_exdividend, get_exdividend_upcoming, get_exdividend_by_code,
+                      get_market_margin)
 from indicators import calc_all
 from scorer import full_score, get_grade, generate_auto_note
 from scheduler import start_scheduler, get_data_status, manual_fetch
@@ -1680,6 +1681,96 @@ def render_market():
             margin=dict(l=0, r=0, t=40, b=0)
         )
         show_chart(fig)
+
+    st.markdown('---')
+
+    # ── 大盤融資融券 ─────────────────────────
+    st.markdown('#### 💰 大盤融資融券')
+    mmargin = get_market_margin(days=120)
+
+    if not mmargin:
+        st.info('尚無大盤融資融券資料，更新資料後即可顯示。')
+    else:
+        mm_latest = mmargin[-1]
+        mm_date   = mm_latest['date']
+        mb_now    = mm_latest['margin_balance']
+        sb_now    = mm_latest['short_balance']
+        mb_20     = mmargin[-20]['margin_balance'] if len(mmargin) >= 20 else mb_now
+        sb_20     = mmargin[-20]['short_balance']  if len(mmargin) >= 20 else sb_now
+        mb_chg    = (mb_now - mb_20) / mb_20 * 100 if mb_20 > 0 else 0
+        sb_chg    = (sb_now - sb_20) / sb_20 * 100 if sb_20 > 0 else 0
+
+        # 融資使用率判斷（以近120日最高值為基準）
+        mb_max    = max(r['margin_balance'] for r in mmargin)
+        mb_min    = min(r['margin_balance'] for r in mmargin if r['margin_balance'] > 0)
+        usage_pct = (mb_now - mb_min) / (mb_max - mb_min) * 100 if mb_max > mb_min else 50
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric(f'融資餘額（{mm_date}）',
+                      f'{mb_now/10000:.1f} 億元' if mb_now > 10000 else f'{mb_now:,} 千張',
+                      delta=f'{mb_chg:+.1f}% 較20日前')
+        with col2:
+            st.metric('融券餘額',
+                      f'{sb_now:,} 千張',
+                      delta=f'{sb_chg:+.1f}% 較20日前')
+        with col3:
+            if usage_pct >= 75:
+                usage_label = '融資偏高 ⚠️'
+                usage_color = '#ef4444'
+            elif usage_pct <= 30:
+                usage_label = '融資偏低 ✅'
+                usage_color = '#22c55e'
+            else:
+                usage_label = '融資中性 →'
+                usage_color = '#f59e0b'
+            st.metric('近120日融資水位', f'{usage_pct:.0f}%', delta=usage_label)
+
+        # 融資融券走勢圖
+        mm_dates = [r['date'] for r in mmargin]
+        mb_vals  = [r['margin_balance'] for r in mmargin]
+        sb_vals  = [r['short_balance']  for r in mmargin]
+
+        fig_mm = make_subplots(specs=[[{'secondary_y': True}]])
+        fig_mm.add_trace(go.Scatter(
+            x=mm_dates, y=mb_vals, name='融資餘額',
+            mode='lines', fill='tozeroy',
+            line=dict(color='#ef4444', width=2),
+            fillcolor='rgba(239,68,68,0.15)'
+        ), secondary_y=False)
+        fig_mm.add_trace(go.Scatter(
+            x=mm_dates, y=sb_vals, name='融券餘額',
+            mode='lines',
+            line=dict(color='#38bdf8', width=2),
+        ), secondary_y=True)
+        fig_mm.update_layout(
+            paper_bgcolor='#0d0f12', plot_bgcolor='#141720',
+            font=dict(color='#e2e8f0', size=11),
+            height=300, margin=dict(l=0, r=0, t=30, b=0),
+            legend=dict(orientation='h', yanchor='bottom', y=1.02),
+            xaxis=dict(showgrid=True, gridcolor='#252a38'),
+        )
+        fig_mm.update_yaxes(title_text='融資餘額', showgrid=True, gridcolor='#252a38', secondary_y=False)
+        fig_mm.update_yaxes(title_text='融券餘額', showgrid=False, secondary_y=True)
+        show_chart(fig_mm)
+
+        # 判斷說明
+        if usage_pct >= 75:
+            st.warning(f'⚠️ **融資偏高警訊**：目前融資餘額處於近120日高水位（{usage_pct:.0f}%），'
+                       f'代表市場借錢追高行為偏積極。歷史上融資高水位往往是多頭末段訊號，'
+                       f'需留意回檔風險，建議降低槓桿、謹慎追高。')
+        elif usage_pct <= 30:
+            st.success(f'✅ **融資偏低訊號**：目前融資餘額處於近120日低水位（{usage_pct:.0f}%），'
+                       f'代表市場恐慌情緒較重、借錢追高意願低。歷史上融資低水位常是底部訊號，'
+                       f'逢回可留意低接機會。')
+        else:
+            st.info(f'→ **融資中性**：目前融資水位在近120日中段（{usage_pct:.0f}%），'
+                    f'市場情緒尚屬正常，操作上不特別偏多或偏空。')
+
+        if mb_chg > 5:
+            st.caption(f'📈 融資近20日增加 {mb_chg:.1f}%，籌碼略偏激進，留意高檔風險。')
+        elif mb_chg < -5:
+            st.caption(f'📉 融資近20日減少 {abs(mb_chg):.1f}%，籌碼正在清洗，可觀察是否落底。')
 
     st.markdown('---')
 

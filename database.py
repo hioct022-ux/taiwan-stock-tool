@@ -176,6 +176,18 @@ def init_db():
         )
     ''')
 
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS market_margin (
+            date             TEXT PRIMARY KEY,
+            margin_balance   INTEGER DEFAULT 0,
+            margin_buy       INTEGER DEFAULT 0,
+            margin_sell      INTEGER DEFAULT 0,
+            short_balance    INTEGER DEFAULT 0,
+            short_buy        INTEGER DEFAULT 0,
+            short_sell       INTEGER DEFAULT 0
+        )
+    ''')
+
     conn.commit()
     conn.close()
     print('資料庫初始化完成')
@@ -536,6 +548,38 @@ def get_t86_last_date():
     """取得 T86 資料最後日期"""
     conn = get_conn()
     row = conn.execute('SELECT MAX(date) FROM t86_ranking').fetchone()
+    conn.close()
+    return row[0] if row and row[0] else None
+
+# ── 大盤融資融券 ────────────────────────
+def save_market_margin(date, data):
+    conn = get_conn()
+    conn.execute('''
+        INSERT OR REPLACE INTO market_margin
+        (date, margin_balance, margin_buy, margin_sell,
+         short_balance, short_buy, short_sell)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    ''', (date,
+          data.get('margin_balance', 0), data.get('margin_buy', 0), data.get('margin_sell', 0),
+          data.get('short_balance', 0),  data.get('short_buy', 0),  data.get('short_sell', 0)))
+    conn.commit()
+    conn.close()
+
+def get_market_margin(days=120):
+    conn = get_conn()
+    rows = conn.execute('''
+        SELECT date, margin_balance, margin_buy, margin_sell,
+               short_balance, short_buy, short_sell
+        FROM market_margin ORDER BY date DESC LIMIT ?
+    ''', (days,)).fetchall()
+    conn.close()
+    cols = ['date', 'margin_balance', 'margin_buy', 'margin_sell',
+            'short_balance', 'short_buy', 'short_sell']
+    return [dict(zip(cols, r)) for r in reversed(rows)]
+
+def get_market_margin_last_date():
+    conn = get_conn()
+    row = conn.execute('SELECT MAX(date) FROM market_margin').fetchone()
     conn.close()
     return row[0] if row and row[0] else None
 

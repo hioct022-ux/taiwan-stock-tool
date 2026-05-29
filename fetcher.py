@@ -297,6 +297,110 @@ def fetch_chips():
         print(f'抓取三大法人失敗：{e}')
             
 
+# ── 抓大盤整體融資融券 ────────────────────
+def fetch_market_margin():
+    """
+    抓取全市場融資融券彙總資料（MI_MARGN selectType=MS）。
+    儲存到 market_margin 表。
+    """
+    from database import save_market_margin, get_market_margin_last_date, get_latest_price_date
+
+    twse_date = get_latest_price_date('2330') or datetime.now().strftime('%Y-%m-%d')
+    last = get_market_margin_last_date()
+    if last and last >= twse_date:
+        print(f'大盤融資融券已是最新（{last}），略過')
+        return
+
+    def parse_date_tw(s, fallback):
+        s = str(s).strip()
+        try:
+            if len(s) == 7 and s[0] == '1':
+                return f'{int(s[:3])+1911}-{s[3:5]}-{s[5:7]}'
+            if len(s) == 8 and s[0] == '2':
+                return f'{s[:4]}-{s[4:6]}-{s[6:8]}'
+        except Exception:
+            pass
+        return fallback
+
+    # 最多往前找 5 天
+    for days_back in range(0, 6):
+        try_d = (datetime.now() - timedelta(days=days_back))
+        if try_d.weekday() >= 5:
+            continue
+        date_yyyymmdd = try_d.strftime('%Y%m%d')
+        date_std_fb   = try_d.strftime('%Y-%m-%d')
+
+        url = (f'https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN'
+               f'?date={date_yyyymmdd}&selectType=MS&response=json')
+        try:
+            r = requests.get(url, headers=HEADERS, timeout=15, verify=False)
+            data = r.json()
+        except Exception as e:
+            print(f'大盤融資融券請求失敗（{date_yyyymmdd}）：{e}')
+            continue
+
+        if data.get('stat') != 'OK':
+            continue
+
+        date_str = parse_date_tw(data.get('date', ''), date_std_fb)
+
+        # 已有此日資料就跳過
+        if last and date_str <= last:
+            print(f'大盤融資融券已有 {date_str}，略過')
+            return
+
+        # 解析彙總表：找包含「融資」「餘額」的 table
+        tables = data.get('tables', []) or []
+        # 有時候直接是 data key（非 tables）
+        if not tables and data.get('data'):
+            tables = [data]
+
+        margin_balance = short_balance = 0
+        margin_buy = margin_sell = short_buy = short_sell = 0
+
+        for tbl in tables:
+            title = tbl.get('title', '') or tbl.get('name', '')
+            rows  = tbl.get('data', [])
+            fields = tbl.get('fields', [])
+            for row in rows:
+                if not row:
+                    continue
+                label = str(row[0]).strip()
+                vals  = [clean_num(v) for v in row[1:]]
+                # 融資彙總行
+                if '融資' in label and '借券' not in label:
+                    try:
+                        margin_buy     = int(vals[0]) if len(vals) > 0 else 0
+                        margin_sell    = int(vals[1]) if len(vals) > 1 else 0
+                        margin_balance = int(vals[4]) if len(vals) > 4 else 0
+                    except Exception:
+                        pass
+                # 融券彙總行
+                if '融券' in label:
+                    try:
+                        short_sell    = int(vals[0]) if len(vals) > 0 else 0
+                        short_buy     = int(vals[1]) if len(vals) > 1 else 0
+                        short_balance = int(vals[4]) if len(vals) > 4 else 0
+                    except Exception:
+                        pass
+
+        if margin_balance > 0 or short_balance > 0:
+            save_market_margin(date_str, {
+                'margin_balance': margin_balance,
+                'margin_buy':     margin_buy,
+                'margin_sell':    margin_sell,
+                'short_balance':  short_balance,
+                'short_buy':      short_buy,
+                'short_sell':     short_sell,
+            })
+            print(f'大盤融資融券儲存完成（{date_str}）：融資餘額={margin_balance:,}，融券餘額={short_balance:,}')
+            return
+        else:
+            print(f'大盤融資融券無法解析（{date_yyyymmdd}），嘗試前一天...')
+
+    print('大盤融資融券：所有日期均無資料')
+
+
 # ── 抓融資融券 ───────────────────────────
 def fetch_margin():
     print('抓取融資融券資料...')
@@ -647,6 +751,12 @@ def fetch_all():
         fetch_taiex()
     except Exception as e:
         errors.append(f'加權指數：{e}')
+
+    # ── 大盤融資融券彙總 ──────────────────────
+    try:
+        fetch_market_margin()
+    except Exception as e:
+        errors.append(f'大盤融資融券：{e}')
 
     # ── 除權息資料（最後執行，避免被 TWSE 限流）──
     time.sleep(3)
