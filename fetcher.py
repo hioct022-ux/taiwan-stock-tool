@@ -721,6 +721,71 @@ def fetch_history(code, months=3):
         print(f'{code} 歷史資料：{len(all_rows)} 筆')
     return all_rows
 
+
+def fetch_history_tpex(code, months=3):
+    """補抓上櫃（TPEx）個股歷史價格，使用櫃買中心月份查詢 API"""
+    print(f'抓取上櫃 {code} 歷史資料...')
+    all_rows = []
+    today = datetime.now()
+
+    for i in range(months - 1, -1, -1):
+        d = datetime(today.year, today.month, 1) - timedelta(days=i * 30)
+        roc_year = d.year - 1911
+        date_str = f'{roc_year}/{d.month:02d}'  # 例如 115/05
+        try:
+            url = (f'https://www.tpex.org.tw/web/stock/aftertrading/daily_trading_info/'
+                   f'st43_result.php?l=zh-tw&d={date_str}&stkno={code}&s=0,asc&o=json')
+            r = requests.get(url, headers=HEADERS, timeout=15, verify=False)
+            data = r.json()
+            rows_data = data.get('aaData') or data.get('data') or []
+            for row in rows_data:
+                try:
+                    # 欄位：日期(民國), 成交股數, 成交金額, 開盤, 最高, 最低, 收盤, 漲跌, 筆數
+                    date_tw = str(row[0]).strip().replace('/', '-')
+                    parts = date_tw.split('-')
+                    if len(parts) == 3:
+                        year = int(parts[0]) + 1911
+                        date = f'{year}-{parts[1]}-{parts[2]}'
+                    else:
+                        continue
+                    vol   = clean_num(row[1])
+                    open_ = clean_num(row[4])
+                    high  = clean_num(row[5])
+                    low   = clean_num(row[6])
+                    close = clean_num(row[7])
+                    chg   = clean_num(row[8]) if len(row) > 8 else 0
+                    if close and close > 0:
+                        pct = round(chg / (close - chg) * 100, 2) if (close - chg) != 0 else 0
+                        all_rows.append({
+                            'date': date, 'open': open_, 'high': high,
+                            'low': low, 'close': close, 'volume': int(vol or 0),
+                            'value': 0, 'change': chg, 'change_pct': pct
+                        })
+                except Exception:
+                    pass
+            time.sleep(0.5)
+        except Exception as e:
+            print(f'上櫃歷史失敗 {code} {date_str}：{e}')
+
+    if all_rows:
+        save_prices(code, all_rows)
+        print(f'{code} 上櫃歷史資料：{len(all_rows)} 筆')
+    return all_rows
+
+
+def fetch_history_auto(code, months=15):
+    """自動判斷上市/上櫃，呼叫對應的歷史補抓函數"""
+    from database import get_conn
+    conn = get_conn()
+    row = conn.execute('SELECT market FROM stocks WHERE code=?', (code,)).fetchone()
+    conn.close()
+    market = row[0] if row else 'TWSE'
+    if market == 'TPEx':
+        return fetch_history_tpex(code, months=months)
+    else:
+        return fetch_history(code, months=months)
+
+
 # ── 每日完整更新流程 ─────────────────────
 # ── 抓外資持股比率 ───────────────────────
 def fetch_ownership():
