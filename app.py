@@ -1708,11 +1708,11 @@ def render_market():
         col1, col2, col3 = st.columns(3)
         with col1:
             st.metric(f'融資餘額（{mm_date}）',
-                      f'{mb_now/10000:.1f} 億元' if mb_now > 10000 else f'{mb_now:,} 千張',
+                      f'{mb_now:,} 億元',
                       delta=f'{mb_chg:+.1f}% 較20日前')
         with col2:
             st.metric('融券餘額',
-                      f'{sb_now:,} 千張',
+                      f'{sb_now:,} 張',
                       delta=f'{sb_chg:+.1f}% 較20日前')
         with col3:
             if usage_pct >= 75:

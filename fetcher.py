@@ -358,42 +358,47 @@ def fetch_market_margin():
         margin_balance = short_balance = 0
         margin_buy = margin_sell = short_buy = short_sell = 0
 
+        # API 欄位：['項目','買進','賣出','現金(券)償還','前日餘額','今日餘額']
+        # vals 索引：  0      1      2        3            4         5  （row[1:]）
+        margin_lots = margin_buy = margin_sell = 0   # 融資（張）
+        margin_amount = 0                             # 融資金額（千元）
+        short_balance = short_buy = short_sell = 0   # 融券（張）
+
         for tbl in tables:
-            title = tbl.get('title', '') or tbl.get('name', '')
-            rows  = tbl.get('data', [])
-            fields = tbl.get('fields', [])
-            for row in rows:
+            for row in tbl.get('data', []):
                 if not row:
                     continue
                 label = str(row[0]).strip()
                 vals  = [clean_num(v) for v in row[1:]]
-                # 融資彙總行
-                if '融資' in label and '借券' not in label:
-                    try:
-                        margin_buy     = int(vals[0]) if len(vals) > 0 else 0
-                        margin_sell    = int(vals[1]) if len(vals) > 1 else 0
-                        margin_balance = int(vals[4]) if len(vals) > 4 else 0
-                    except Exception:
-                        pass
-                # 融券彙總行
-                if '融券' in label:
-                    try:
-                        short_sell    = int(vals[0]) if len(vals) > 0 else 0
-                        short_buy     = int(vals[1]) if len(vals) > 1 else 0
-                        short_balance = int(vals[4]) if len(vals) > 4 else 0
-                    except Exception:
-                        pass
+                if len(vals) < 5:
+                    continue
+                try:
+                    if label == '融資(交易單位)':
+                        margin_buy   = int(vals[0])
+                        margin_sell  = int(vals[1])
+                        margin_lots  = int(vals[4])   # 今日餘額（張）
+                    elif '融資金額' in label:
+                        margin_amount = int(vals[4])  # 今日餘額（千元）
+                    elif label == '融券(交易單位)':
+                        short_sell    = int(vals[0])
+                        short_buy     = int(vals[1])
+                        short_balance = int(vals[4])  # 今日餘額（張）
+                except Exception:
+                    pass
+
+        # margin_balance 儲存為億元（整數），融資金額仟元 ÷ 100000
+        margin_balance = round(margin_amount / 100000) if margin_amount > 0 else margin_lots
 
         if margin_balance > 0 or short_balance > 0:
             save_market_margin(date_str, {
-                'margin_balance': margin_balance,
-                'margin_buy':     margin_buy,
-                'margin_sell':    margin_sell,
-                'short_balance':  short_balance,
-                'short_buy':      short_buy,
-                'short_sell':     short_sell,
+                'margin_balance': margin_balance,   # 億元
+                'margin_buy':     margin_buy,       # 張
+                'margin_sell':    margin_sell,       # 張
+                'short_balance':  short_balance,    # 張
+                'short_buy':      short_buy,        # 張
+                'short_sell':     short_sell,       # 張
             })
-            print(f'大盤融資融券儲存完成（{date_str}）：融資餘額={margin_balance:,}，融券餘額={short_balance:,}')
+            print(f'大盤融資融券儲存完成（{date_str}）：融資={margin_balance:,} 億元，融券={short_balance:,} 張')
             return
         else:
             print(f'大盤融資融券無法解析（{date_yyyymmdd}），嘗試前一天...')
