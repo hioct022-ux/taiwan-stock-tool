@@ -887,7 +887,9 @@ def render_chips(result, code, name, chips_list):
         st.caption('自營商為短線操作，參考權重較低')
 
     # ── 三大法人歷史走勢圖 ──
-    if len(chips_list) >= 5:
+    if len(chips_list) < 5:
+        st.info('籌碼歷史資料不足（需至少 5 個交易日），請在本機更新資料後同步。')
+    elif len(chips_list) >= 5:
         dates_c   = [r['date'] for r in recent65]
         f_nets    = [r.get('foreign_net', 0) for r in recent65]
         t_nets    = [r.get('trust_net',   0) for r in recent65]
@@ -904,10 +906,12 @@ def render_chips(result, code, name, chips_list):
             mode='lines+markers', line=dict(color='#38bdf8', width=2),
             marker=dict(size=4)
         ))
-        fig_chips.add_trace(go.Scatter(
-            x=dates_c, y=d_nets, name='自營商淨買賣',
-            mode='lines', line=dict(color='#facc15', width=1.5, dash='dot')
-        ))
+        # 自營商全為 0 時不畫（避免圖表出現無意義的貼底線）
+        if any(v != 0 for v in d_nets):
+            fig_chips.add_trace(go.Scatter(
+                x=dates_c, y=d_nets, name='自營商淨買賣',
+                mode='lines', line=dict(color='#facc15', width=1.5, dash='dot')
+            ))
         fig_chips.add_hline(y=0, line_color='#555', line_width=1)
         fig_chips.update_layout(
             title=None,
