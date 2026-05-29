@@ -50,6 +50,10 @@ st.markdown('''
         pointer-events: none !important;
     }
     .main { background-color: #0d0f12; }
+    /* 縮小主內容區頂部留白，讓右側內容盡量往上對齊 */
+    .block-container {
+        padding-top: 1rem !important;
+    }
     /* 修正 metric 元件 */
     [data-testid="stMetric"] {
         background-color: #141720;
