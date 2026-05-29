@@ -430,16 +430,30 @@ def render_sidebar():
             st.markdown('---')
             # 新增自選股
             with st.expander('➕ 新增自選股'):
-                new_code = st.text_input('股票代碼', placeholder='例如：2330', key='new_wl_code')
-                new_name = st.text_input('股票名稱', placeholder='例如：台積電', key='new_wl_name')
-                new_tag  = st.selectbox('標籤', TAG_LIST or ['其他'], key='new_wl_tag')
-                if st.button('加入自選股', use_container_width=True):
-                    if new_code and new_name:
-                        add_watchlist(new_code.strip(), new_name.strip(), new_tag)
-                        st.success(f'已加入 {new_code} {new_name}')
-                        st.rerun()
+                wl_kw = st.text_input('股票代碼或名稱', placeholder='例如：2330 或 台積電', key='new_wl_kw')
+                if wl_kw:
+                    wl_results = search_stock(wl_kw)
+                    if wl_results:
+                        existing_codes = {w['code'] for w in watchlist}
+                        wl_options = {
+                            f"{r['code']} {r['name']}": r
+                            for r in wl_results
+                        }
+                        wl_selected_label = st.selectbox(
+                            '選擇股票', list(wl_options.keys()),
+                            key='new_wl_select', label_visibility='collapsed'
+                        )
+                        wl_stock = wl_options[wl_selected_label]
+                        new_tag  = st.selectbox('標籤', TAG_LIST or ['其他'], key='new_wl_tag')
+                        already  = wl_stock['code'] in existing_codes
+                        if already:
+                            st.caption(f'⚠️ {wl_stock["code"]} 已在自選股中')
+                        if st.button('⭐ 加入自選股', use_container_width=True, disabled=already):
+                            add_watchlist(wl_stock['code'], wl_stock['name'], new_tag)
+                            st.success(f'已加入 {wl_stock["code"]} {wl_stock["name"]}')
+                            st.rerun()
                     else:
-                        st.error('請填入代碼和名稱')
+                        st.warning('找不到符合的股票')
 
             # 標籤管理
             with st.expander('🏷️ 管理標籤'):
