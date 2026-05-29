@@ -345,18 +345,40 @@ def render_sidebar():
 
         st.markdown('---')
 
-        # 股票搜尋
+        # 股票搜尋 + 加入自選股（合併）
         st.markdown('#### 🔍 搜尋股票')
         keyword = st.text_input('輸入代碼或名稱', placeholder='例如：2330 或 台積電')
         if keyword:
             results = search_stock(keyword)
             if results:
-                options = {f"{r['code']} {r['name']}": r['code'] for r in results}
-                selected = st.selectbox('搜尋結果', list(options.keys()))
-                if st.button('查看此股票', use_container_width=True):
-                    st.session_state['current_code'] = options[selected]
-                    st.session_state['page'] = 'stock'
-                    st.rerun()
+                existing_codes = {w['code'] for w in watchlist}
+                options = {f"{r['code']} {r['name']}": r for r in results}
+                selected_label = st.selectbox('搜尋結果', list(options.keys()), label_visibility='collapsed')
+                selected_stock = options[selected_label]
+                already = selected_stock['code'] in existing_codes
+                # 查看 / 加入自選股
+                b1, b2 = st.columns(2)
+                with b1:
+                    if st.button('📊 查看', use_container_width=True):
+                        st.session_state['current_code'] = selected_stock['code']
+                        st.session_state['page'] = 'stock'
+                        st.rerun()
+                with b2:
+                    if IS_LOCAL:
+                        if already:
+                            st.button('✅ 已加入', use_container_width=True, disabled=True)
+                        else:
+                            if st.button('⭐ 自選股', use_container_width=True):
+                                st.session_state['_add_wl_stock'] = selected_stock
+                                st.rerun()
+                # 選標籤後確認加入
+                if IS_LOCAL and not already and st.session_state.get('_add_wl_stock', {}).get('code') == selected_stock['code']:
+                    add_tag_sel = st.selectbox('選擇標籤', TAG_LIST or ['其他'], key='search_add_tag')
+                    if st.button('確認加入自選股', use_container_width=True):
+                        s = st.session_state.pop('_add_wl_stock')
+                        add_watchlist(s['code'], s['name'], add_tag_sel)
+                        st.success(f'已加入 {s["code"]} {s["name"]}')
+                        st.rerun()
             else:
                 st.warning('找不到符合的股票，請確認代碼是否正確')
 
@@ -428,33 +450,6 @@ def render_sidebar():
 
         if IS_LOCAL:
             st.markdown('---')
-            # 新增自選股
-            with st.expander('➕ 新增自選股'):
-                wl_kw = st.text_input('股票代碼或名稱', placeholder='例如：2330 或 台積電', key='new_wl_kw')
-                if wl_kw:
-                    wl_results = search_stock(wl_kw)
-                    if wl_results:
-                        existing_codes = {w['code'] for w in watchlist}
-                        wl_options = {
-                            f"{r['code']} {r['name']}": r
-                            for r in wl_results
-                        }
-                        wl_selected_label = st.selectbox(
-                            '選擇股票', list(wl_options.keys()),
-                            key='new_wl_select', label_visibility='collapsed'
-                        )
-                        wl_stock = wl_options[wl_selected_label]
-                        new_tag  = st.selectbox('標籤', TAG_LIST or ['其他'], key='new_wl_tag')
-                        already  = wl_stock['code'] in existing_codes
-                        if already:
-                            st.caption(f'⚠️ {wl_stock["code"]} 已在自選股中')
-                        if st.button('⭐ 加入自選股', use_container_width=True, disabled=already):
-                            add_watchlist(wl_stock['code'], wl_stock['name'], new_tag)
-                            st.success(f'已加入 {wl_stock["code"]} {wl_stock["name"]}')
-                            st.rerun()
-                    else:
-                        st.warning('找不到符合的股票')
-
             # 標籤管理
             with st.expander('🏷️ 管理標籤'):
                 st.caption('新增標籤')
