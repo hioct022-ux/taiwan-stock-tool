@@ -723,53 +723,74 @@ def fetch_history(code, months=3):
 
 
 def fetch_history_tpex(code, months=3):
-    """補抓上櫃（TPEx）個股歷史價格，使用櫃買中心月份查詢 API"""
+    """補抓上櫃（TPEx）個股歷史價格
+    使用 OpenAPI: tpex_mainboard_daily_close_quotes?date=YYYYMMDD
+    每次回傳全部上櫃股，再篩選出目標股票。
+    """
     print(f'抓取上櫃 {code} 歷史資料...')
     all_rows = []
     today = datetime.now()
+    start = today - timedelta(days=months * 31)
 
-    for i in range(months - 1, -1, -1):
-        d = datetime(today.year, today.month, 1) - timedelta(days=i * 30)
-        roc_year = d.year - 1911
-        date_str = f'{roc_year}/{d.month:02d}'  # 例如 115/05
+    # 產生需要查詢的平日日期清單
+    dates = []
+    cur = start
+    while cur.date() <= today.date():
+        if cur.weekday() < 5:
+            dates.append(cur.strftime('%Y%m%d'))
+        cur += timedelta(days=1)
+
+    seen = set()
+    for date_str in dates:
         try:
-            url = (f'https://www.tpex.org.tw/web/stock/aftertrading/daily_trading_info/'
-                   f'st43_result.php?l=zh-tw&d={date_str}&stkno={code}&s=0,asc&o=json')
+            url = (f'https://www.tpex.org.tw/openapi/v1/'
+                   f'tpex_mainboard_daily_close_quotes?date={date_str}')
             r = requests.get(url, headers=HEADERS, timeout=15, verify=False)
+            if r.status_code != 200 or not r.text.strip():
+                time.sleep(0.3)
+                continue
             data = r.json()
-            rows_data = data.get('aaData') or data.get('data') or []
-            for row in rows_data:
-                try:
-                    # 欄位：日期(民國), 成交股數, 成交金額, 開盤, 最高, 最低, 收盤, 漲跌, 筆數
-                    date_tw = str(row[0]).strip().replace('/', '-')
-                    parts = date_tw.split('-')
-                    if len(parts) == 3:
-                        year = int(parts[0]) + 1911
-                        date = f'{year}-{parts[1]}-{parts[2]}'
-                    else:
-                        continue
-                    vol   = clean_num(row[1])
-                    open_ = clean_num(row[4])
-                    high  = clean_num(row[5])
-                    low   = clean_num(row[6])
-                    close = clean_num(row[7])
-                    chg   = clean_num(row[8]) if len(row) > 8 else 0
-                    if close and close > 0:
-                        pct = round(chg / (close - chg) * 100, 2) if (close - chg) != 0 else 0
-                        all_rows.append({
-                            'date': date, 'open': open_, 'high': high,
-                            'low': low, 'close': close, 'volume': int(vol or 0),
-                            'value': 0, 'change': chg, 'change_pct': pct
-                        })
-                except Exception:
-                    pass
-            time.sleep(0.5)
+            if not isinstance(data, list):
+                time.sleep(0.3)
+                continue
+            for item in data:
+                if str(item.get('SecuritiesCompanyCode', '')) != code:
+                    continue
+                # 日期：民國年7碼，如 1150529
+                date_tw = str(item.get('Date', '')).strip()
+                if len(date_tw) == 7:
+                    std_date = f'{int(date_tw[:3])+1911}-{date_tw[3:5]}-{date_tw[5:7]}'
+                else:
+                    continue
+                if std_date in seen:
+                    continue
+                seen.add(std_date)
+                close = clean_num(item.get('Close', 0))
+                open_ = clean_num(item.get('Open', 0))
+                high  = clean_num(item.get('High', 0))
+                low   = clean_num(item.get('Low', 0))
+                vol   = clean_num(item.get('TradingShares', 0))
+                val   = clean_num(item.get('TransactionAmount', 0))
+                chg_s = str(item.get('Change', '0')).replace('+', '').replace('X', '0')
+                chg   = clean_num(chg_s)
+                if close and close > 0:
+                    pct = round(chg / (close - chg) * 100, 2) if (close - chg) != 0 else 0
+                    all_rows.append({
+                        'date': std_date, 'open': open_, 'high': high,
+                        'low': low, 'close': close,
+                        'volume': int(vol / 1000) if vol else 0,  # 股→張
+                        'value': val, 'change': chg, 'change_pct': pct
+                    })
+            time.sleep(0.2)
         except Exception as e:
-            print(f'上櫃歷史失敗 {code} {date_str}：{e}')
+            time.sleep(0.3)
 
     if all_rows:
+        all_rows.sort(key=lambda x: x['date'])
         save_prices(code, all_rows)
         print(f'{code} 上櫃歷史資料：{len(all_rows)} 筆')
+    else:
+        print(f'{code} 上櫃歷史無資料（可能非交易日或代碼錯誤）')
     return all_rows
 
 
