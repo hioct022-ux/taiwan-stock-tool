@@ -382,14 +382,21 @@ def add_tag(name):
         conn.close()
 
 def rename_tag(old_name, new_name):
-    """重新命名標籤，同步更新自選股的 tag 欄位"""
+    """重新命名標籤，同步更新所有自選股中包含該標籤的欄位"""
     new_name = new_name.strip()
     if not new_name or old_name == new_name:
         return False
     conn = get_conn()
     try:
         conn.execute('UPDATE watchlist_tags SET name=? WHERE name=?', (new_name, old_name))
-        conn.execute('UPDATE watchlist SET tag=? WHERE tag=?', (new_name, old_name))
+        # 逐筆更新含有 old_name 的自選股
+        rows = conn.execute('SELECT code, tag FROM watchlist').fetchall()
+        for code, tag_str in rows:
+            tags = _str_to_tags(tag_str)
+            if old_name in tags:
+                new_tags = [new_name if t == old_name else t for t in tags]
+                conn.execute('UPDATE watchlist SET tag=? WHERE code=?',
+                             (_tags_to_str(new_tags), code))
         conn.commit()
         return True
     except Exception:
@@ -398,11 +405,18 @@ def rename_tag(old_name, new_name):
         conn.close()
 
 def delete_tag(name):
-    """刪除標籤，使用該標籤的自選股改為「其他」"""
+    """刪除標籤，同步從所有自選股移除該標籤"""
     conn = get_conn()
     try:
         conn.execute('DELETE FROM watchlist_tags WHERE name=?', (name,))
-        conn.execute("UPDATE watchlist SET tag='其他' WHERE tag=?", (name,))
+        # 逐筆移除含有 name 的自選股標籤
+        rows = conn.execute('SELECT code, tag FROM watchlist').fetchall()
+        for code, tag_str in rows:
+            tags = _str_to_tags(tag_str)
+            if name in tags:
+                new_tags = [t for t in tags if t != name]
+                conn.execute('UPDATE watchlist SET tag=? WHERE code=?',
+                             (_tags_to_str(new_tags), code))
         conn.commit()
         return True
     except Exception:
