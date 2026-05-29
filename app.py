@@ -395,9 +395,8 @@ def render_sidebar():
         st.markdown('#### ⭐ 自選股清單')
 
         if watchlist:
-            # 標籤篩選（多標籤：股票只要含有該標籤即顯示）
-            used_tags   = [t for t in TAG_LIST if any(t in w.get('tags', []) for w in watchlist)]
-            filter_opts = ['全部'] + used_tags
+            # 標籤篩選：直接顯示所有已建立標籤，選定後只顯示含該標籤的股票
+            filter_opts = ['全部'] + TAG_LIST
             sel_filter  = st.radio(
                 '篩選', filter_opts, horizontal=True,
                 key='watchlist_tag_filter', label_visibility='collapsed'
