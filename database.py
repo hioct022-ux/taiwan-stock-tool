@@ -158,14 +158,15 @@ def init_db():
     # ── 除權息資料 ──
     c.execute('''
         CREATE TABLE IF NOT EXISTS exdividend (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            ex_date     TEXT,
-            code        TEXT,
-            name        TEXT,
-            prev_close  REAL,
-            ref_price   REAL,
-            div_value   REAL,
-            div_type    TEXT,
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            ex_date      TEXT,
+            code         TEXT,
+            name         TEXT,
+            prev_close   REAL,
+            ref_price    REAL,
+            div_value    REAL,
+            div_type     TEXT,
+            is_confirmed INTEGER DEFAULT 0,
             UNIQUE(ex_date, code)
         )
     ''')
@@ -694,18 +695,50 @@ def get_market_margin_last_date():
 
 # ── 除權息資料 ──────────────────────────
 def save_exdividend(rows):
-    """批次存入除權息資料，rows 為 list of dict"""
+    """
+    批次存入除權息資料。
+    is_confirmed=1（TWT49U 正式）時無條件覆蓋；
+    is_confirmed=0（TWT48U 早期預告）時若已有正式資料則跳過。
+    同時執行 ALTER TABLE 補欄位（舊版 DB 相容）。
+    """
     conn = get_conn()
     c = conn.cursor()
+    # 舊版 DB 相容：補 is_confirmed 欄位
+    try:
+        c.execute('ALTER TABLE exdividend ADD COLUMN is_confirmed INTEGER DEFAULT 0')
+        conn.commit()
+    except Exception:
+        pass  # 欄位已存在，忽略
+
     for r in rows:
         try:
-            c.execute('''
-                INSERT OR REPLACE INTO exdividend
-                (ex_date, code, name, prev_close, ref_price, div_value, div_type)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (r['ex_date'], r['code'], r['name'],
-                  r.get('prev_close', 0), r.get('ref_price', 0),
-                  r.get('div_value', 0), r.get('div_type', '')))
+            is_confirmed = 1 if r.get('is_confirmed') else 0
+            if is_confirmed:
+                # 正式資料：直接 INSERT OR REPLACE（覆蓋預告）
+                c.execute('''
+                    INSERT OR REPLACE INTO exdividend
+                    (ex_date, code, name, prev_close, ref_price, div_value, div_type, is_confirmed)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+                ''', (r['ex_date'], r['code'], r['name'],
+                      r.get('prev_close', 0), r.get('ref_price', 0),
+                      r.get('div_value', 0), r.get('div_type', '')))
+            else:
+                # 早期預告：僅在無資料時才插入，有正式資料則跳過
+                c.execute('''
+                    INSERT OR IGNORE INTO exdividend
+                    (ex_date, code, name, prev_close, ref_price, div_value, div_type, is_confirmed)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+                ''', (r['ex_date'], r['code'], r['name'],
+                      r.get('prev_close', 0), r.get('ref_price', 0),
+                      r.get('div_value', 0), r.get('div_type', '')))
+                # 若已存在且仍是預告，更新內容（名稱/股息可能更新）
+                c.execute('''
+                    UPDATE exdividend
+                    SET name=?, prev_close=?, div_value=?, div_type=?
+                    WHERE ex_date=? AND code=? AND is_confirmed=0
+                ''', (r['name'], r.get('prev_close', 0),
+                      r.get('div_value', 0), r.get('div_type', ''),
+                      r['ex_date'], r['code']))
         except Exception as e:
             print(f'儲存除權息失敗：{e}')
     conn.commit()
@@ -731,7 +764,8 @@ def get_exdividend_upcoming(days=30):
     conn = get_conn()
     c = conn.cursor()
     c.execute('''
-        SELECT ex_date, code, name, prev_close, ref_price, div_value, div_type
+        SELECT ex_date, code, name, prev_close, ref_price, div_value, div_type,
+               COALESCE(is_confirmed, 0) as is_confirmed
         FROM exdividend
         WHERE ex_date >= date('now')
           AND ex_date <= date('now', ?)
@@ -739,7 +773,7 @@ def get_exdividend_upcoming(days=30):
     ''', (f'+{days} days',))
     rows = c.fetchall()
     conn.close()
-    cols = ['ex_date', 'code', 'name', 'prev_close', 'ref_price', 'div_value', 'div_type']
+    cols = ['ex_date', 'code', 'name', 'prev_close', 'ref_price', 'div_value', 'div_type', 'is_confirmed']
     return [dict(zip(cols, r)) for r in rows]
 
 def get_exdividend_by_code(code):

@@ -775,6 +775,110 @@ def fetch_history_auto(code, months=15):
         return fetch_history(code, months=months)
 
 
+def fetch_fundamentals_tpex_all():
+    """
+    從櫃買中心 OpenAPI 一次抓取全部上櫃股的 PE/PB/殖利率，
+    只更新資料庫中已存在的上櫃股（watchlist 或 stocks 表）。
+    API: https://www.tpex.org.tw/openapi/v1/tpex_mainboard_peratio_analysis
+    回傳欄位：SecuritiesCompanyCode, StockName, PerRatio, PbRatio, DividendYield
+    """
+    print('抓取上櫃基本面（批次）...')
+    try:
+        url = 'https://www.tpex.org.tw/openapi/v1/tpex_mainboard_peratio_analysis'
+        r = requests.get(url, headers=HEADERS, timeout=15, verify=False)
+        if r.status_code != 200 or not r.text.strip():
+            print(f'上櫃基本面 API 無回應（status={r.status_code}）')
+            return
+        data = r.json()
+        today = datetime.now().strftime('%Y-%m-%d')
+
+        # 建立 code→資料 查找表
+        tpex_map = {}
+        for s in data:
+            code = str(s.get('SecuritiesCompanyCode', '') or s.get('Code', '')).strip()
+            if not code:
+                continue
+            pe  = clean_num(s.get('PerRatio')  or s.get('PEratio', ''))
+            pb  = clean_num(s.get('PbRatio')   or s.get('PBratio', ''))
+            div = clean_num(s.get('DividendYield', ''))
+            tpex_map[code] = (pe, pb, div)
+
+        if not tpex_map:
+            print('上櫃基本面：API 回傳空資料，欄位名稱可能已更動')
+            # 印出第一筆方便偵錯
+            if data:
+                print(f'  第一筆範例：{list(data[0].keys())}')
+            return
+
+        # 只更新 stocks 表中 market=TPEx 的股票
+        from database import get_conn as _gc, save_fundamental as _sf, get_prices as _gp
+        conn = _gc()
+        tpex_codes = [r[0] for r in conn.execute(
+            "SELECT code FROM stocks WHERE market='TPEx'"
+        ).fetchall()]
+        conn.close()
+
+        count = 0
+        for code in tpex_codes:
+            if code not in tpex_map:
+                continue
+            pe, pb, div = tpex_map[code]
+            prices = _gp(code, days=1)
+            close  = prices[-1]['close'] if prices else 0
+            eps    = round(close / pe, 2) if pe and pe > 0 and close > 0 else 0.0
+            _sf(code, today, eps, pe, pb, div)
+            count += 1
+
+        print(f'上櫃基本面（批次）：更新 {count} 筆（API 共 {len(tpex_map)} 支）')
+    except Exception as e:
+        print(f'上櫃基本面批次抓取失敗：{e}')
+
+
+def fetch_fundamentals_tpex(code):
+    """
+    用 yfinance 抓取上櫃個股基本面（PE、PB、殖利率）。
+    yfinance ticker.info 包含 trailingPE、priceToBook、trailingAnnualDividendYield 等欄位。
+    """
+    print(f'抓取上櫃 {code} 基本面（yfinance）...')
+    try:
+        import yfinance as yf
+        ticker = yf.Ticker(f'{code}.TWO')
+        info = ticker.info
+        if not info or info.get('regularMarketPrice') is None:
+            print(f'{code} yfinance info 無資料')
+            return
+
+        pe  = info.get('trailingPE') or info.get('forwardPE') or 0.0
+        pb  = info.get('priceToBook') or 0.0
+        div = (info.get('trailingAnnualDividendYield') or 0.0) * 100  # 轉成百分比
+
+        # EPS 從收盤價 ÷ PE 反推（近四季TTM）
+        close = info.get('regularMarketPrice') or info.get('currentPrice') or 0.0
+        eps = round(close / pe, 2) if pe and pe > 0 and close > 0 else 0.0
+
+        today = datetime.now().strftime('%Y-%m-%d')
+        save_fundamental(code, today, eps, pe, pb, div)
+        print(f'{code} 基本面：EPS={eps}, PE={pe}, PB={pb}, 殖利率={div:.2f}%')
+    except ImportError:
+        print('yfinance 未安裝，請執行：pip install yfinance')
+    except Exception as e:
+        print(f'{code} yfinance 基本面失敗：{e}')
+
+
+def fetch_fundamentals_auto(code):
+    """自動判斷上市/上櫃，抓取對應的基本面資料"""
+    from database import get_conn
+    conn = get_conn()
+    row = conn.execute('SELECT market FROM stocks WHERE code=?', (code,)).fetchone()
+    conn.close()
+    market = row[0] if row else 'TWSE'
+    if market == 'TPEx':
+        fetch_fundamentals_tpex(code)
+    else:
+        # TWSE 基本面由全市場 fetch_fundamentals() 統一抓，這裡只做單股補抓
+        fetch_fundamentals_tpex(code)  # 上市也可用 yfinance 補抓單股
+
+
 # ── 每日完整更新流程 ─────────────────────
 # ── 抓外資持股比率 ───────────────────────
 def fetch_ownership():
@@ -832,6 +936,13 @@ def fetch_all():
     time.sleep(1)
 
     try:
+        fetch_fundamentals_tpex_all()
+    except Exception as e:
+        errors.append(f'上櫃基本面：{e}')
+
+    time.sleep(1)
+
+    try:
         fetch_chips()
     except Exception as e:
         errors.append(f'三大法人：{e}')
@@ -862,17 +973,29 @@ def fetch_all():
 
     # ── 自選股歷史補齊（資料不足 60 天就自動補抓）──
     try:
-        from database import get_watchlist, get_prices as _gp
+        from database import get_watchlist, get_prices as _gp, get_chips as _gchips, get_conn as _gcc
         watchlist = get_watchlist()
         for w in watchlist:
             code = w['code']
+            # 取得市場別
+            _conn_w = _gcc()
+            _mkt_w = (_conn_w.execute('SELECT market FROM stocks WHERE code=?', (code,)).fetchone() or [None])[0]
+            _conn_w.close()
+
             existing = _gp(code, days=60)
             if len(existing) < 60:
                 print(f'[補齊] {code} 價格歷史不足（{len(existing)} 筆），補抓中...')
-                fetch_history(code, months=3)
+                if _mkt_w == 'TPEx':
+                    fetch_history_tpex(code, months=15)
+                else:
+                    fetch_history(code, months=3)
                 time.sleep(1)
-            from database import get_chips as _gc
-            existing_chips = _gc(code, days=60)
+
+            # 上櫃股不支援 T86 籌碼，跳過
+            if _mkt_w == 'TPEx':
+                continue
+
+            existing_chips = _gchips(code, days=60)
             if len(existing_chips) < 30:
                 print(f'[補齊] {code} 籌碼歷史不足（{len(existing_chips)} 筆），補抓中...')
                 fetch_chips_history(code, months=3)
@@ -935,74 +1058,94 @@ def fetch_all():
 # ── 抓即將除權息名單 ──────────────────────
 def fetch_exdividend():
     """
-    抓取 TWSE TWT49U 即將除權息名單。
-    注意：此端點只回傳「目前已公告、尚未執行」的除權息預告，
-    不支援歷史查詢。每天抓一次並存入 DB，隨時間自然累積近期紀錄。
+    兩階段抓取除權息資料：
+    1. TWT48U（早期預告）：120+ 筆，含所有已公告除息日的股票，is_confirmed=0
+    2. TWT49U（正式確認）：最近幾天已確認的名單，is_confirmed=1，覆蓋預告資料
     """
     import re as _re
     from database import save_exdividend
 
-    def parse_row_date(s):
+    def parse_tw_date(s):
         m = _re.match(r'(\d+)年(\d+)月(\d+)日', str(s).strip())
         if m:
-            return f'{int(m.group(1))+1911}-{m.group(2)}-{m.group(3)}'
+            return f'{int(m.group(1))+1911}-{m.group(2).zfill(2)}-{m.group(3).zfill(2)}'
         return ''
 
-    url = 'https://www.twse.com.tw/rwd/zh/exRight/TWT49U?response=json'
-    print('抓取即將除權息名單...')
-    data = None
-    for attempt in range(3):
-        try:
-            resp = requests.get(url, headers=HEADERS, timeout=15, verify=False)
-            text = resp.text.strip()
-            if not text:
-                print(f'  第{attempt+1}次：空回應，重試...')
-                time.sleep(2)
-                continue
-            data = resp.json()
-            break
-        except Exception as e:
-            print(f'  第{attempt+1}次失敗：{e}，重試...')
+    def fetch_url(url):
+        for attempt in range(3):
+            try:
+                resp = requests.get(url, headers=HEADERS, timeout=15, verify=False)
+                if resp.text.strip():
+                    return resp.json()
+            except Exception as e:
+                print(f'  第{attempt+1}次失敗：{e}')
             time.sleep(2)
-    if data is None:
-        print('除權息：三次均失敗，略過')
-        return
+        return None
 
-    if data.get('stat') != 'OK':
-        print(f'除權息：{data.get("stat","無資料")}')
-        return
-
-    rows_raw = data.get('data', [])
-    if not rows_raw:
-        print('除權息：目前無即將除權息公告')
-        return
-
-    rows = []
-    for r in rows_raw:
-        try:
-            ex_date   = parse_row_date(r[0])
-            if not ex_date:
+    # ── Step 1：TWT48U 早期預告 ──
+    print('抓取除權息早期預告（TWT48U）...')
+    data48 = fetch_url('https://www.twse.com.tw/rwd/zh/exRight/TWT48U?response=json')
+    rows_early = []
+    if data48 and data48.get('stat') == 'OK':
+        for r in data48.get('data', []):
+            try:
+                ex_date = parse_tw_date(r[0])
+                if not ex_date:
+                    continue
+                code = str(r[1]).strip()
+                name = str(r[2]).strip()
+                div_type = str(r[3]).strip()
+                # r[7] 可能是數字或 HTML「待公告」
+                raw_div = str(r[7])
+                div_value = clean_num(raw_div) if '<' not in raw_div else 0.0
+                prev_close = float(clean_num(r[11])) if r[11] else 0.0
+                if code:
+                    rows_early.append({
+                        'ex_date': ex_date, 'code': code, 'name': name,
+                        'prev_close': prev_close, 'ref_price': 0.0,
+                        'div_value': div_value, 'div_type': div_type,
+                        'is_confirmed': 0,
+                    })
+            except Exception:
                 continue
-            code      = str(r[1]).strip()
-            name      = str(r[2]).strip()
-            prev_close = float(clean_num(r[3]))
-            ref_price  = float(clean_num(r[4]))
-            div_value  = float(clean_num(r[5]))
-            div_type   = str(r[6]).strip()
-            if code:
-                rows.append({
-                    'ex_date': ex_date, 'code': code, 'name': name,
-                    'prev_close': prev_close, 'ref_price': ref_price,
-                    'div_value': div_value, 'div_type': div_type,
-                })
-        except Exception:
-            continue
+        if rows_early:
+            save_exdividend(rows_early)
+            print(f'除權息早期預告：{len(rows_early)} 筆')
 
-    if rows:
-        save_exdividend(rows)
-        print(f'除權息：{len(rows)} 筆（含即將執行預告）')
+    time.sleep(1)
+
+    # ── Step 2：TWT49U 正式確認（覆蓋預告）──
+    print('抓取除權息正式確認（TWT49U）...')
+    data49 = fetch_url('https://www.twse.com.tw/rwd/zh/exRight/TWT49U?response=json')
+    rows_confirmed = []
+    if data49 and data49.get('stat') == 'OK':
+        for r in data49.get('data', []):
+            try:
+                ex_date    = parse_tw_date(r[0])
+                if not ex_date:
+                    continue
+                code       = str(r[1]).strip()
+                name       = str(r[2]).strip()
+                prev_close = float(clean_num(r[3]))
+                ref_price  = float(clean_num(r[4]))
+                div_value  = float(clean_num(r[5]))
+                div_type   = str(r[6]).strip()
+                if code:
+                    rows_confirmed.append({
+                        'ex_date': ex_date, 'code': code, 'name': name,
+                        'prev_close': prev_close, 'ref_price': ref_price,
+                        'div_value': div_value, 'div_type': div_type,
+                        'is_confirmed': 1,
+                    })
+            except Exception:
+                continue
+        if rows_confirmed:
+            save_exdividend(rows_confirmed)
+            print(f'除權息正式確認：{len(rows_confirmed)} 筆（已覆蓋預告）')
+        else:
+            print('除權息正式確認：目前無新資料')
     else:
-        print('除權息：解析後無有效資料')
+        print('除權息正式確認：API 無回應或無資料')
 
 # ── 抓三大法人當日買賣超排行（T86）──────────
 def fetch_t86():

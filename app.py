@@ -288,6 +288,17 @@ def render_sidebar():
             if status.get('last_time'):
                 st.caption(f'🕐 上次嘗試更新：{status["last_time"]}')
 
+            # 手動更新（只抓資料，不推 GitHub）
+            if st.button('🔄 手動更新資料', use_container_width=True):
+                with st.status('更新資料中...', expanded=True) as _status2:
+                    try:
+                        from fetcher import fetch_all
+                        fetch_all()
+                        _status2.update(label='✅ 資料更新完成', state='complete')
+                    except Exception as _e:
+                        _status2.update(label=f'⚠️ 部分失敗：{_e}', state='error')
+                st.rerun()
+
             # 更新並同步一鍵按鈕（本機限定）
             if st.button('🚀 更新並同步到雲端', use_container_width=True):
                 with st.status('更新並同步中...', expanded=True) as _status:
@@ -826,11 +837,19 @@ def render_fundamental(result, code, name):
                 st.warning(f'PB={pb:.2f}倍偏高，市場給予明顯溢價，需要持續的高獲利能力來支撐。')
             else:
                 st.error(f'PB={pb:.2f}倍極高，市場期待非常強勁的成長，若獲利不如預期股價修正風險大。')# ── 頁籤三：籌碼面 ──────────────────────
-def render_chips(result, code, name, chips_list):
+def render_chips(result, code, name, chips_list, market=None):
     st.markdown('#### 三大法人')
 
     if not chips_list:
-        st.warning('籌碼資料不足，請先更新資料')
+        if market == 'TPEx':
+            st.info(
+                '**上櫃股票不支援籌碼面資料。**\n\n'
+                '台灣證交所（TWSE）T86 法人買賣超 API 僅涵蓋上市股；'
+                '櫃買中心目前未開放對應的逐日法人買賣超歷史查詢介面，'
+                '因此上櫃股（TPEx）的三大法人、融資融券資料暫無法取得。'
+            )
+        else:
+            st.warning('籌碼資料不足，請先更新資料')
         return
 
     recent5  = chips_list[-5:]  if len(chips_list) >= 5  else chips_list
@@ -2059,30 +2078,57 @@ def render_ranking():
         if not ex_rows:
             st.warning('目前無未來一個月內的除權息公告，請先按左側「🔄 手動更新資料」。')
         else:
+            # 計算殖利率並排序（殖利率高到低）
+            for r in ex_rows:
+                r['yield_pct'] = round(r['div_value'] / r['prev_close'] * 100, 2) if r['prev_close'] > 0 else 0.0
+
+            sort_opt = st.radio('排序方式', ['依除權息日', '依殖利率（高→低）'],
+                                horizontal=True, label_visibility='collapsed')
+            if sort_opt == '依殖利率（高→低）':
+                ex_rows = sorted(ex_rows, key=lambda x: x['yield_pct'], reverse=True)
+
             type_icon = {'息': '💰', '權': '📊', '權息': '💰📊'}
-            header = st.columns([1.5, 1.2, 2.5, 1.5, 1.5, 1.5, 1])
+            header = st.columns([1.4, 1, 2.2, 1.2, 1.0, 1.2, 1.2, 1.0])
             header[0].caption('除權息日')
             header[1].caption('代號')
             header[2].caption('名稱')
             header[3].caption('前收盤')
-            header[4].caption('參考價')
-            header[5].caption('權息值')
+            header[4].caption('權息值')
+            header[5].caption('殖利率')
             header[6].caption('類型')
+            header[7].caption('狀態')
             st.markdown('---')
             for r in ex_rows:
                 icon = type_icon.get(r['div_type'], '📌')
-                c0,c1,c2,c3,c4,c5,c6 = st.columns([1.5, 1.2, 2.5, 1.5, 1.5, 1.5, 1])
+                c0,c1,c2,c3,c4,c5,c6,c7 = st.columns([1.4, 1, 2.2, 1.2, 1.0, 1.2, 1.2, 1.0])
                 c0.write(r['ex_date'])
                 c1.write(f"`{r['code']}`")
                 c2.write(r['name'])
-                c3.write(f"{r['prev_close']:.2f}")
-                c4.write(f"{r['ref_price']:.2f}")
-                c5.markdown(
-                    f'<span style="color:#facc15;font-weight:bold">{r["div_value"]:.2f}</span>',
-                    unsafe_allow_html=True)
+                c3.write(f"{r['prev_close']:.2f}" if r['prev_close'] > 0 else '—')
+                # 權息值：待公告時顯示 —
+                if r['div_value'] > 0:
+                    c4.markdown(
+                        f'<span style="color:#facc15;font-weight:bold">{r["div_value"]:.4f}</span>',
+                        unsafe_allow_html=True)
+                else:
+                    c4.markdown('<span style="color:#64748b">待公告</span>', unsafe_allow_html=True)
+                # 殖利率
+                yld = r['yield_pct']
+                if yld > 0:
+                    yld_color = '#22c55e' if yld >= 5 else '#facc15' if yld >= 3 else '#94a3b8'
+                    c5.markdown(
+                        f'<span style="color:{yld_color};font-weight:bold">{yld:.2f}%</span>',
+                        unsafe_allow_html=True)
+                else:
+                    c5.markdown('<span style="color:#64748b">—</span>', unsafe_allow_html=True)
                 c6.write(f'{icon} {r["div_type"]}')
+                # 狀態標籤
+                if r.get('is_confirmed'):
+                    c7.markdown('<span style="color:#22c55e;font-size:11px">✅ 正式</span>', unsafe_allow_html=True)
+                else:
+                    c7.markdown('<span style="color:#f59e0b;font-size:11px">📋 預告</span>', unsafe_allow_html=True)
             st.markdown('---')
-            st.caption('💡 在左側搜尋欄輸入代碼可查看該股詳細分析')
+            st.caption('💡 殖利率 = 權息值 ÷ 前收盤價　｜　綠色 ≥5%　黃色 ≥3%　｜　✅ 正式 = TWSE 已確認　📋 預告 = 早期公告')
 
 # ── 主程式 ──────────────────────────────
 def main():
@@ -2133,6 +2179,21 @@ def main():
                     st.write('✅ 價格資料完成')
                 except Exception as _e:
                     st.write(f'⚠️ 價格資料失敗：{_e}')
+
+            # 上櫃股基本面由 TWSE BWIBBU_ALL 無法覆蓋，改用 yfinance 補抓
+            fund_check = get_fundamentals(code, days=400)
+            if not fund_check:
+                from database import get_conn as _gc2
+                _mkt2 = (_gc2().execute('SELECT market FROM stocks WHERE code=?', (code,)).fetchone() or [None])[0]
+                _gc2().close()
+                if _mkt2 == 'TPEx':
+                    st.write('📥 抓取上櫃基本面（yfinance）...')
+                    try:
+                        from fetcher import fetch_fundamentals_tpex
+                        fetch_fundamentals_tpex(code)
+                        st.write('✅ 基本面資料完成')
+                    except Exception as _e:
+                        st.write(f'⚠️ 基本面資料失敗：{_e}')
 
             if need_chips:
                 # 上櫃股（TPEx）T86 API 無資料，跳過籌碼歷史補抓
@@ -2203,7 +2264,11 @@ def main():
     with tabs[1]:
         render_fundamental(result, code, name)
     with tabs[2]:
-        render_chips(result, code, name, chips_list)
+        from database import get_conn as _gc_tab
+        _conn_tab = _gc_tab()
+        _mkt_tab = (_conn_tab.execute('SELECT market FROM stocks WHERE code=?', (code,)).fetchone() or [None])[0]
+        _conn_tab.close()
+        render_chips(result, code, name, chips_list, market=_mkt_tab)
     with tabs[3]:
         render_score(result, code, name)
     with tabs[4]:
