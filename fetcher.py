@@ -722,76 +722,44 @@ def fetch_history(code, months=3):
     return all_rows
 
 
-def fetch_history_tpex(code, months=3):
-    """補抓上櫃（TPEx）個股歷史價格
-    使用 OpenAPI: tpex_mainboard_daily_close_quotes?date=YYYYMMDD
-    每次回傳全部上櫃股，再篩選出目標股票。
-    """
-    print(f'抓取上櫃 {code} 歷史資料...')
-    all_rows = []
-    today = datetime.now()
-    start = today - timedelta(days=months * 31)
-
-    # 產生需要查詢的平日日期清單
-    dates = []
-    cur = start
-    while cur.date() <= today.date():
-        if cur.weekday() < 5:
-            dates.append(cur.strftime('%Y%m%d'))
-        cur += timedelta(days=1)
-
-    seen = set()
-    for date_str in dates:
-        try:
-            url = (f'https://www.tpex.org.tw/openapi/v1/'
-                   f'tpex_mainboard_daily_close_quotes?date={date_str}')
-            r = requests.get(url, headers=HEADERS, timeout=15, verify=False)
-            if r.status_code != 200 or not r.text.strip():
-                time.sleep(0.3)
-                continue
-            data = r.json()
-            if not isinstance(data, list):
-                time.sleep(0.3)
-                continue
-            for item in data:
-                if str(item.get('SecuritiesCompanyCode', '')) != code:
-                    continue
-                # 日期：民國年7碼，如 1150529
-                date_tw = str(item.get('Date', '')).strip()
-                if len(date_tw) == 7:
-                    std_date = f'{int(date_tw[:3])+1911}-{date_tw[3:5]}-{date_tw[5:7]}'
-                else:
-                    continue
-                if std_date in seen:
-                    continue
-                seen.add(std_date)
-                close = clean_num(item.get('Close', 0))
-                open_ = clean_num(item.get('Open', 0))
-                high  = clean_num(item.get('High', 0))
-                low   = clean_num(item.get('Low', 0))
-                vol   = clean_num(item.get('TradingShares', 0))
-                val   = clean_num(item.get('TransactionAmount', 0))
-                chg_s = str(item.get('Change', '0')).replace('+', '').replace('X', '0')
-                chg   = clean_num(chg_s)
-                if close and close > 0:
-                    pct = round(chg / (close - chg) * 100, 2) if (close - chg) != 0 else 0
+def fetch_history_tpex(code, months=15):
+    """補抓上櫃（TPEx）個股歷史價格，使用 yfinance（代碼格式：XXXX.TWO）"""
+    print(f'抓取上櫃 {code} 歷史資料（yfinance）...')
+    try:
+        import yfinance as yf
+        ticker = yf.Ticker(f'{code}.TWO')
+        period = f'{min(months, 24)}mo'
+        hist = ticker.history(period=period)
+        if hist.empty:
+            print(f'{code} yfinance 無資料')
+            return []
+        all_rows = []
+        for ts, row in hist.iterrows():
+            try:
+                date_str = ts.strftime('%Y-%m-%d')
+                close = round(float(row['Close']), 2)
+                open_ = round(float(row['Open']),  2)
+                high  = round(float(row['High']),  2)
+                low   = round(float(row['Low']),   2)
+                vol   = int(row['Volume'] / 1000)  # 股→張
+                if close > 0:
                     all_rows.append({
-                        'date': std_date, 'open': open_, 'high': high,
-                        'low': low, 'close': close,
-                        'volume': int(vol / 1000) if vol else 0,  # 股→張
-                        'value': val, 'change': chg, 'change_pct': pct
+                        'date': date_str, 'open': open_, 'high': high,
+                        'low': low, 'close': close, 'volume': vol,
+                        'value': 0, 'change': 0, 'change_pct': 0
                     })
-            time.sleep(0.2)
-        except Exception as e:
-            time.sleep(0.3)
-
-    if all_rows:
-        all_rows.sort(key=lambda x: x['date'])
-        save_prices(code, all_rows)
-        print(f'{code} 上櫃歷史資料：{len(all_rows)} 筆')
-    else:
-        print(f'{code} 上櫃歷史無資料（可能非交易日或代碼錯誤）')
-    return all_rows
+            except Exception:
+                pass
+        if all_rows:
+            save_prices(code, all_rows)
+            print(f'{code} 上櫃歷史資料：{len(all_rows)} 筆')
+        return all_rows
+    except ImportError:
+        print('yfinance 未安裝，請執行：pip install yfinance')
+        return []
+    except Exception as e:
+        print(f'{code} yfinance 失敗：{e}')
+        return []
 
 
 def fetch_history_auto(code, months=15):
