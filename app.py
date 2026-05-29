@@ -2135,13 +2135,20 @@ def main():
                     st.write(f'⚠️ 價格資料失敗：{_e}')
 
             if need_chips:
-                st.write('📥 抓取籌碼歷史（約 30 秒）...')
-                try:
-                    from fetcher import fetch_chips_history
-                    n = fetch_chips_history(code, months=15)
-                    st.write(f'✅ 籌碼資料完成（新增 {n} 筆）')
-                except Exception as _e:
-                    st.write(f'⚠️ 籌碼資料失敗：{_e}')
+                # 上櫃股（TPEx）T86 API 無資料，跳過籌碼歷史補抓
+                from database import get_conn as _gc
+                _mkt = (_gc().execute('SELECT market FROM stocks WHERE code=?', (code,)).fetchone() or [None])[0]
+                _gc().close()
+                if _mkt == 'TPEx':
+                    st.write('ℹ️ 上櫃股籌碼歷史暫不支援（TWSE T86 僅涵蓋上市股）')
+                else:
+                    st.write('📥 抓取籌碼歷史（約 30 秒）...')
+                    try:
+                        from fetcher import fetch_chips_history
+                        n = fetch_chips_history(code, months=3)
+                        st.write(f'✅ 籌碼資料完成（新增 {n} 筆）')
+                    except Exception as _e:
+                        st.write(f'⚠️ 籌碼資料失敗：{_e}')
 
             _st.update(label='歷史資料補齊完成', state='complete')
 
