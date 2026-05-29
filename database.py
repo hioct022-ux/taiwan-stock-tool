@@ -95,6 +95,19 @@ def init_db():
         )
     ''')
 
+    # ── 自訂標籤表 ──
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS watchlist_tags (
+            name        TEXT PRIMARY KEY,
+            sort_order  INTEGER DEFAULT 0
+        )
+    ''')
+    # 預設標籤（只在空白時插入）
+    existing = c.execute('SELECT COUNT(*) FROM watchlist_tags').fetchone()[0]
+    if existing == 0:
+        for i, t in enumerate(['長期', '觀察中', '其他']):
+            c.execute('INSERT OR IGNORE INTO watchlist_tags (name, sort_order) VALUES (?,?)', (t, i))
+
     # ── 備註欄 ──
     c.execute('''
         CREATE TABLE IF NOT EXISTS notes (
@@ -323,6 +336,67 @@ def update_watchlist_tag(code, tag):
     conn = get_conn()
     c = conn.cursor()
     c.execute('UPDATE watchlist SET tag=? WHERE code=?', (tag, code))
+    conn.commit()
+    conn.close()
+
+# ── 自訂標籤管理 ─────────────────────────
+def get_tags():
+    """取得所有自訂標籤（依 sort_order 排序）"""
+    conn = get_conn()
+    rows = conn.execute('SELECT name FROM watchlist_tags ORDER BY sort_order, name').fetchall()
+    conn.close()
+    return [r[0] for r in rows]
+
+def add_tag(name):
+    """新增標籤"""
+    name = name.strip()
+    if not name:
+        return False
+    conn = get_conn()
+    try:
+        max_order = conn.execute('SELECT MAX(sort_order) FROM watchlist_tags').fetchone()[0] or 0
+        conn.execute('INSERT INTO watchlist_tags (name, sort_order) VALUES (?,?)', (name, max_order + 1))
+        conn.commit()
+        return True
+    except Exception:
+        return False
+    finally:
+        conn.close()
+
+def rename_tag(old_name, new_name):
+    """重新命名標籤，同步更新自選股的 tag 欄位"""
+    new_name = new_name.strip()
+    if not new_name or old_name == new_name:
+        return False
+    conn = get_conn()
+    try:
+        conn.execute('UPDATE watchlist_tags SET name=? WHERE name=?', (new_name, old_name))
+        conn.execute('UPDATE watchlist SET tag=? WHERE tag=?', (new_name, old_name))
+        conn.commit()
+        return True
+    except Exception:
+        return False
+    finally:
+        conn.close()
+
+def delete_tag(name):
+    """刪除標籤，使用該標籤的自選股改為「其他」"""
+    conn = get_conn()
+    try:
+        conn.execute('DELETE FROM watchlist_tags WHERE name=?', (name,))
+        conn.execute("UPDATE watchlist SET tag='其他' WHERE tag=?", (name,))
+        conn.commit()
+        return True
+    except Exception:
+        return False
+    finally:
+        conn.close()
+
+def reorder_tags(names):
+    """依照傳入的 list 順序更新 sort_order"""
+    conn = get_conn()
+    for i, name in enumerate(names):
+        conn.execute('UPDATE watchlist_tags SET sort_order=? WHERE name=?', (i, name))
     conn.commit()
     conn.close()
 

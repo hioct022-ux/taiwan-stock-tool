@@ -21,7 +21,8 @@ from database import (init_db, get_prices, get_fundamentals, get_chips,
                       get_etf_holders, get_etf_last_update, get_ownership,
                       get_t86_ranking, get_t86_ranking_bottom, get_t86_last_date,
                       get_exdividend, get_exdividend_upcoming, get_exdividend_by_code,
-                      get_market_margin)
+                      get_market_margin,
+                      get_tags, add_tag, rename_tag, delete_tag)
 from indicators import calc_all
 from scorer import full_score, get_grade, generate_auto_note
 from scheduler import start_scheduler, get_data_status, manual_fetch
@@ -364,51 +365,60 @@ def render_sidebar():
         # 自選股清單
         st.markdown('#### ⭐ 自選股清單')
         watchlist = get_watchlist()
-
-        TAG_LIST = ['長期', '觀察中', '其他']
-        TAG_COLOR = {'長期': '🟢', '觀察中': '🟡', '其他': '⚪'}
+        TAG_LIST  = get_tags()  # 動態從 DB 讀取
+        # 標籤顏色循環（最多 8 個標籤）
+        _TAG_ICONS = ['🟢','🔵','🟡','🟠','🔴','🟣','⚪','🟤']
+        TAG_COLOR  = {t: _TAG_ICONS[i % len(_TAG_ICONS)] for i, t in enumerate(TAG_LIST)}
 
         if watchlist:
             # 標籤篩選
-            all_tags = sorted({w['tag'] for w in watchlist if w.get('tag')})
-            filter_options = ['全部'] + all_tags
-            selected_filter = st.radio(
-                '篩選標籤', filter_options,
-                horizontal=True,
-                key='watchlist_tag_filter',
-                label_visibility='collapsed'
+            used_tags   = [t for t in TAG_LIST if any(w.get('tag') == t for w in watchlist)]
+            filter_opts = ['全部'] + used_tags
+            sel_filter  = st.radio(
+                '篩選', filter_opts, horizontal=True,
+                key='watchlist_tag_filter', label_visibility='collapsed'
             )
-            filtered = watchlist if selected_filter == '全部' else [w for w in watchlist if w.get('tag') == selected_filter]
+            filtered = watchlist if sel_filter == '全部' else [w for w in watchlist if w.get('tag') == sel_filter]
 
             for w in filtered:
-                tag_color = TAG_COLOR.get(w.get('tag', '其他'), '⚪')
-                col1, col2, col3 = st.columns([3, 1, 1]) if IS_LOCAL else [None, None, None]
+                tag_icon = TAG_COLOR.get(w.get('tag', ''), '⚪')
                 if IS_LOCAL:
+                    col1, col2 = st.columns([5, 1])
                     with col1:
                         if st.button(
-                            f"{tag_color} {w['code']} {w['name']}",
-                            key=f"watch_{w['code']}",
-                            use_container_width=True
+                            f"{tag_icon} {w['code']} {w['name']}",
+                            key=f"watch_{w['code']}", use_container_width=True
                         ):
                             st.session_state['current_code'] = w['code']
                             st.session_state['page'] = 'stock'
                             st.rerun()
                     with col2:
-                        # 修改標籤：點一下循環切換
-                        cur_tag = w.get('tag', '其他')
-                        next_tag = TAG_LIST[(TAG_LIST.index(cur_tag) + 1) % len(TAG_LIST)] if cur_tag in TAG_LIST else TAG_LIST[0]
-                        if st.button('🏷️', key=f"tag_{w['code']}", help=f'切換標籤（目前：{cur_tag}→{next_tag}）'):
-                            update_watchlist_tag(w['code'], next_tag)
+                        if st.button('⋯', key=f"edit_{w['code']}", help='修改/刪除'):
+                            st.session_state[f'_wl_edit_{w["code"]}'] = not st.session_state.get(f'_wl_edit_{w["code"]}', False)
                             st.rerun()
-                    with col3:
-                        if st.button('✕', key=f"del_{w['code']}"):
-                            remove_watchlist(w['code'])
-                            st.rerun()
+                    # 展開編輯列
+                    if st.session_state.get(f'_wl_edit_{w["code"]}'):
+                        cur_tag = w.get('tag', TAG_LIST[0] if TAG_LIST else '')
+                        tag_idx = TAG_LIST.index(cur_tag) if cur_tag in TAG_LIST else 0
+                        new_tag_sel = st.selectbox(
+                            '標籤', TAG_LIST, index=tag_idx,
+                            key=f'tagsel_{w["code"]}'
+                        )
+                        bc1, bc2 = st.columns(2)
+                        with bc1:
+                            if st.button('✔ 儲存', key=f'save_tag_{w["code"]}', use_container_width=True):
+                                update_watchlist_tag(w['code'], new_tag_sel)
+                                st.session_state.pop(f'_wl_edit_{w["code"]}', None)
+                                st.rerun()
+                        with bc2:
+                            if st.button('🗑 刪除', key=f'del_{w["code"]}', use_container_width=True):
+                                remove_watchlist(w['code'])
+                                st.session_state.pop(f'_wl_edit_{w["code"]}', None)
+                                st.rerun()
                 else:
                     if st.button(
-                        f"{tag_color} {w['code']} {w['name']}",
-                        key=f"watch_{w['code']}",
-                        use_container_width=True
+                        f"{tag_icon} {w['code']} {w['name']}",
+                        key=f"watch_{w['code']}", use_container_width=True
                     ):
                         st.session_state['current_code'] = w['code']
                         st.session_state['page'] = 'stock'
@@ -416,13 +426,13 @@ def render_sidebar():
         else:
             st.info('尚無自選股，搜尋後加入')
 
-        # 新增自選股（本機限定）
         if IS_LOCAL:
             st.markdown('---')
+            # 新增自選股
             with st.expander('➕ 新增自選股'):
                 new_code = st.text_input('股票代碼', placeholder='例如：2330', key='new_wl_code')
                 new_name = st.text_input('股票名稱', placeholder='例如：台積電', key='new_wl_name')
-                new_tag  = st.selectbox('標籤', TAG_LIST, key='new_wl_tag')
+                new_tag  = st.selectbox('標籤', TAG_LIST or ['其他'], key='new_wl_tag')
                 if st.button('加入自選股', use_container_width=True):
                     if new_code and new_name:
                         add_watchlist(new_code.strip(), new_name.strip(), new_tag)
@@ -430,11 +440,45 @@ def render_sidebar():
                         st.rerun()
                     else:
                         st.error('請填入代碼和名稱')
+
+            # 標籤管理
+            with st.expander('🏷️ 管理標籤'):
+                st.caption('新增標籤')
+                nc1, nc2 = st.columns([3, 1])
+                with nc1:
+                    new_tag_name = st.text_input('標籤名稱', placeholder='例如：短線', key='new_tag_input', label_visibility='collapsed')
+                with nc2:
+                    if st.button('新增', key='btn_add_tag', use_container_width=True):
+                        if new_tag_name.strip():
+                            if add_tag(new_tag_name.strip()):
+                                st.success(f'已新增「{new_tag_name.strip()}」')
+                                st.rerun()
+                            else:
+                                st.error('標籤已存在')
+                        else:
+                            st.error('請輸入標籤名稱')
+
+                if TAG_LIST:
+                    st.caption('重新命名 / 刪除')
+                    for t in TAG_LIST:
+                        r1, r2, r3 = st.columns([3, 2, 1])
+                        with r1:
+                            new_name_input = st.text_input(
+                                t, value=t, key=f'rename_{t}', label_visibility='collapsed'
+                            )
+                        with r2:
+                            if st.button('改名', key=f'btn_rename_{t}', use_container_width=True):
+                                if new_name_input.strip() and new_name_input.strip() != t:
+                                    rename_tag(t, new_name_input.strip())
+                                    st.rerun()
+                        with r3:
+                            if st.button('✕', key=f'btn_del_tag_{t}', help=f'刪除標籤「{t}」'):
+                                delete_tag(t)
+                                st.rerun()
         else:
             st.caption('✏️ 新增/刪除自選股請在本機操作後同步')
 
         st.markdown('---')
-        # 程式說明連結
         if st.button('📖 程式說明', use_container_width=True):
             st.session_state['page'] = 'doc'
             st.session_state.pop('current_code', None)
