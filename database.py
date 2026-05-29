@@ -286,6 +286,8 @@ def save_chips(code, date, data):
     conn.close()
 
 def get_chips(code, days=65):
+    from datetime import timedelta
+    cutoff = (datetime.now() - timedelta(days=days * 2)).strftime('%Y-%m-%d')
     conn = get_conn()
     c = conn.cursor()
     c.execute('''
@@ -293,8 +295,9 @@ def get_chips(code, days=65):
                trust_buy, trust_sell, trust_net,
                dealer_buy, dealer_sell, dealer_net,
                margin_balance, short_balance
-        FROM chips WHERE code=? ORDER BY date DESC LIMIT ?
-    ''', (code, days))
+        FROM chips WHERE code=? AND date >= ?
+        ORDER BY date DESC LIMIT ?
+    ''', (code, cutoff, days))
     rows = c.fetchall()
     conn.close()
     cols = ['date','foreign_buy','foreign_sell','foreign_net',
