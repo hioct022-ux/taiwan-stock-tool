@@ -103,6 +103,17 @@ def export_to_json(code=None):
     else:
         print('⚠️  自選股清單是空的，跳過覆蓋 watchlist.json（保留 GitHub 上的版本）')
 
+    # 匯出自訂標籤
+    try:
+        from database import get_tags
+        tags = get_tags()
+        if tags:
+            with open(os.path.join(JSON_DIR, 'watchlist_tags.json'), 'w', encoding='utf-8') as f:
+                json.dump(tags, f, ensure_ascii=False, indent=2)
+            print(f'匯出自訂標籤：{len(tags)} 個')
+    except Exception as e:
+        print(f'匯出自訂標籤失敗：{e}')
+
     # 匯出個股資料
     if code:
         codes = [code]
@@ -358,7 +369,7 @@ def init_cloud_data():
     """
     from database import (get_prices, save_prices, save_fundamental,
                           save_chips, save_stock_info, get_watchlist,
-                          add_watchlist, get_conn)
+                          add_watchlist, get_conn, get_tags, add_tag)
 
     print('雲端模式：從 JSON 匯入資料...')
 
@@ -382,12 +393,30 @@ def init_cloud_data():
     except Exception as e:
         print(f'  股票清單匯入失敗：{e}')
 
+    # ── 自訂標籤（每次更新）──
+    try:
+        tags_path = os.path.join(JSON_DIR, 'watchlist_tags.json')
+        with open(tags_path, encoding='utf-8') as f:
+            tags_list = json.load(f)
+        existing_tags = set(get_tags())
+        conn = get_conn()
+        conn.execute('DELETE FROM watchlist_tags')
+        for i, t in enumerate(tags_list):
+            conn.execute('INSERT OR IGNORE INTO watchlist_tags (name, sort_order) VALUES (?,?)', (t, i))
+        conn.commit()
+        conn.close()
+        print(f'  自訂標籤：{len(tags_list)} 個')
+    except Exception as e:
+        print(f'  自訂標籤匯入失敗（使用預設值）：{e}')
+
     # ── 自選股清單（每次更新）──
     try:
         with open(os.path.join(JSON_DIR, 'watchlist.json'), encoding='utf-8') as f:
             wl = json.load(f)
         for w in wl:
-            add_watchlist(w['code'], w['name'], w.get('tag',''))
+            # 相容舊格式（tag 字串）和新格式（tags list）
+            tags_val = w.get('tags') or w.get('tag', '')
+            add_watchlist(w['code'], w['name'], tags_val)
         print(f'  自選股：{len(wl)} 筆')
     except Exception as e:
         print(f'  自選股匯入失敗：{e}')
