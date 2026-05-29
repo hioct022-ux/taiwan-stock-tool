@@ -345,6 +345,12 @@ def render_sidebar():
 
         st.markdown('---')
 
+        # 先讀取自選股和標籤（搜尋區塊也會用到）
+        watchlist = get_watchlist()
+        TAG_LIST  = get_tags()
+        _TAG_ICONS = ['🟢','🔵','🟡','🟠','🔴','🟣','⚪','🟤']
+        TAG_COLOR  = {t: _TAG_ICONS[i % len(_TAG_ICONS)] for i, t in enumerate(TAG_LIST)}
+
         # 股票搜尋 + 加入自選股（合併）
         st.markdown('#### 🔍 搜尋股票')
         keyword = st.text_input('輸入代碼或名稱', placeholder='例如：2330 或 台積電')
@@ -386,11 +392,6 @@ def render_sidebar():
 
         # 自選股清單
         st.markdown('#### ⭐ 自選股清單')
-        watchlist = get_watchlist()
-        TAG_LIST  = get_tags()  # 動態從 DB 讀取
-        # 標籤顏色循環（最多 8 個標籤）
-        _TAG_ICONS = ['🟢','🔵','🟡','🟠','🔴','🟣','⚪','🟤']
-        TAG_COLOR  = {t: _TAG_ICONS[i % len(_TAG_ICONS)] for i, t in enumerate(TAG_LIST)}
 
         if watchlist:
             # 標籤篩選
