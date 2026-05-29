@@ -1545,19 +1545,19 @@ def render_export(result, code, name, chips_list):
     close = result['close']
     now   = datetime.now().strftime('%Y-%m-%d %H:%M')
 
-    ma5   = ind.get('ma5')
-    ma20  = ind.get('ma20')
-    ma60  = ind.get('ma60')
-    rsi   = ind.get('rsi')
-    k     = ind.get('k')
-    d     = ind.get('d')
-    macd_dif  = ind.get('macd_dif')
-    macd_def  = ind.get('macd_def')
-    macd_hist = ind.get('macd_hist')
-    bb_upper  = ind.get('bb_upper')
-    bb_lower  = ind.get('bb_lower')
-    vol_ratio = ind.get('vol_ratio')
-    pos_65    = ind.get('pos_65')
+    ma5   = ind.get('ma5')   or 'N/A'
+    ma20  = ind.get('ma20')  or 'N/A'
+    ma60  = ind.get('ma60')  or 'N/A'
+    rsi   = ind.get('rsi')   or 'N/A'
+    k     = ind.get('k')     or 'N/A'
+    d     = ind.get('d')     or 'N/A'
+    macd_dif  = ind.get('macd_dif')  or 'N/A'
+    macd_def  = ind.get('macd_def')  or 'N/A'
+    macd_hist = ind.get('macd_hist') or 'N/A'
+    bb_upper  = ind.get('bb_upper')  or 'N/A'
+    bb_lower  = ind.get('bb_lower')  or 'N/A'
+    vol_ratio = ind.get('vol_ratio') or 'N/A'
+    pos_65    = ind.get('pos_65')    or 'N/A'
     high_65   = ind.get('high_65')
     low_65    = ind.get('low_65')
     buy_low   = ind.get('buy_low')
@@ -1565,10 +1565,10 @@ def render_export(result, code, name, chips_list):
     target    = ind.get('target')
     stop_loss = ind.get('stop_loss')
 
-    pe  = fund.get('pe')
-    pb  = fund.get('pb')
-    div = fund.get('dividend_yield')
-    eps = fund.get('eps_ttm')
+    pe  = fund.get('pe')  or 0.0
+    pb  = fund.get('pb')  or 0.0
+    div = fund.get('dividend_yield') or 0.0
+    eps = fund.get('eps_ttm') or 0.0
 
     recent5  = chips_list[-5:]  if len(chips_list) >= 5  else chips_list
     recent20 = chips_list[-20:] if len(chips_list) >= 20 else chips_list
