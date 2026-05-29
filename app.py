@@ -22,7 +22,8 @@ from database import (init_db, get_prices, get_fundamentals, get_chips,
                       get_t86_ranking, get_t86_ranking_bottom, get_t86_last_date,
                       get_exdividend, get_exdividend_upcoming, get_exdividend_by_code,
                       get_market_margin,
-                      get_tags, add_tag, rename_tag, delete_tag)
+                      get_tags, add_tag, rename_tag, delete_tag,
+                      update_watchlist_tags)
 from indicators import calc_all
 from scorer import full_score, get_grade, generate_auto_note
 from scheduler import start_scheduler, get_data_status, manual_fetch
@@ -379,10 +380,10 @@ def render_sidebar():
                                 st.rerun()
                 # 選標籤後確認加入
                 if IS_LOCAL and not already and st.session_state.get('_add_wl_stock', {}).get('code') == selected_stock['code']:
-                    add_tag_sel = st.selectbox('選擇標籤', TAG_LIST or ['其他'], key='search_add_tag')
+                    add_tags_sel = st.multiselect('選擇標籤（可多選）', TAG_LIST or ['其他'], key='search_add_tag')
                     if st.button('確認加入自選股', use_container_width=True):
                         s = st.session_state.pop('_add_wl_stock')
-                        add_watchlist(s['code'], s['name'], add_tag_sel)
+                        add_watchlist(s['code'], s['name'], add_tags_sel)
                         st.success(f'已加入 {s["code"]} {s["name"]}')
                         st.rerun()
             else:
@@ -394,22 +395,24 @@ def render_sidebar():
         st.markdown('#### ⭐ 自選股清單')
 
         if watchlist:
-            # 標籤篩選
-            used_tags   = [t for t in TAG_LIST if any(w.get('tag') == t for w in watchlist)]
+            # 標籤篩選（多標籤：股票只要含有該標籤即顯示）
+            used_tags   = [t for t in TAG_LIST if any(t in w.get('tags', []) for w in watchlist)]
             filter_opts = ['全部'] + used_tags
             sel_filter  = st.radio(
                 '篩選', filter_opts, horizontal=True,
                 key='watchlist_tag_filter', label_visibility='collapsed'
             )
-            filtered = watchlist if sel_filter == '全部' else [w for w in watchlist if w.get('tag') == sel_filter]
+            filtered = (watchlist if sel_filter == '全部'
+                        else [w for w in watchlist if sel_filter in w.get('tags', [])])
 
             for w in filtered:
-                tag_icon = TAG_COLOR.get(w.get('tag', ''), '⚪')
+                w_tags    = w.get('tags', [])
+                tag_icons = ''.join(TAG_COLOR.get(t, '⚪') for t in w_tags) or '⚪'
                 if IS_LOCAL:
                     col1, col2 = st.columns([5, 1])
                     with col1:
                         if st.button(
-                            f"{tag_icon} {w['code']} {w['name']}",
+                            f"{tag_icons} {w['code']} {w['name']}",
                             key=f"watch_{w['code']}", use_container_width=True
                         ):
                             st.session_state['current_code'] = w['code']
@@ -421,16 +424,15 @@ def render_sidebar():
                             st.rerun()
                     # 展開編輯列
                     if st.session_state.get(f'_wl_edit_{w["code"]}'):
-                        cur_tag = w.get('tag', TAG_LIST[0] if TAG_LIST else '')
-                        tag_idx = TAG_LIST.index(cur_tag) if cur_tag in TAG_LIST else 0
-                        new_tag_sel = st.selectbox(
-                            '標籤', TAG_LIST, index=tag_idx,
+                        new_tags_sel = st.multiselect(
+                            '標籤（可多選）', TAG_LIST,
+                            default=[t for t in w_tags if t in TAG_LIST],
                             key=f'tagsel_{w["code"]}'
                         )
                         bc1, bc2 = st.columns(2)
                         with bc1:
                             if st.button('✔ 儲存', key=f'save_tag_{w["code"]}', use_container_width=True):
-                                update_watchlist_tag(w['code'], new_tag_sel)
+                                update_watchlist_tags(w['code'], new_tags_sel)
                                 st.session_state.pop(f'_wl_edit_{w["code"]}', None)
                                 st.rerun()
                         with bc2:
@@ -439,8 +441,9 @@ def render_sidebar():
                                 st.session_state.pop(f'_wl_edit_{w["code"]}', None)
                                 st.rerun()
                 else:
+                    tag_icons = ''.join(TAG_COLOR.get(t, '⚪') for t in w_tags) or '⚪'
                     if st.button(
-                        f"{tag_icon} {w['code']} {w['name']}",
+                        f"{tag_icons} {w['code']} {w['name']}",
                         key=f"watch_{w['code']}", use_container_width=True
                     ):
                         st.session_state['current_code'] = w['code']

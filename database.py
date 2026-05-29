@@ -304,22 +304,36 @@ def get_chips(code, days=65):
     return [dict(zip(cols, r)) for r in reversed(rows)]
 
 # ── 自選股 ──────────────────────────────
+def _tags_to_str(tags):
+    """list → 逗號分隔字串"""
+    if isinstance(tags, list):
+        return ','.join(t.strip() for t in tags if t.strip())
+    return str(tags) if tags else ''
+
+def _str_to_tags(s):
+    """逗號分隔字串 → list（去空白）"""
+    if not s:
+        return []
+    return [t.strip() for t in s.split(',') if t.strip()]
+
 def get_watchlist():
     conn = get_conn()
     c = conn.cursor()
     c.execute('SELECT code, name, tag, added_at FROM watchlist ORDER BY added_at')
     rows = c.fetchall()
     conn.close()
-    return [{'code':r[0],'name':r[1],'tag':r[2],'added_at':r[3]} for r in rows]
+    return [{'code':r[0],'name':r[1],'tags':_str_to_tags(r[2]),'added_at':r[3]} for r in rows]
 
-def add_watchlist(code, name, tag=''):
+def add_watchlist(code, name, tags=None):
+    """tags 可為 list 或單一字串"""
     conn = get_conn()
     c = conn.cursor()
+    tag_str = _tags_to_str(tags) if tags else ''
     try:
         c.execute('''
             INSERT INTO watchlist (code, name, tag, added_at)
             VALUES (?, ?, ?, ?)
-        ''', (code, name, tag, datetime.now().strftime('%Y-%m-%d %H:%M')))
+        ''', (code, name, tag_str, datetime.now().strftime('%Y-%m-%d %H:%M')))
         conn.commit()
     except:
         pass
@@ -333,9 +347,13 @@ def remove_watchlist(code):
     conn.close()
 
 def update_watchlist_tag(code, tag):
+    """向下相容：單一標籤字串"""
+    update_watchlist_tags(code, [tag] if tag else [])
+
+def update_watchlist_tags(code, tags):
+    """更新多標籤，tags 為 list"""
     conn = get_conn()
-    c = conn.cursor()
-    c.execute('UPDATE watchlist SET tag=? WHERE code=?', (tag, code))
+    conn.execute('UPDATE watchlist SET tag=? WHERE code=?', (_tags_to_str(tags), code))
     conn.commit()
     conn.close()
 
