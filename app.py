@@ -928,11 +928,15 @@ def render_chips(result, code, name, chips_list):
     st.markdown('---')
     st.markdown('#### 融資融券')
 
+    # 取最近有融資融券資料的那筆（避免今日法人已更新但融資還未更新導致顯示0）
+    margin_rows = [r for r in chips_list if r.get('margin_balance', 0) > 0]
+    short_rows  = [r for r in chips_list if r.get('short_balance',  0) > 0]
+
     col1, col2 = st.columns(2)
     with col1:
-        if len(chips_list) >= 2:
-            margin_now  = chips_list[-1].get('margin_balance', 0)
-            margin_20   = chips_list[-20].get('margin_balance', 0) if len(chips_list) >= 20 else margin_now
+        if margin_rows:
+            margin_now  = margin_rows[-1].get('margin_balance', 0)
+            margin_20   = margin_rows[-20].get('margin_balance', 0) if len(margin_rows) >= 20 else margin_rows[0].get('margin_balance', 0)
             margin_chg  = ((margin_now - margin_20) / margin_20 * 100) if margin_20 > 0 else 0
             chg_color   = '#22c55e' if margin_chg < 0 else '#ef4444'
             st.markdown('**融資餘額**')
@@ -943,9 +947,9 @@ def render_chips(result, code, name, chips_list):
                     f'{"代表借錢追高行為減少，籌碼趨穩，偏正面。" if margin_chg < 0 else "代表借錢追高行為增加，需留意斷頭風險。"}')
 
     with col2:
-        if len(chips_list) >= 2:
-            short_now = chips_list[-1].get('short_balance', 0)
-            short_20  = chips_list[-20].get('short_balance', 0) if len(chips_list) >= 20 else short_now
+        if short_rows:
+            short_now = short_rows[-1].get('short_balance', 0)
+            short_20  = short_rows[-20].get('short_balance', 0) if len(short_rows) >= 20 else short_rows[0].get('short_balance', 0)
             short_chg = ((short_now - short_20) / short_20 * 100) if short_20 > 0 else 0
             st.markdown('**融券餘額**')
             st.metric('目前融券餘額', f'{short_now:,}張',
