@@ -365,6 +365,8 @@ def render_sidebar():
 
         # 股票搜尋 + 加入自選股（合併）
         st.markdown('#### 🔍 搜尋股票')
+        if not IS_LOCAL:
+            st.caption('☁️ 雲端版僅可查詢已同步的股票')
         keyword = st.text_input('輸入代碼或名稱', placeholder='例如：2330 或 台積電')
         if keyword:
             results = search_stock(keyword)
@@ -2087,48 +2089,54 @@ def render_ranking():
             if sort_opt == '依殖利率（高→低）':
                 ex_rows = sorted(ex_rows, key=lambda x: x['yield_pct'], reverse=True)
 
-            type_icon = {'息': '💰', '權': '📊', '權息': '💰📊'}
-            header = st.columns([1.4, 1, 2.2, 1.2, 1.0, 1.2, 1.2, 1.0])
-            header[0].caption('除權息日')
-            header[1].caption('代號')
-            header[2].caption('名稱')
-            header[3].caption('前收盤')
-            header[4].caption('權息值')
-            header[5].caption('殖利率')
-            header[6].caption('類型')
-            header[7].caption('狀態')
-            st.markdown('---')
+            # 產生 HTML 表格（固定標題列 + 捲動視窗，本機/雲端一致）
+            type_label = {'息': '💰 息', '權': '📊 權', '權息': '💰📊 權息'}
+            rows_html = ''
             for r in ex_rows:
-                icon = type_icon.get(r['div_type'], '📌')
-                c0,c1,c2,c3,c4,c5,c6,c7 = st.columns([1.4, 1, 2.2, 1.2, 1.0, 1.2, 1.2, 1.0])
-                c0.write(r['ex_date'])
-                c1.write(f"`{r['code']}`")
-                c2.write(r['name'])
-                c3.write(f"{r['prev_close']:.2f}" if r['prev_close'] > 0 else '—')
-                # 權息值：待公告時顯示 —
-                if r['div_value'] > 0:
-                    c4.markdown(
-                        f'<span style="color:#facc15;font-weight:bold">{r["div_value"]:.4f}</span>',
-                        unsafe_allow_html=True)
-                else:
-                    c4.markdown('<span style="color:#64748b">待公告</span>', unsafe_allow_html=True)
-                # 殖利率
                 yld = r['yield_pct']
-                if yld > 0:
-                    yld_color = '#22c55e' if yld >= 5 else '#facc15' if yld >= 3 else '#94a3b8'
-                    c5.markdown(
-                        f'<span style="color:{yld_color};font-weight:bold">{yld:.2f}%</span>',
-                        unsafe_allow_html=True)
-                else:
-                    c5.markdown('<span style="color:#64748b">—</span>', unsafe_allow_html=True)
-                c6.write(f'{icon} {r["div_type"]}')
-                # 狀態標籤
-                if r.get('is_confirmed'):
-                    c7.markdown('<span style="color:#22c55e;font-size:11px">✅ 正式</span>', unsafe_allow_html=True)
-                else:
-                    c7.markdown('<span style="color:#f59e0b;font-size:11px">📋 預告</span>', unsafe_allow_html=True)
-            st.markdown('---')
-            st.caption('💡 殖利率 = 權息值 ÷ 前收盤價　｜　綠色 ≥5%　黃色 ≥3%　｜　✅ 正式 = TWSE 已確認　📋 預告 = 早期公告')
+                yld_color = '#22c55e' if yld >= 5 else '#facc15' if yld >= 3 else '#94a3b8'
+                yld_str   = f'<span style="color:{yld_color};font-weight:600">{yld:.2f}%</span>' if yld > 0 else '<span style="color:#475569">—</span>'
+                div_str   = f'<span style="color:#facc15;font-weight:600">{r["div_value"]:.4f}</span>' if r['div_value'] > 0 else '<span style="color:#475569">待公告</span>'
+                close_str = f'{r["prev_close"]:.2f}' if r['prev_close'] > 0 else '—'
+                status    = '✅ 正式' if r.get('is_confirmed') else '📋 預告'
+                status_c  = '#22c55e' if r.get('is_confirmed') else '#f59e0b'
+                tl        = type_label.get(r['div_type'], r['div_type'])
+                rows_html += f'''<tr>
+                    <td>{r["ex_date"]}</td>
+                    <td style="color:#60a5fa">{r["code"]}</td>
+                    <td>{r["name"]}</td>
+                    <td style="text-align:right">{close_str}</td>
+                    <td style="text-align:right">{div_str}</td>
+                    <td style="text-align:right">{yld_str}</td>
+                    <td>{tl}</td>
+                    <td style="color:{status_c};font-size:12px">{status}</td>
+                </tr>'''
+
+            html_table = f'''
+            <div style="border:1px solid #334155;border-radius:8px;overflow:hidden">
+              <div style="overflow-y:auto;max-height:480px">
+                <table style="width:100%;border-collapse:collapse;font-size:13px">
+                  <thead>
+                    <tr style="background:#1e293b;position:sticky;top:0;z-index:1">
+                      <th style="padding:8px 10px;text-align:left;color:#94a3b8;font-weight:500;border-bottom:1px solid #334155">除權息日</th>
+                      <th style="padding:8px 10px;text-align:left;color:#94a3b8;font-weight:500;border-bottom:1px solid #334155">代號</th>
+                      <th style="padding:8px 10px;text-align:left;color:#94a3b8;font-weight:500;border-bottom:1px solid #334155">名稱</th>
+                      <th style="padding:8px 10px;text-align:right;color:#94a3b8;font-weight:500;border-bottom:1px solid #334155">前收盤</th>
+                      <th style="padding:8px 10px;text-align:right;color:#94a3b8;font-weight:500;border-bottom:1px solid #334155">權息值</th>
+                      <th style="padding:8px 10px;text-align:right;color:#94a3b8;font-weight:500;border-bottom:1px solid #334155">殖利率</th>
+                      <th style="padding:8px 10px;text-align:left;color:#94a3b8;font-weight:500;border-bottom:1px solid #334155">類型</th>
+                      <th style="padding:8px 10px;text-align:left;color:#94a3b8;font-weight:500;border-bottom:1px solid #334155">狀態</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows_html}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            '''
+            st.markdown(html_table, unsafe_allow_html=True)
+            st.caption('💡 殖利率 = 權息值 ÷ 前收盤價　｜　✅ 正式 = TWSE 已確認　📋 預告 = 早期公告')
 
 # ── 主程式 ──────────────────────────────
 def main():
