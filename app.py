@@ -2124,8 +2124,8 @@ def main():
             if need_price:
                 st.write('📥 抓取價格歷史（約 10 秒）...')
                 try:
-                    from fetcher import fetch_history
-                    fetch_history(code, months=3)
+                    from fetcher import fetch_history_auto
+                    fetch_history_auto(code, months=15)
                     st.write('✅ 價格資料完成')
                 except Exception as _e:
                     st.write(f'⚠️ 價格資料失敗：{_e}')
@@ -2134,7 +2134,7 @@ def main():
                 st.write('📥 抓取籌碼歷史（約 30 秒）...')
                 try:
                     from fetcher import fetch_chips_history
-                    n = fetch_chips_history(code, months=3)
+                    n = fetch_chips_history(code, months=15)
                     st.write(f'✅ 籌碼資料完成（新增 {n} 筆）')
                 except Exception as _e:
                     st.write(f'⚠️ 籌碼資料失敗：{_e}')
