@@ -298,6 +298,97 @@ def fetch_chips():
             
 
 # ── 抓大盤整體融資融券 ────────────────────
+def _parse_market_margin_response(data, date_std_fb):
+    """解析 MI_MARGN MS 回傳，回傳 (date_str, result_dict) 或 (None, None)"""
+    def parse_date_tw(s, fallback):
+        s = str(s).strip()
+        try:
+            if len(s) == 7 and s[0] == '1':
+                return f'{int(s[:3])+1911}-{s[3:5]}-{s[5:7]}'
+            if len(s) == 8 and s[0] == '2':
+                return f'{s[:4]}-{s[4:6]}-{s[6:8]}'
+        except Exception:
+            pass
+        return fallback
+
+    if data.get('stat') != 'OK':
+        return None, None
+
+    date_str = parse_date_tw(data.get('date', ''), date_std_fb)
+    tables = data.get('tables', []) or []
+
+    margin_lots = margin_buy = margin_sell = 0
+    margin_amount = 0
+    short_balance = short_buy = short_sell = 0
+
+    for tbl in tables:
+        for row in tbl.get('data', []):
+            if not row:
+                continue
+            label = str(row[0]).strip()
+            vals  = [clean_num(v) for v in row[1:]]
+            if len(vals) < 5:
+                continue
+            try:
+                if label == '融資(交易單位)':
+                    margin_buy   = int(vals[0])
+                    margin_sell  = int(vals[1])
+                    margin_lots  = int(vals[4])
+                elif '融資金額' in label:
+                    margin_amount = int(vals[4])
+                elif label == '融券(交易單位)':
+                    short_sell    = int(vals[0])
+                    short_buy     = int(vals[1])
+                    short_balance = int(vals[4])
+            except Exception:
+                pass
+
+    margin_balance = round(margin_amount / 100000) if margin_amount > 0 else margin_lots
+    if margin_balance == 0 and short_balance == 0:
+        return None, None
+
+    return date_str, {
+        'margin_balance': margin_balance,
+        'margin_buy':     margin_buy,
+        'margin_sell':    margin_sell,
+        'short_balance':  short_balance,
+        'short_buy':      short_buy,
+        'short_sell':     short_sell,
+    }
+
+
+def fetch_market_margin_history(months=3):
+    """補抓大盤融資融券歷史（逐交易日查詢，較慢）"""
+    from database import save_market_margin, get_market_margin_last_date
+    last = get_market_margin_last_date()
+    today = datetime.now()
+    start = today - timedelta(days=months * 31)
+    cur = start
+    count = 0
+    print(f'補抓大盤融資融券歷史（{months} 個月）...')
+    while cur.date() <= today.date():
+        if cur.weekday() < 5:
+            date_yyyymmdd = cur.strftime('%Y%m%d')
+            date_std = cur.strftime('%Y-%m-%d')
+            if last and date_std <= last:
+                cur += timedelta(days=1)
+                continue
+            url = (f'https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN'
+                   f'?date={date_yyyymmdd}&selectType=MS&response=json')
+            try:
+                r = requests.get(url, headers=HEADERS, timeout=15, verify=False)
+                d, result = _parse_market_margin_response(r.json(), date_std)
+                if d and result:
+                    save_market_margin(d, result)
+                    count += 1
+                time.sleep(0.4)
+            except Exception as e:
+                print(f'  {date_std} 失敗：{e}')
+        cur += timedelta(days=1)
+    print(f'大盤融資融券歷史補齊：{count} 筆')
+    return count
+
+
 def fetch_market_margin():
     """
     抓取全市場融資融券彙總資料（MI_MARGN selectType=MS）。
@@ -309,6 +400,13 @@ def fetch_market_margin():
     last = get_market_margin_last_date()
     if last and last >= twse_date:
         print(f'大盤融資融券已是最新（{last}），略過')
+        return
+
+    # 若歷史資料不足 60 筆，先補抓歷史
+    from database import get_market_margin
+    existing = get_market_margin(days=5)
+    if len(existing) < 3:
+        fetch_market_margin_history(months=3)
         return
 
     def parse_date_tw(s, fallback):
