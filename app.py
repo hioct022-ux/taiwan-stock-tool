@@ -365,11 +365,46 @@ def render_sidebar():
         st.markdown('#### ⭐ 自選股清單')
         watchlist = get_watchlist()
 
+        TAG_LIST = ['長期', '觀察中', '其他']
+        TAG_COLOR = {'長期': '🟢', '觀察中': '🟡', '其他': '⚪'}
+
         if watchlist:
-            for w in watchlist:
-                col1, col2 = st.columns([3, 1])
-                with col1:
-                    tag_color = '🟢' if w['tag'] == '長期' else '🟡' if w['tag'] == '觀察中' else '⚪'
+            # 標籤篩選
+            all_tags = sorted({w['tag'] for w in watchlist if w.get('tag')})
+            filter_options = ['全部'] + all_tags
+            selected_filter = st.radio(
+                '篩選標籤', filter_options,
+                horizontal=True,
+                key='watchlist_tag_filter',
+                label_visibility='collapsed'
+            )
+            filtered = watchlist if selected_filter == '全部' else [w for w in watchlist if w.get('tag') == selected_filter]
+
+            for w in filtered:
+                tag_color = TAG_COLOR.get(w.get('tag', '其他'), '⚪')
+                col1, col2, col3 = st.columns([3, 1, 1]) if IS_LOCAL else [None, None, None]
+                if IS_LOCAL:
+                    with col1:
+                        if st.button(
+                            f"{tag_color} {w['code']} {w['name']}",
+                            key=f"watch_{w['code']}",
+                            use_container_width=True
+                        ):
+                            st.session_state['current_code'] = w['code']
+                            st.session_state['page'] = 'stock'
+                            st.rerun()
+                    with col2:
+                        # 修改標籤：點一下循環切換
+                        cur_tag = w.get('tag', '其他')
+                        next_tag = TAG_LIST[(TAG_LIST.index(cur_tag) + 1) % len(TAG_LIST)] if cur_tag in TAG_LIST else TAG_LIST[0]
+                        if st.button('🏷️', key=f"tag_{w['code']}", help=f'切換標籤（目前：{cur_tag}→{next_tag}）'):
+                            update_watchlist_tag(w['code'], next_tag)
+                            st.rerun()
+                    with col3:
+                        if st.button('✕', key=f"del_{w['code']}"):
+                            remove_watchlist(w['code'])
+                            st.rerun()
+                else:
                     if st.button(
                         f"{tag_color} {w['code']} {w['name']}",
                         key=f"watch_{w['code']}",
@@ -378,30 +413,32 @@ def render_sidebar():
                         st.session_state['current_code'] = w['code']
                         st.session_state['page'] = 'stock'
                         st.rerun()
-                with col2:
-                    if IS_LOCAL and st.button('✕', key=f"del_{w['code']}"):
-                        remove_watchlist(w['code'])
-                        st.rerun()
         else:
             st.info('尚無自選股，搜尋後加入')
 
         # 新增自選股（本機限定）
         if IS_LOCAL:
             st.markdown('---')
-            st.markdown('#### ➕ 新增自選股')
-            new_code = st.text_input('股票代碼', placeholder='例如：2330')
-            new_name = st.text_input('股票名稱', placeholder='例如：台積電')
-            new_tag  = st.selectbox('標籤', ['長期', '觀察中', '其他'])
-            if st.button('加入自選股', use_container_width=True):
-                if new_code and new_name:
-                    add_watchlist(new_code.strip(), new_name.strip(), new_tag)
-                    st.success(f'已加入 {new_code} {new_name}')
-                    st.rerun()
-                else:
-                    st.error('請填入代碼和名稱')
+            with st.expander('➕ 新增自選股'):
+                new_code = st.text_input('股票代碼', placeholder='例如：2330', key='new_wl_code')
+                new_name = st.text_input('股票名稱', placeholder='例如：台積電', key='new_wl_name')
+                new_tag  = st.selectbox('標籤', TAG_LIST, key='new_wl_tag')
+                if st.button('加入自選股', use_container_width=True):
+                    if new_code and new_name:
+                        add_watchlist(new_code.strip(), new_name.strip(), new_tag)
+                        st.success(f'已加入 {new_code} {new_name}')
+                        st.rerun()
+                    else:
+                        st.error('請填入代碼和名稱')
         else:
-            st.markdown('---')
             st.caption('✏️ 新增/刪除自選股請在本機操作後同步')
+
+        st.markdown('---')
+        # 程式說明連結
+        if st.button('📖 程式說明', use_container_width=True):
+            st.session_state['page'] = 'doc'
+            st.session_state.pop('current_code', None)
+            st.rerun()
 
 # ── 圖表：價格走勢 ───────────────────────
 def render_price_chart(ind, name):
@@ -1999,6 +2036,11 @@ def main():
         render_ranking()
         return
 
+    # 程式說明頁
+    if page == 'doc':
+        render_doc()
+        return
+
     if 'current_code' not in st.session_state:
         st.markdown('## 📈 台股投資分析工具')
         st.info('請從左側側邊欄搜尋股票，或點選自選股清單中的股票開始分析。')
@@ -2081,9 +2123,9 @@ def main():
 
     st.markdown(f'## {icon} {name}（{code}）　{close}元　{grade}（{result["total_score"]}分）')
 
-    # 七個頁籤
+    # 六個頁籤（程式說明已移至左側欄）
     tabs = st.tabs(['📊 技術面', '💰 基本面', '🏦 籌碼面',
-                    '⭐ 綜合評分', '📝 備註欄', '📖 程式說明', '📤 匯出分析'])
+                    '⭐ 綜合評分', '📝 備註欄', '📤 匯出分析'])
 
     with tabs[0]:
         render_technical(result, name)
@@ -2096,8 +2138,6 @@ def main():
     with tabs[4]:
         render_notes(result, code, name)
     with tabs[5]:
-        render_doc()
-    with tabs[6]:
         render_export(result, code, name, chips_list)
 
 if __name__ == '__main__':
