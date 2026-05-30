@@ -274,6 +274,140 @@ FINMIND_TOKEN = 'your_finmind_token'  # 用於 ETF 持股資料
 
 ---
 
+## 自行修改指南
+
+不依賴外部工具也能維護這個程式。以下說明各種常見修改情境應該動哪個檔案、改哪裡。
+
+---
+
+### 想調整判斷閾值或指標參數
+
+**改 `config.py`**，不需要動其他檔案。
+
+| 要改的項目 | 對應變數 |
+|-----------|---------|
+| 均線週期（MA5 / MA20 / MA60） | `MA_SHORT` / `MA_MID` / `MA_LONG` |
+| RSI 計算週期 | `RSI_PERIOD` |
+| 大盤籌碼總判斷 — 融資警戒比例 | `MARGIN_RATIO_WARNING` / `MARGIN_RATIO_DANGER` |
+| 市值校準係數 | `TWSE_CAP_COEF` / `TWSE_CAP_CALIBRATED` |
+| 評分權重（基本面/技術面/籌碼面） | `WEIGHT_FUNDAMENTAL` / `WEIGHT_TECHNICAL` / `WEIGHT_CHIPS` |
+| 每日自動抓資料時間 | `AUTO_FETCH_HOUR` / `AUTO_FETCH_MINUTE` |
+
+---
+
+### 想新增一個資料欄位
+
+以「新增一個新的大盤指標」為例，需要依序改四個檔案：
+
+**1. `database.py`**
+- 在 `init_db()` 裡新增 `CREATE TABLE IF NOT EXISTS` 或 `ALTER TABLE ADD COLUMN`
+- 新增對應的 `save_xxx()` 和 `get_xxx()` 函式
+
+**2. `fetcher.py`**
+- 新增 `fetch_xxx()` 函式，負責呼叫 API 並存入 DB
+- 在 `fetch_all()` 末端加入呼叫
+
+**3. `github_sync.py`**
+- 在 `export_to_json()` 加入匯出新資料為 JSON
+- 在 `init_cloud_data()` 加入從 JSON 匯入到雲端 DB
+
+**4. `app.py`**
+- 在對應的 `render_xxx()` 函式裡加入顯示邏輯
+
+---
+
+### 想新增一個頁面
+
+**改 `app.py`**：
+
+1. 新增一個 `render_新頁面()` 函式
+2. 在側邊欄按鈕區加入新按鈕（搜尋 `st.sidebar` 的按鈕區塊）
+3. 在 `main()` 的路由邏輯加入對應判斷
+
+```python
+# 側邊欄加按鈕
+if st.sidebar.button('新頁面'):
+    st.session_state['page'] = 'new_page'
+
+# main() 路由加判斷
+elif page == 'new_page':
+    render_新頁面()
+```
+
+---
+
+### 想新增一支自選股要追蹤的 API
+
+**改 `fetcher.py`** 的 `fetch_all()` 裡自選股補抓迴圈（搜尋 `for w in watchlist`），在迴圈內加入新的資料抓取邏輯。
+
+---
+
+### 想調整大盤籌碼總判斷的評分邏輯
+
+**改 `app.py`** 的 `render_market()` 函式，搜尋 `📋 大盤籌碼總判斷` 即可找到三個 Signal 的評分程式碼，直接調整數字或條件。
+
+---
+
+### 資料庫表格速查
+
+| 表名 | 內容 | 主鍵 |
+|------|------|------|
+| `prices` | 個股及TAIEX日線價格 | (code, date) |
+| `fundamentals` | 個股基本面（PE/PB/殖利率/EPS） | (code, date) |
+| `chips` | 三大法人買賣超 | (code, date) |
+| `margin` | 個股融資融券 | (code, date) |
+| `market_margin` | 大盤融資融券彙總 | date |
+| `market_pe` | 大盤本益比（中位數） | date |
+| `futures_institutional` | 台指期三大法人未平倉 | date |
+| `exdividend` | 除權息資料 | (code, exdividend_date) |
+| `stocks` | 股票基本資料（代號/名稱/市場） | code |
+| `watchlist` | 自選股清單 | code |
+| `t86_ranking` | 三大法人買賣超排行 | (date, code) |
+| `etf_holdings` | ETF 成分股 | (etf_code, stock_code) |
+
+---
+
+### 查詢資料庫內容（Terminal）
+
+```bash
+cd /Users/chenbingyang/台股分析工具
+
+# 查最新大盤本益比
+python3 -c "from database import get_market_pe; rows=get_market_pe(5); [print(r) for r in rows]"
+
+# 查台指期未平倉最新資料
+python3 -c "from database import get_futures_institutional; rows=get_futures_institutional(5); [print(r) for r in rows]"
+
+# 查某支股票最新價格
+python3 -c "from database import get_prices; rows=get_prices('2330',5); [print(r) for r in rows]"
+
+# 直接用 SQLite 瀏覽
+sqlite3 data/stock.db ".tables"
+sqlite3 data/stock.db "SELECT * FROM market_pe ORDER BY date DESC LIMIT 5;"
+```
+
+---
+
+### 手動補抓歷史資料
+
+```bash
+cd /Users/chenbingyang/台股分析工具
+
+# 補抓大盤融資融券歷史（月數）
+python3 -c "from fetcher import fetch_market_margin_history; fetch_market_margin_history(months=4)"
+
+# 補抓台指期未平倉歷史
+python3 -c "from fetcher import fetch_futures_institutional_history; fetch_futures_institutional_history(months=3)"
+
+# 補抓某支個股歷史價格
+python3 -c "from fetcher import fetch_history; fetch_history('2330', months=6)"
+
+# 強制重新抓今日所有資料
+python3 -c "from fetcher import fetch_all; fetch_all()"
+```
+
+---
+
 ## 常見問題排查
 
 | 現象 | 原因 | 解法 |
