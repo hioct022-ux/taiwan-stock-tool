@@ -25,16 +25,29 @@
 | 檔案 | 用途 |
 |------|------|
 | `app.py` | Streamlit 主程式，所有頁面路由與渲染 |
-| `fetcher.py` | TWSE API 資料抓取（個股、大盤、融資融券、籌碼） |
-| `database.py` | SQLite 讀寫封裝 |
+| `fetcher.py` | TWSE / TPEx / yfinance / TAIFEX 資料抓取 |
+| `database.py` | SQLite 讀寫封裝，所有 save_xxx / get_xxx 函式 |
 | `github_sync.py` | JSON 匯出/匯入、git push、雲端載入 |
-| `config.py` | 公開設定（指標參數、路徑、GitHub repo 名稱） |
+| `indicators.py` | 技術指標計算（MA / RSI / KD / MACD / 布林） |
+| `scorer.py` | 個股評分引擎（基本面 + 技術面 + 籌碼面） |
+| `config.py` | 公開設定（指標參數、市值係數、路徑、GitHub repo） |
 | `config_local.py` | **本機專屬、不上傳 Git**（Token、IS_LOCAL=True） |
 | `config_local.py.example` | 上述檔案的範本 |
 | `scheduler.py` | 每日排程主程式 |
 | `fetch_daily.py` | 手動執行單次抓取 |
-| `run.sh` | 啟動 Streamlit |
+| `run.sh` | 啟動 Streamlit（`bash run.sh` 或右鍵以終端機開啟） |
 | `com.taiwan-stock.fetch.plist` | macOS launchd 自動排程設定 |
+
+**頁面功能：**
+
+| 頁面 | 說明 |
+|------|------|
+| 📊 大盤分析 | 加權指數走勢、本益比、台指期法人未平倉、融資融券、籌碼總判斷 |
+| ⭐ 自選股 | 自選股清單、評分、標籤管理 |
+| 🔍 個股查詢 | 任意股票查詢、技術/基本面/籌碼分頁 |
+| 🏆 法人排行 | T86 三大法人當日買賣超排行 |
+| 📅 除權息 | 未來30天除權息預告與正式公告，含殖利率試算 |
+| 📝 個股筆記 | 各股票自訂筆記管理 |
 
 ---
 
@@ -62,6 +75,14 @@
    - `meta.json` 中的 `exported_at` 時間戳記一併更新
 3. **Streamlit Cloud 自動偵測** `exported_at` 變化（透過 `st.cache_resource` key），重新執行 `init_cloud_data()` 匯入最新 JSON
 
+> ⚠️ **程式碼異動（.py 檔）須另外手動推送**，「🚀 同步到雲端」只推資料 JSON：
+> ```bash
+> cd /Users/chenbingyang/台股分析工具
+> git add app.py fetcher.py database.py github_sync.py config.py
+> git commit -m "更新說明"
+> git push
+> ```
+
 > ⚠️ 若 git push 失敗（如 index.lock 殘留），在 Terminal 手動執行：
 > ```bash
 > rm -f /Users/chenbingyang/台股分析工具/.git/index.lock
@@ -88,7 +109,7 @@ if not IS_LOCAL:
 `init_cloud_data()` 會：
 - 從 GitHub raw URL 讀取各 JSON 檔
 - **清空 chips 資料表**（`DELETE FROM chips`）後重新匯入，避免日期解析錯誤殘留的舊資料導致顯示異常
-- 匯入 `market_margin.json`、`taiex_daily.json` 等大盤資料表
+- 匯入 `market_margin.json`、`TAIEX.json`、`futures_institutional.json`、`market_pe.json`、`exdividend.json` 等大盤資料表
 
 > ⚠️ `st.cache_resource` 必須定義在**模組頂層**（if 區塊外），否則快取可能不作用，每次重整都重新匯入。
 
@@ -396,14 +417,20 @@ cd /Users/chenbingyang/台股分析工具
 # 補抓大盤融資融券歷史（月數）
 python3 -c "from fetcher import fetch_market_margin_history; fetch_market_margin_history(months=4)"
 
-# 補抓台指期未平倉歷史
+# 補抓台指期未平倉歷史（TAIFEX 每次限30天，逐月分批）
 python3 -c "from fetcher import fetch_futures_institutional_history; fetch_futures_institutional_history(months=3)"
+
+# 補抓大盤本益比（每日累積，無法補歷史，只抓今日）
+python3 -c "from fetcher import fetch_market_pe; fetch_market_pe()"
 
 # 補抓某支個股歷史價格
 python3 -c "from fetcher import fetch_history; fetch_history('2330', months=6)"
 
 # 強制重新抓今日所有資料
 python3 -c "from fetcher import fetch_all; fetch_all()"
+
+# 初始化資料庫（新增資料表後首次執行）
+python3 -c "from database import init_db; init_db()"
 ```
 
 ---
@@ -415,5 +442,10 @@ python3 -c "from fetcher import fetch_all; fetch_all()"
 | git push 失敗（index.lock） | 上次 git 異常中斷 | `rm .git/index.lock` 後重推 |
 | 雲端顯示融資融券為 0 | chips 表有 `2113-xx-xx` 錯誤日期的舊資料 | 已修：`init_cloud_data()` 會先 DELETE FROM chips |
 | 雲端資料沒更新 | `cache_resource` 沒重新觸發 | 確認 `meta.json` 的 `exported_at` 有更新 |
+| 雲端新資料表沒有資料 | 程式碼異動未推送，或 JSON 未匯出 | 先 `git add *.py && git push`，再按「🚀 同步到雲端」 |
 | 抓歷史融資融券全部失敗 | TWSE 速率限制 | 改用 2 秒間隔，每次抓 14 天以內 |
+| TAIFEX 台指期抓取失敗（garbled 亂碼） | Big5 編碼問題 | 已修：用 `r.content.decode('big5', errors='ignore')` |
+| TAIFEX 單次查詢 30 天以上回傳 HTML | API 限制 | 已修：`fetch_futures_institutional_history` 逐月分批 |
+| 大盤本益比無歷史資料 | BWIBBU_ALL 不支援歷史查詢 | 正常，每日自動累積，無法補抓過去資料 |
 | iPad 圖表變形 | Plotly drag 行為 | 已修：全站改用 `show_chart()` |
+| 市值估算提示需校準 | `TWSE_CAP_CALIBRATED` 超過 365 天 | 查 TWSE 最新市值，更新 `config.py` 的 `TWSE_CAP_COEF` |
