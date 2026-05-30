@@ -9,7 +9,8 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 import time
 from datetime import datetime, timedelta
 from database import (save_prices, save_fundamental, save_chips,
-                      save_stock_info, log_update)
+                      save_stock_info, log_update,
+                      save_futures_institutional, get_futures_institutional)
 
 HEADERS = {'User-Agent': 'Mozilla/5.0'}
 
@@ -1038,6 +1039,24 @@ def fetch_all():
     except Exception as e:
         errors.append(f'大盤融資融券：{e}')
 
+    # ── 大盤本益比 ────────────────────────────
+    try:
+        fetch_market_pe()
+    except Exception as e:
+        errors.append(f'大盤本益比：{e}')
+
+    # ── 台指期三大法人未平倉 ──────────────────
+    try:
+        futures_data = get_futures_institutional(days=5)
+        if len(futures_data) < 3:
+            fetch_futures_institutional_history(months=3)
+        else:
+            fetch_futures_institutional()
+    except Exception as e:
+        errors.append(f'台指期未平倉：{e}')
+
+    time.sleep(1)
+
     # ── 除權息資料（最後執行，避免被 TWSE 限流）──
     time.sleep(3)
     try:
@@ -1054,6 +1073,105 @@ def fetch_all():
         print('\n✅ 全部更新成功')
 
     print('='*40)
+
+# ── 工具：從 BWIBBU_ALL 個股資料計算市場中位數 PE/PB/殖利率 ──
+def _calc_market_pe_from_bwibbu(date_yyyymmdd):
+    """
+    呼叫 TWSE BWIBBU_ALL，回傳 (date_std, pe_median, pb_median, dy_median)。
+    以上市個股中位數計算（排除負值、異常值、無資料）。
+    回傳 None 表示失敗。
+    """
+    url = (f'https://www.twse.com.tw/exchangeReport/BWIBBU_ALL'
+           f'?response=json&date={date_yyyymmdd}&selectType=ALL')
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=20, verify=False)
+        data = r.json()
+    except Exception as e:
+        print(f'  BWIBBU_ALL 請求失敗（{date_yyyymmdd}）：{e}')
+        return None
+
+    if data.get('stat') != 'OK':
+        return None
+
+    # 解析欄位順序：["股票代號","股票名稱","本益比","殖利率(%)","股價淨值比"]
+    fields = data.get('fields', [])
+    try:
+        pe_idx = next(i for i, f in enumerate(fields) if '本益比' in f)
+        dy_idx = next(i for i, f in enumerate(fields) if '殖利率' in f)
+        pb_idx = next(i for i, f in enumerate(fields) if '淨值比' in f)
+    except StopIteration:
+        pe_idx, dy_idx, pb_idx = 2, 3, 4
+
+    pes, dys, pbs = [], [], []
+    for row in (data.get('data') or []):
+        def safe_float(v):
+            try:
+                f = float(str(v).replace(',', '').strip())
+                return f if f > 0 else None
+            except:
+                return None
+        pe = safe_float(row[pe_idx]) if len(row) > pe_idx else None
+        dy = safe_float(row[dy_idx]) if len(row) > dy_idx else None
+        pb = safe_float(row[pb_idx]) if len(row) > pb_idx else None
+        # 排除明顯異常值（PE > 200 視為極端值）
+        if pe and pe <= 200:
+            pes.append(pe)
+        if dy:
+            dys.append(dy)
+        if pb and pb <= 30:
+            pbs.append(pb)
+
+    if not pes:
+        return None
+
+    pes.sort(); dys.sort(); pbs.sort()
+    def median(lst):
+        n = len(lst)
+        return (lst[n // 2] if n % 2 else (lst[n // 2 - 1] + lst[n // 2]) / 2) if lst else None
+
+    # API date 欄位是西元年8碼（如 20260530），直接轉換
+    raw_date = str(data.get('date', '')).strip()
+    if len(raw_date) == 8:
+        date_std = f'{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:]}'
+    else:
+        date_std = twse_date_to_std(raw_date) if raw_date else datetime.strptime(date_yyyymmdd, '%Y%m%d').strftime('%Y-%m-%d')
+
+    return date_std, round(median(pes), 2), round(median(pbs), 2) if pbs else None, round(median(dys), 2) if dys else None
+
+
+# ── 大盤本益比（每日更新）──────────────────
+def fetch_market_pe():
+    """從 TWSE BWIBBU_ALL 計算市場中位數本益比並存入 DB。"""
+    from database import save_market_pe, get_market_pe_last_date
+    last = get_market_pe_last_date()
+
+    for days_back in range(0, 6):
+        try_d = datetime.now() - timedelta(days=days_back)
+        if try_d.weekday() >= 5:
+            continue
+        date_yyyymmdd = try_d.strftime('%Y%m%d')
+        date_std      = try_d.strftime('%Y-%m-%d')
+        if last and date_std <= last:
+            print(f'大盤本益比已是最新（{last}），略過')
+            return
+
+        result = _calc_market_pe_from_bwibbu(date_yyyymmdd)
+        if result:
+            date_std, pe, pb, dy = result
+            save_market_pe(date_std, pe, pb, dy)
+            print(f'大盤本益比：{date_std} PE中位數={pe} PB={pb} 殖利率={dy}%')
+            return
+
+    print('大盤本益比：今日無資料（非交易日或 API 無回應）')
+
+
+# ── 大盤本益比歷史補抓（僅抓今日，歷史靠每日累積）──
+def fetch_market_pe_history(months=6):
+    """BWIBBU_ALL 不支援歷史查詢，改為只儲存今日資料作為起始點。"""
+    print('大盤本益比：TWSE API 不支援歷史查詢，今日資料已儲存，往後每日自動累積。')
+    fetch_market_pe()
+    return 1
+
 
 # ── 抓即將除權息名單 ──────────────────────
 def fetch_exdividend():
@@ -1146,6 +1264,136 @@ def fetch_exdividend():
             print('除權息正式確認：目前無新資料')
     else:
         print('除權息正式確認：API 無回應或無資料')
+
+# ── 抓台指期三大法人未平倉 ──────────────────
+def _parse_futures_csv(raw):
+    """
+    解析 TAIFEX CSV（Big5 編碼）。
+    raw 可以是 bytes 或已解碼的 str。
+    回傳 {date: {foreign_long, ...}} dict
+    """
+    import csv, io
+    # 強制以 Big5 解碼
+    if isinstance(raw, bytes):
+        text = raw.decode('big5', errors='ignore')
+    else:
+        # 若已是 str 但亂碼，嘗試 encode back 再解碼
+        try:
+            text = raw.encode('latin-1').decode('big5', errors='ignore')
+        except Exception:
+            text = raw
+
+    result = {}
+    reader = csv.reader(io.StringIO(text))
+    next(reader, None)  # 跳過標題
+
+    for row in reader:
+        if len(row) < 15:
+            continue
+        # row[1]=商品名稱（臺股期貨）, row[2]=身份別
+        # 只取臺股期貨（排除電子/金融期貨）
+        commodity = row[1].strip()
+        if '臺股' not in commodity and '台股' not in commodity:
+            continue
+        date     = row[0].strip().replace('/', '-')
+        identity = row[2].strip()
+        try:
+            long_oi  = int(row[9].replace(',', '').strip())
+            short_oi = int(row[11].replace(',', '').strip())
+            net_oi   = int(row[13].replace(',', '').strip())
+        except Exception:
+            continue
+        if date not in result:
+            result[date] = {}
+        if '外資' in identity:
+            result[date].update({'foreign_long': long_oi, 'foreign_short': short_oi, 'foreign_net': net_oi})
+        elif '投信' in identity:
+            result[date].update({'trust_long': long_oi, 'trust_short': short_oi, 'trust_net': net_oi})
+        elif '自營' in identity:
+            result[date].update({'dealer_long': long_oi, 'dealer_short': short_oi, 'dealer_net': net_oi})
+    return result
+
+
+def fetch_futures_institutional():
+    """抓取今日（或最近一交易日）台指期三大法人未平倉"""
+    from database import save_futures_institutional, get_futures_institutional
+    print('抓取台指期三大法人未平倉...')
+    today = datetime.now().strftime('%Y/%m/%d')
+    url = 'https://www.taifex.com.tw/cht/3/futContractsDateDown'
+    try:
+        r = requests.get(url, params={
+            'down_type': '1', 'commodity_id': 'TXF',
+            'queryStartDate': today, 'queryEndDate': today
+        }, headers=HEADERS, timeout=15)
+        parsed = _parse_futures_csv(r.content)
+        if not parsed:
+            # 今天可能還沒資料，試前一交易日
+            prev = (datetime.now() - timedelta(days=1)).strftime('%Y/%m/%d')
+            r2 = requests.get(url, params={
+                'down_type': '1', 'commodity_id': 'TXF',
+                'queryStartDate': prev, 'queryEndDate': prev
+            }, headers=HEADERS, timeout=15)
+            parsed = _parse_futures_csv(r2.content)
+        count = 0
+        for date, data in parsed.items():
+            if len(data) >= 6:  # 至少有外資+投信+自營
+                save_futures_institutional(date, data)
+                count += 1
+        print(f'台指期未平倉：{count} 筆')
+    except Exception as e:
+        print(f'台指期未平倉失敗：{e}')
+
+
+def fetch_futures_institutional_history(months=3):
+    """
+    補抓台指期三大法人未平倉歷史。
+    TAIFEX 限制單次查詢範圍約 30 天，改為逐月分批抓取。
+    """
+    import calendar
+    from database import save_futures_institutional
+    print(f'補抓台指期未平倉歷史（{months} 個月，逐月分批）...')
+    url   = 'https://www.taifex.com.tw/cht/3/futContractsDateDown'
+    total = 0
+    now   = datetime.now()
+
+    # 建立月份列表（由舊到新）
+    month_ranges = []
+    for i in range(months - 1, -1, -1):
+        # 往回 i 個月
+        m = now.month - i
+        y = now.year
+        while m <= 0:
+            m += 12
+            y -= 1
+        month_start = datetime(y, m, 1)
+        # 最後一個月以今天為結束，其他月份以月底為結束
+        if i == 0:
+            month_end = now
+        else:
+            last_day = calendar.monthrange(y, m)[1]
+            month_end = datetime(y, m, last_day)
+        month_ranges.append((month_start, month_end))
+
+    for month_start, month_end in month_ranges:
+        try:
+            r = requests.get(url, params={
+                'down_type': '1', 'commodity_id': 'TXF',
+                'queryStartDate': month_start.strftime('%Y/%m/%d'),
+                'queryEndDate':   month_end.strftime('%Y/%m/%d'),
+            }, headers=HEADERS, timeout=20)
+            parsed = _parse_futures_csv(r.content)
+            for date, data in sorted(parsed.items()):
+                if len(data) >= 6:
+                    save_futures_institutional(date, data)
+                    total += 1
+            print(f'  {month_start.strftime("%Y/%m/%d")}～{month_end.strftime("%Y/%m/%d")}：{len(parsed)} 筆')
+            time.sleep(0.5)
+        except Exception as e:
+            print(f'  {month_start.strftime("%Y/%m")} 失敗：{e}')
+
+    print(f'台指期未平倉歷史：共 {total} 筆')
+    return total
+
 
 # ── 抓三大法人當日買賣超排行（T86）──────────
 def fetch_t86():

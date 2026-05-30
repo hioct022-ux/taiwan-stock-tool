@@ -21,7 +21,7 @@ from database import (init_db, get_prices, get_fundamentals, get_chips,
                       get_etf_holders, get_etf_last_update, get_ownership,
                       get_t86_ranking, get_t86_ranking_bottom, get_t86_last_date,
                       get_exdividend, get_exdividend_upcoming, get_exdividend_by_code,
-                      get_market_margin,
+                      get_market_margin, get_futures_institutional, get_market_pe,
                       get_tags, add_tag, rename_tag, delete_tag,
                       update_watchlist_tags)
 from indicators import calc_all
@@ -1741,6 +1741,129 @@ def render_market():
         else:
             st.metric('近3個月位置', '—')
 
+    # ── 大盤本益比指標 ──────────────────────
+    pe_data = get_market_pe(days=250)
+    if pe_data:
+        latest_pe = pe_data[-1]
+        pe_val  = latest_pe.get('pe_ratio')
+        pb_val  = latest_pe.get('pb_ratio')
+        dy_val  = latest_pe.get('div_yield')
+        pe_date = latest_pe.get('date', '')
+
+        # 判斷函式
+        def pe_judgment(pe):
+            if pe is None:
+                return '—', '#94a3b8'
+            if pe < 14:
+                return f'歷史低估區 ✅', '#22c55e'
+            if pe < 18:
+                return '合理估值', '#94a3b8'
+            if pe < 22:
+                return '偏高，留意風險 ⚠️', '#f59e0b'
+            return '高估，泡沫風險 🔴', '#ef4444'
+
+        def pb_judgment(pb):
+            if pb is None:
+                return '—', '#94a3b8'
+            if pb < 1.5:
+                return '淨值偏低，具支撐', '#22c55e'
+            if pb < 2.2:
+                return '合理', '#94a3b8'
+            if pb < 3.0:
+                return '偏高', '#f59e0b'
+            return '高估', '#ef4444'
+
+        pe_jdg, pe_color = pe_judgment(pe_val)
+        pb_jdg, pb_color = pb_judgment(pb_val)
+
+        pc1, pc2, pc3 = st.columns(3)
+        pc1.markdown(
+            f'**大盤本益比（PE）**<br>'
+            f'<span style="font-size:26px;font-weight:700;color:{pe_color}">'
+            f'{"%.2f" % pe_val if pe_val else "—"}</span><br>'
+            f'<span style="font-size:12px;color:#64748b">{pe_jdg}　資料日期：{pe_date}</span>',
+            unsafe_allow_html=True)
+        pc2.markdown(
+            f'**大盤股價淨值比（PB）**<br>'
+            f'<span style="font-size:26px;font-weight:700;color:{pb_color}">'
+            f'{"%.2f" % pb_val if pb_val else "—"}</span><br>'
+            f'<span style="font-size:12px;color:#64748b">{pb_jdg}</span>',
+            unsafe_allow_html=True)
+        pc3.markdown(
+            f'**大盤殖利率**<br>'
+            f'<span style="font-size:26px;font-weight:700;color:#38bdf8">'
+            f'{"%.2f" % dy_val + "%" if dy_val else "—"}</span><br>'
+            f'<span style="font-size:12px;color:#64748b">整體市場配息水準</span>',
+            unsafe_allow_html=True)
+
+        st.markdown('')
+
+        # 本益比歷史線圖
+        if len(pe_data) >= 5:
+            pe_dates  = [r['date']     for r in pe_data]
+            pe_series = [r['pe_ratio'] for r in pe_data]
+            pb_series = [r['pb_ratio'] for r in pe_data]
+
+            fig_pe = go.Figure()
+            fig_pe.add_trace(go.Scatter(
+                x=pe_dates, y=pe_series, name='本益比(PE)',
+                line=dict(color='#f59e0b', width=2),
+                yaxis='y1'
+            ))
+            if any(v is not None for v in pb_series):
+                fig_pe.add_trace(go.Scatter(
+                    x=pe_dates, y=pb_series, name='股價淨值比(PB)',
+                    line=dict(color='#a78bfa', width=1.5, dash='dot'),
+                    yaxis='y2'
+                ))
+            # 本益比參考線
+            for ref_val, ref_label, ref_color in [
+                (14, 'PE 14（低估）', 'rgba(34,197,94,0.5)'),
+                (18, 'PE 18（合理上緣）', 'rgba(148,163,184,0.4)'),
+                (22, 'PE 22（高估）', 'rgba(239,68,68,0.4)'),
+            ]:
+                fig_pe.add_hline(
+                    y=ref_val, line_color=ref_color, line_width=1, line_dash='dash',
+                    annotation_text=ref_label,
+                    annotation_position='left',
+                    annotation_font_size=10,
+                    annotation_font_color=ref_color,
+                )
+            fig_pe.update_layout(
+                height=260,
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)',
+                margin=dict(l=0, r=0, t=10, b=0),
+                legend=dict(orientation='h', y=1.12),
+                yaxis=dict(title='本益比', gridcolor='#1e293b', side='left'),
+                yaxis2=dict(title='PB', overlaying='y', side='right',
+                            gridcolor='rgba(0,0,0,0)', showgrid=False),
+                xaxis=dict(gridcolor='#1e293b'),
+                font=dict(color='#94a3b8', size=11),
+            )
+            st.markdown('**大盤本益比 / 股價淨值比 歷史走勢**')
+            show_chart(fig_pe)
+
+        # 判斷文字
+        pe_msgs = []
+        if pe_val is not None:
+            if pe_val < 14:
+                pe_msgs.append(f'🟢 **本益比 {pe_val:.1f}x**，處於歷史低估區（< 14x），市場評價偏低，具長期投資吸引力。')
+            elif pe_val < 18:
+                pe_msgs.append(f'⚪ **本益比 {pe_val:.1f}x**，估值合理（14–18x），整體市場無明顯高低估。')
+            elif pe_val < 22:
+                pe_msgs.append(f'🟡 **本益比 {pe_val:.1f}x**，估值偏高（18–22x），需留意獲利能否支撐股價。')
+            else:
+                pe_msgs.append(f'🔴 **本益比 {pe_val:.1f}x**，估值偏貴（> 22x），歷史高位，建議保守應對。')
+        if pb_val is not None and pb_val < 1.5:
+            pe_msgs.append(f'📌 股價淨值比 {pb_val:.2f}x，接近帳面價值，下方支撐相對強。')
+        if dy_val is not None and dy_val >= 4.0:
+            pe_msgs.append(f'💰 大盤殖利率 {dy_val:.2f}%，高於一般定存水準，股市吸引力強。')
+        for msg in pe_msgs:
+            st.markdown(msg)
+        st.caption('資料來源：TWSE 臺灣證券交易所｜本益比基準為市場加權平均，14以下歷史偏低、22以上偏高')
+        st.markdown('---')
+
     st.caption(f'資料來源：Yahoo Finance ^TWII　｜　成交量欄位代表相對量能（較大代表當日成交活絡）')
 
     # ── 走勢圖 ─────────────────────────────
@@ -1754,30 +1877,45 @@ def render_market():
     bb_lower_s = ind.get('bb_lower_series', [])
 
     if dates:
-        fig = go.Figure()
+        # 成交量顏色：漲紅跌綠
+        vol_colors = []
+        for k in range(len(dates)):
+            if k == 0:
+                vol_colors.append('#ef4444')
+            elif closes[k] >= closes[k - 1]:
+                vol_colors.append('#ef4444')
+            else:
+                vol_colors.append('#22c55e')
+
+        fig = make_subplots(
+            rows=2, cols=1,
+            shared_xaxes=True,
+            row_heights=[0.72, 0.28],
+            vertical_spacing=0.03
+        )
 
         # 指數線
         fig.add_trace(go.Scatter(
             x=dates, y=closes, name='加權指數',
             line=dict(color='#38bdf8', width=2)
-        ))
+        ), row=1, col=1)
 
         # 均線
         fig.add_trace(go.Scatter(
             x=dates, y=ma5s, name='MA5',
             line=dict(color='#f59e0b', width=1),
             connectgaps=True
-        ))
+        ), row=1, col=1)
         fig.add_trace(go.Scatter(
             x=dates, y=ma20s, name='MA20',
             line=dict(color='#a78bfa', width=1),
             connectgaps=True
-        ))
+        ), row=1, col=1)
         fig.add_trace(go.Scatter(
             x=dates, y=ma60s, name='MA60',
             line=dict(color='#22c55e', width=1),
             connectgaps=True
-        ))
+        ), row=1, col=1)
 
         # 布林通道（淺灰色帶）
         if bb_upper_s and bb_lower_s and len(dates) == len(bb_upper_s):
@@ -1786,27 +1924,167 @@ def render_market():
                 mode='lines',
                 line=dict(color='rgba(180,180,180,0.4)', width=1),
                 showlegend=True
-            ))
+            ), row=1, col=1)
             fig.add_trace(go.Scatter(
                 x=dates, y=bb_lower_s, name='布林下軌',
                 mode='lines',
                 line=dict(color='rgba(180,180,180,0.4)', width=1),
                 fill='tonexty', fillcolor='rgba(160,160,160,0.12)',
                 showlegend=True
-            ))
+            ), row=1, col=1)
+
+        # 成交量柱狀圖
+        if volumes:
+            fig.add_trace(go.Bar(
+                x=dates, y=volumes,
+                name='成交量',
+                marker_color=vol_colors,
+                opacity=0.75,
+                showlegend=True
+            ), row=2, col=1)
 
         fig.update_layout(
             paper_bgcolor='#0d0f12',
             plot_bgcolor='#141720',
             font=dict(color='#e2e8f0', size=11),
-            height=420,
+            height=520,
             showlegend=True,
             legend=dict(orientation='h', yanchor='bottom', y=1.02),
-            xaxis=dict(showgrid=True, gridcolor='#252a38'),
+            xaxis2=dict(showgrid=True, gridcolor='#252a38'),
             yaxis=dict(showgrid=True, gridcolor='#252a38'),
-            margin=dict(l=0, r=0, t=40, b=0)
+            yaxis2=dict(showgrid=True, gridcolor='#252a38', title='成交量',
+                        title_font=dict(size=10)),
+            margin=dict(l=0, r=0, t=40, b=0),
+            bargap=0.2
         )
+        fig.update_xaxes(showgrid=True, gridcolor='#252a38')
         show_chart(fig)
+
+        # ── 成交量判斷 ──────────────────────────
+        # 過濾掉 0 值（yfinance 近日資料有時為 0）
+        valid_vols = [(i, v) for i, v in enumerate(volumes) if v and v > 0]
+        if valid_vols and len(valid_vols) >= 10:
+            # 取最後一個有效量及其對應日期
+            last_idx, vol_today = valid_vols[-1]
+            vol_date = dates[last_idx] if last_idx < len(dates) else ''
+
+            valid_only = [v for _, v in valid_vols]
+            vol_ma5  = sum(valid_only[-5:])  / min(5,  len(valid_only))
+            vol_ma20 = sum(valid_only[-20:]) / min(20, len(valid_only))
+            vol_ratio20 = vol_today / vol_ma20 if vol_ma20 > 0 else 1.0
+
+            # 近5日 vs 前5日趨勢
+            recent5 = sum(valid_only[-5:])  / min(5, len(valid_only))
+            prev5   = sum(valid_only[-10:-5]) / min(5, len(valid_only[-10:-5])) if len(valid_only) >= 10 else recent5
+            vol_trend = (recent5 - prev5) / prev5 * 100 if prev5 > 0 else 0
+
+            # 對應的收盤漲跌
+            is_up = closes[last_idx] >= closes[last_idx - 1] if last_idx > 0 else True
+
+            vol_msgs = []
+            if vol_ratio20 >= 2.0:
+                color  = '#ef4444' if is_up else '#22c55e'
+                action = '放量上攻，多方積極' if is_up else '放量下殺，空方強勢'
+                vol_msgs.append(f'<span style="color:{color}">🔥 **爆量**（{vol_date}，約20日均量 {vol_ratio20:.1f} 倍）：{action}，需觀察後續方向確認。</span>')
+            elif vol_ratio20 >= 1.3:
+                action = '量增上漲，趨勢偏多' if is_up else '量增下跌，短線偏弱'
+                vol_msgs.append(f'<span style="color:#f59e0b">📈 **量能偏大**（{vol_date}，20日均量 {vol_ratio20:.1f} 倍）：{action}。</span>')
+            elif vol_ratio20 <= 0.6:
+                vol_msgs.append(f'<span style="color:#64748b">😴 **縮量**（{vol_date}，僅20日均量 {vol_ratio20:.1f} 倍）：市場觀望，方向不明，不宜追高殺低。</span>')
+            else:
+                vol_msgs.append(f'<span style="color:#94a3b8">⚪ **量能正常**（{vol_date}，20日均量 {vol_ratio20:.1f} 倍）：市場交投平穩。</span>')
+
+            if vol_trend >= 30:
+                vol_msgs.append(f'<span style="color:#22c55e">📊 近5日量能持續放大（+{vol_trend:.0f}%），市場活絡度提升，動能增強。</span>')
+            elif vol_trend <= -30:
+                vol_msgs.append(f'<span style="color:#64748b">📉 近5日量能持續萎縮（{vol_trend:.0f}%），動能減弱，短線整理機率較高。</span>')
+
+            for msg in vol_msgs:
+                st.markdown(msg, unsafe_allow_html=True)
+            st.caption(f'資料日期：{vol_date}　成交量：{vol_today:,}　5日均量：{vol_ma5:,.0f}　20日均量：{vol_ma20:,.0f}')
+
+    st.markdown('---')
+
+    # ── 台指期三大法人未平倉 ─────────────────
+    st.markdown('#### 📊 台指期三大法人未平倉口數')
+    futures_data = get_futures_institutional(days=90)
+
+    if not futures_data:
+        st.info('尚無台指期未平倉資料，請按「🔄 手動更新資料」取得。')
+    else:
+        latest = futures_data[-1]
+        f_net  = latest['foreign_net']
+        t_net  = latest['trust_net']
+        d_net  = latest['dealer_net']
+        total_net = f_net + t_net + d_net
+
+        # ── 最新數值指標 ──
+        c1, c2, c3, c4 = st.columns(4)
+        def net_color(v): return '#22c55e' if v > 0 else '#ef4444' if v < 0 else '#94a3b8'
+        def net_label(v): return f'+{v:,}' if v > 0 else f'{v:,}'
+
+        c1.markdown(f'**外資**<br><span style="font-size:22px;font-weight:700;color:{net_color(f_net)}">{net_label(f_net)} 口</span><br><span style="font-size:11px;color:#64748b">多{latest["foreign_long"]:,} / 空{latest["foreign_short"]:,}</span>', unsafe_allow_html=True)
+        c2.markdown(f'**投信**<br><span style="font-size:22px;font-weight:700;color:{net_color(t_net)}">{net_label(t_net)} 口</span><br><span style="font-size:11px;color:#64748b">多{latest["trust_long"]:,} / 空{latest["trust_short"]:,}</span>', unsafe_allow_html=True)
+        c3.markdown(f'**自營商**<br><span style="font-size:22px;font-weight:700;color:{net_color(d_net)}">{net_label(d_net)} 口</span><br><span style="font-size:11px;color:#64748b">多{latest["dealer_long"]:,} / 空{latest["dealer_short"]:,}</span>', unsafe_allow_html=True)
+        c4.markdown(f'**三大合計**<br><span style="font-size:22px;font-weight:700;color:{net_color(total_net)}">{net_label(total_net)} 口</span><br><span style="font-size:11px;color:#64748b">資料日期：{latest["date"]}</span>', unsafe_allow_html=True)
+
+        # ── 趨勢折線圖 ──
+        dates  = [r['date'] for r in futures_data]
+        f_nets = [r['foreign_net'] for r in futures_data]
+        t_nets = [r['trust_net']   for r in futures_data]
+        d_nets = [r['dealer_net']  for r in futures_data]
+        totals = [f + t + d for f, t, d in zip(f_nets, t_nets, d_nets)]
+
+        fig_fut = go.Figure()
+        fig_fut.add_trace(go.Scatter(x=dates, y=f_nets, name='外資', line=dict(color='#60a5fa', width=2)))
+        fig_fut.add_trace(go.Scatter(x=dates, y=t_nets, name='投信', line=dict(color='#34d399', width=1.5)))
+        fig_fut.add_trace(go.Scatter(x=dates, y=d_nets, name='自營商', line=dict(color='#f59e0b', width=1.5)))
+        fig_fut.add_trace(go.Scatter(x=dates, y=totals, name='三大合計', line=dict(color='#e2e8f0', width=2, dash='dot')))
+        fig_fut.add_hline(y=0, line_color='#475569', line_width=1)
+        fig_fut.update_layout(
+            height=280, margin=dict(l=0, r=0, t=10, b=0),
+            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+            legend=dict(orientation='h', y=1.1),
+            yaxis=dict(gridcolor='#1e293b', zeroline=False),
+            xaxis=dict(gridcolor='#1e293b'),
+            font=dict(color='#94a3b8'),
+        )
+        st.markdown('**未平倉口數淨額走勢（正=偏多、負=偏空）**')
+        show_chart(fig_fut)
+
+        # ── 判斷文字 ──
+        f20 = [r['foreign_net'] for r in futures_data[-20:]]
+        f_trend = f_nets[-1] - f_nets[-6] if len(f_nets) >= 6 else 0
+
+        msgs = []
+        if f_net > 10000:
+            msgs.append(f'🟢 **外資大幅偏多** {f_net:,} 口，期貨市場看多氣氛強烈，支撐指數上漲動能。')
+        elif f_net > 0:
+            msgs.append(f'🟡 **外資小幅偏多** {f_net:,} 口，多空分歧，方向未明。')
+        elif f_net > -10000:
+            msgs.append(f'🟡 **外資小幅偏空** {f_net:,} 口，空方略佔優勢，指數偏弱。')
+        else:
+            msgs.append(f'🔴 **外資大幅偏空** {f_net:,} 口，法人期貨空單沉重，需留意指數下行風險。')
+
+        if f_trend > 5000:
+            msgs.append(f'📈 外資近 5 日淨多單增加 {f_trend:+,} 口，持續加碼多單，趨勢偏多。')
+        elif f_trend < -5000:
+            msgs.append(f'📉 外資近 5 日淨多單減少 {f_trend:+,} 口，持續擴大空單，趨勢偏空。')
+
+        if t_net > 20000:
+            msgs.append(f'🟢 **投信期貨多單** {t_net:,} 口，投信大力做多，對後市樂觀。')
+        elif t_net < 0:
+            msgs.append(f'🔴 **投信期貨偏空** {t_net:,} 口，投信看空後市。')
+
+        if total_net > 20000:
+            msgs.append(f'✅ **三大法人合計偏多 {total_net:,} 口**，籌碼面整體支撐行情。')
+        elif total_net < -20000:
+            msgs.append(f'⚠️ **三大法人合計偏空 {total_net:,} 口**，籌碼面整體壓制行情，操作需謹慎。')
+
+        for msg in msgs:
+            st.markdown(msg)
+
+        st.caption('資料來源：台灣期貨交易所 TAIFEX｜正值=淨多單（看多）、負值=淨空單（看空）')
 
     st.markdown('---')
 
@@ -1979,6 +2257,144 @@ def render_market():
                 st.success(f'指數位於近3個月低檔區（{pos_65}%），若量能回升可留意反彈。')
             else:
                 st.info(f'指數位於近3個月中段（{pos_65}%），方向待確認。')
+
+    # ── 📋 大盤籌碼總判斷 ─────────────────────
+    st.markdown('---')
+    st.markdown('#### 📋 大盤籌碼總判斷')
+
+    mmargin_all = get_market_margin(days=120)
+    _has_data   = mmargin_all and len(mmargin_all) >= 5
+
+    if not _has_data:
+        st.info('融資融券資料不足，更新後即可顯示總判斷。')
+    else:
+        from config import (TWSE_CAP_COEF, TWSE_CAP_CALIBRATED,
+                            TWSE_CAP_WARN_DAYS,
+                            MARGIN_RATIO_WARNING, MARGIN_RATIO_DANGER)
+        from datetime import datetime as _dt
+
+        # 每日用指數估算市值（億元）
+        market_cap_b     = close * TWSE_CAP_COEF            # 億元
+        market_cap_t     = market_cap_b / 10000             # 兆元
+
+        # 超過校準警告天數才提醒（預設1年）
+        _days_since = (_dt.now() - _dt.strptime(TWSE_CAP_CALIBRATED, '%Y-%m-%d')).days
+        if _days_since > TWSE_CAP_WARN_DAYS:
+            st.warning(
+                f'⚠️ 市值校準係數已 **{_days_since} 天**未更新（上次：{TWSE_CAP_CALIBRATED}）。'
+                f'請查詢最新市值後更新 `config.py` 的 `TWSE_CAP_COEF`。'
+                f'參考：https://www.twse.com.tw/zh/statistics/statisticsReport/marketInformation.html'
+            )
+
+        # ── Signal 1：融資佔總市值比 ──────────
+        latest_mm   = mmargin_all[-1]
+        mb_b        = latest_mm['margin_balance']           # 億元
+        margin_ratio = mb_b / market_cap_b * 100 if market_cap_b > 0 else 0
+
+        if margin_ratio >= MARGIN_RATIO_DANGER:
+            sig1_score = -2
+            sig1_color = '#ef4444'
+            sig1_label = f'⛔ 融資佔市值 {margin_ratio:.2f}%，歷史警戒區（>{MARGIN_RATIO_DANGER}%），槓桿過高'
+        elif margin_ratio >= MARGIN_RATIO_WARNING:
+            sig1_score = -1
+            sig1_color = '#f59e0b'
+            sig1_label = f'⚠️ 融資佔市值 {margin_ratio:.2f}%，接近警戒線（{MARGIN_RATIO_WARNING}%），需留意'
+        elif margin_ratio >= 0.85:
+            sig1_score = 0
+            sig1_color = '#f59e0b'
+            sig1_label = f'🟡 融資佔市值 {margin_ratio:.2f}%，偏高但尚可，注意後續變化'
+        else:
+            sig1_score = 1
+            sig1_color = '#22c55e'
+            sig1_label = f'✅ 融資佔市值 {margin_ratio:.2f}%（估算市值 {market_cap_t:.1f} 兆），目前健康，尚未過熱'
+
+        # ── Signal 2：融資5日趨勢 + 季線 ──────
+        mb_5day = [r['margin_balance'] for r in mmargin_all[-6:]]
+        mb_trend_5d = mb_5day[-1] - mb_5day[0] if len(mb_5day) >= 2 else 0
+        mb_5d_chg_b = mb_5day[-1] - mb_5day[0]  # 億元變化
+
+        above_ma60 = close >= ma60 if ma60 else True  # 指數在季線上
+
+        if mb_5d_chg_b <= -200 and not above_ma60:
+            sig2_score = -2
+            sig2_color = '#ef4444'
+            sig2_label = f'⛔ 融資5日大減 {mb_5d_chg_b:+,.0f} 億且指數跌破季線（{ma60:,.0f}），主力斷頭訊號，高度警戒'
+        elif mb_5d_chg_b <= -100 and not above_ma60:
+            sig2_score = -1
+            sig2_color = '#f59e0b'
+            sig2_label = f'⚠️ 融資5日減少 {mb_5d_chg_b:+,.0f} 億，指數跌破季線，籌碼鬆動，注意跌勢擴大'
+        elif mb_5d_chg_b >= 300 and above_ma60:
+            sig2_score = -1
+            sig2_color = '#f59e0b'
+            sig2_label = f'⚠️ 融資5日大增 {mb_5d_chg_b:+,.0f} 億（單週暴增警戒線 300 億），若指數不過前高需開始減碼'
+        elif mb_5d_chg_b >= 300 and not above_ma60:
+            sig2_score = -2
+            sig2_color = '#ef4444'
+            sig2_label = f'⛔ 融資5日大增 {mb_5d_chg_b:+,.0f} 億且指數在季線下，散戶逆勢加碼，風險極高'
+        else:
+            ma60_txt = f'季線（{ma60:,.0f}）上方' if above_ma60 else f'季線（{ma60:,.0f}）下方'
+            sig2_score = 1 if above_ma60 else -1
+            sig2_color = '#22c55e' if above_ma60 else '#f59e0b'
+            sig2_label = f'{"✅" if above_ma60 else "🟡"} 融資5日變化 {mb_5d_chg_b:+,.0f} 億，指數在{ma60_txt}，{"多方格局"if above_ma60 else "注意季線壓力"}'
+
+        # ── Signal 3：券資比 ───────────────────
+        sb_b = latest_mm['short_balance']
+        short_ratio = sb_b / mb_b * 100 if mb_b > 0 else 0
+
+        if short_ratio < 2.5:
+            sig3_score = -1
+            sig3_color = '#f59e0b'
+            sig3_label = f'⚠️ 券資比僅 {short_ratio:.1f}%（< 2.5%），軋空力道弱，多頭保護墊薄'
+        elif short_ratio >= 10:
+            sig3_score = 1
+            sig3_color = '#22c55e'
+            sig3_label = f'✅ 券資比 {short_ratio:.1f}%（高空單），若大盤反彈可能觸發軋空，上漲動能充足'
+        elif short_ratio >= 5:
+            sig3_score = 1
+            sig3_color = '#22c55e'
+            sig3_label = f'✅ 券資比 {short_ratio:.1f}%，融券尚有一定保護，市場籌碼結構健康'
+        else:
+            sig3_score = 0
+            sig3_color = '#94a3b8'
+            sig3_label = f'⚪ 券資比 {short_ratio:.1f}%，中性水位'
+
+        # ── 總分 & 結論 ────────────────────────
+        total_score = sig1_score + sig2_score + sig3_score
+
+        if total_score >= 2:
+            verdict_color = '#22c55e'
+            verdict = '🟢 **整體籌碼健康，目前無警訊**：融資未過熱、趨勢穩健，可積極參與行情。'
+        elif total_score == 1:
+            verdict_color = '#22c55e'
+            verdict = '🟢 **大致偏多，留意個別風險**：整體籌碼正常，短線可操作，但需注意前文個別警示。'
+        elif total_score == 0:
+            verdict_color = '#f59e0b'
+            verdict = '🟡 **中性觀望**：多空訊號混雜，建議降低持股比重，等待方向明朗後再加碼。'
+        elif total_score == -1:
+            verdict_color = '#f59e0b'
+            verdict = '🟡 **偏空謹慎**：籌碼出現部分警訊，建議持股保守，勿追高，設好停損。'
+        else:
+            verdict_color = '#ef4444'
+            verdict = '🔴 **高度警戒，建議大幅減碼**：多個籌碼指標同時亮紅燈，系統性風險提升，優先保本。'
+
+        # 顯示三個訊號
+        st.markdown(f'<div style="padding:6px 10px;border-left:3px solid {sig1_color};margin-bottom:6px">{sig1_label}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="padding:6px 10px;border-left:3px solid {sig2_color};margin-bottom:6px">{sig2_label}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="padding:6px 10px;border-left:3px solid {sig3_color};margin-bottom:12px">{sig3_label}</div>', unsafe_allow_html=True)
+
+        # 總結論
+        st.markdown(
+            f'<div style="background:#1a1f2e;border-radius:8px;padding:14px 16px;'
+            f'border:1px solid {verdict_color};margin-top:4px">'
+            f'<span style="color:{verdict_color};font-size:15px">{verdict}</span>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
+        st.caption(
+            f'融資餘額 {mb_b:,} 億　融券餘額 {sb_b:,} 億　季線 {ma60:,.0f}　'
+            f'｜ 今日估算市值：{market_cap_t:.1f} 兆'
+            f'（指數 {close:,.0f} × 係數 {TWSE_CAP_COEF}，校準日：{TWSE_CAP_CALIBRATED}）'
+        )
 
     # ── 近5個交易日走勢簡表 ────────────────
     st.markdown('---')

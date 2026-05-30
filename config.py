@@ -86,6 +86,26 @@ GRADE = {
 # ── 資料過期警告天數 ─────────────────────
 DATA_EXPIRE_DAYS = 3        # 超過3個交易日未更新顯示警告
 
+# ── 大盤總判斷參數 ───────────────────────
+# 市值以「指數點位 × 校準係數」每日自動估算，不需固定常數
+#
+# 校準方式：
+#   市值(兆) = 指數收盤 × TWSE_CAP_COEF / 10000
+#   TWSE_CAP_COEF = 已知市值(億) / 已知指數
+#   例：指數 44917、市值 750000億 → TWSE_CAP_COEF = 750000 / 44917 ≈ 16.70
+#
+# 每 6~12 個月校準一次即可（新股上市、市值結構改變時）：
+#   1. 至 https://www.twse.com.tw/zh/statistics/statisticsReport/marketInformation.html 查最新市值
+#   2. TWSE_CAP_COEF = 最新市值(億) / 當日指數收盤
+#   3. 更新 TWSE_CAP_CALIBRATED 為今天日期
+TWSE_CAP_COEF        = 16.70   # 億元 / 指數點（2026Q2 校準）
+TWSE_CAP_CALIBRATED  = '2026-05-30'   # 上次校準日期
+TWSE_CAP_WARN_DAYS   = 365     # 超過此天數顯示重新校準提醒
+
+# 融資警戒閾值（佔市值比）
+MARGIN_RATIO_WARNING  = 1.0   # 超過此值偏警戒（%）
+MARGIN_RATIO_DANGER   = 1.2   # 超過此值高度警戒（%）
+
 # ── 版本資訊 ────────────────────────────
 VERSION = 'v2.1'
 VERSION_DATE = '2026/05/21'

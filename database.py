@@ -202,6 +202,40 @@ def init_db():
         )
     ''')
 
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS futures_institutional (
+            date           TEXT PRIMARY KEY,
+            foreign_long   INTEGER DEFAULT 0,
+            foreign_short  INTEGER DEFAULT 0,
+            foreign_net    INTEGER DEFAULT 0,
+            trust_long     INTEGER DEFAULT 0,
+            trust_short    INTEGER DEFAULT 0,
+            trust_net      INTEGER DEFAULT 0,
+            dealer_long    INTEGER DEFAULT 0,
+            dealer_short   INTEGER DEFAULT 0,
+            dealer_net     INTEGER DEFAULT 0
+        )
+    ''')
+
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS market_pe (
+            date     TEXT PRIMARY KEY,
+            pe_ratio REAL,
+            pb_ratio REAL,
+            div_yield REAL
+        )
+    ''')
+
+    # ── 欄位 migration（舊版 DB 相容）──
+    migrations = [
+        'ALTER TABLE exdividend ADD COLUMN is_confirmed INTEGER DEFAULT 0',
+    ]
+    for sql in migrations:
+        try:
+            c.execute(sql)
+        except Exception:
+            pass  # 欄位已存在，忽略
+
     conn.commit()
     conn.close()
     print('資料庫初始化完成')
@@ -693,6 +727,32 @@ def get_market_margin_last_date():
     conn.close()
     return row[0] if row and row[0] else None
 
+# ── 大盤本益比 ───────────────────────────
+def save_market_pe(date, pe_ratio, pb_ratio=None, div_yield=None):
+    conn = get_conn()
+    conn.execute('''
+        INSERT OR REPLACE INTO market_pe (date, pe_ratio, pb_ratio, div_yield)
+        VALUES (?, ?, ?, ?)
+    ''', (date, pe_ratio, pb_ratio, div_yield))
+    conn.commit()
+    conn.close()
+
+def get_market_pe(days=250):
+    conn = get_conn()
+    rows = conn.execute('''
+        SELECT date, pe_ratio, pb_ratio, div_yield
+        FROM market_pe ORDER BY date DESC LIMIT ?
+    ''', (days,)).fetchall()
+    conn.close()
+    cols = ['date', 'pe_ratio', 'pb_ratio', 'div_yield']
+    return [dict(zip(cols, r)) for r in reversed(rows)]
+
+def get_market_pe_last_date():
+    conn = get_conn()
+    row = conn.execute('SELECT MAX(date) FROM market_pe').fetchone()
+    conn.close()
+    return row[0] if row and row[0] else None
+
 # ── 除權息資料 ──────────────────────────
 def save_exdividend(rows):
     """
@@ -801,6 +861,38 @@ def save_stock_info(code, name, market, industry):
     ''', (code, name, market, industry, now))
     conn.commit()
     conn.close()
+
+def save_futures_institutional(date, data):
+    """儲存三大法人台指期未平倉口數"""
+    conn = get_conn()
+    conn.execute('''
+        INSERT OR REPLACE INTO futures_institutional
+        (date, foreign_long, foreign_short, foreign_net,
+         trust_long, trust_short, trust_net,
+         dealer_long, dealer_short, dealer_net)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (date,
+          data.get('foreign_long', 0), data.get('foreign_short', 0), data.get('foreign_net', 0),
+          data.get('trust_long', 0),   data.get('trust_short', 0),   data.get('trust_net', 0),
+          data.get('dealer_long', 0),  data.get('dealer_short', 0),  data.get('dealer_net', 0)))
+    conn.commit()
+    conn.close()
+
+def get_futures_institutional(days=90):
+    """取得最近 N 天的三大法人台指期未平倉，依日期升序"""
+    conn = get_conn()
+    rows = conn.execute('''
+        SELECT date, foreign_long, foreign_short, foreign_net,
+               trust_long, trust_short, trust_net,
+               dealer_long, dealer_short, dealer_net
+        FROM futures_institutional
+        ORDER BY date DESC LIMIT ?
+    ''', (days,)).fetchall()
+    conn.close()
+    cols = ['date', 'foreign_long', 'foreign_short', 'foreign_net',
+            'trust_long', 'trust_short', 'trust_net',
+            'dealer_long', 'dealer_short', 'dealer_net']
+    return list(reversed([dict(zip(cols, r)) for r in rows]))
 
 if __name__ == '__main__':
     init_db()

@@ -201,6 +201,30 @@ def export_to_json(code=None):
     except Exception as e:
         print(f'匯出除權息失敗：{e}')
 
+    try:
+        from database import get_futures_institutional
+        fut_rows = get_futures_institutional(days=120)
+        if fut_rows:
+            with open(os.path.join(JSON_DIR, 'futures_institutional.json'), 'w', encoding='utf-8') as f:
+                json.dump({'rows': fut_rows,
+                           'exported_at': datetime.now().strftime('%Y-%m-%d %H:%M')},
+                          f, ensure_ascii=False)
+            print(f'匯出台指期未平倉：{len(fut_rows)} 筆')
+    except Exception as e:
+        print(f'匯出台指期未平倉失敗：{e}')
+
+    try:
+        from database import get_market_pe
+        pe_rows = get_market_pe(days=250)
+        if pe_rows:
+            with open(os.path.join(JSON_DIR, 'market_pe.json'), 'w', encoding='utf-8') as f:
+                json.dump({'rows': pe_rows,
+                           'exported_at': datetime.now().strftime('%Y-%m-%d %H:%M')},
+                          f, ensure_ascii=False)
+            print(f'匯出大盤本益比：{len(pe_rows)} 筆')
+    except Exception as e:
+        print(f'匯出大盤本益比失敗：{e}')
+
     print(f'JSON 匯出完成，路徑：{JSON_DIR}')
 
 # ── 使用 git CLI 推送（推薦，不需要 Token）──
@@ -472,6 +496,32 @@ def init_cloud_data():
             print(f'  除權息：{len(rows)} 筆')
     except Exception as e:
         print(f'  除權息匯入失敗：{e}')
+
+    # ── 台指期三大法人未平倉（每次更新）──
+    try:
+        with open(os.path.join(JSON_DIR, 'futures_institutional.json'), encoding='utf-8') as f:
+            fut = json.load(f)
+        rows = fut.get('rows', [])
+        if rows:
+            from database import save_futures_institutional
+            for r in rows:
+                save_futures_institutional(r['date'], r)
+            print(f'  台指期未平倉：{len(rows)} 筆')
+    except Exception as e:
+        print(f'  台指期未平倉匯入失敗：{e}')
+
+    # ── 大盤本益比（每次更新）──
+    try:
+        with open(os.path.join(JSON_DIR, 'market_pe.json'), encoding='utf-8') as f:
+            pe = json.load(f)
+        rows = pe.get('rows', [])
+        if rows:
+            from database import save_market_pe
+            for r in rows:
+                save_market_pe(r['date'], r.get('pe_ratio'), r.get('pb_ratio'), r.get('div_yield'))
+            print(f'  大盤本益比：{len(rows)} 筆')
+    except Exception as e:
+        print(f'  大盤本益比匯入失敗：{e}')
 
     # ── 各股票歷史資料（每次都更新）──
     imported = 0
