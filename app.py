@@ -1861,10 +1861,10 @@ def render_market():
             pe_msgs.append(f'💰 大盤殖利率 {dy_val:.2f}%，高於一般定存水準，股市吸引力強。')
         for msg in pe_msgs:
             st.markdown(msg)
-        st.caption('資料來源：TWSE 臺灣證券交易所｜本益比基準為市場加權平均，14以下歷史偏低、22以上偏高')
+        st.caption(f'資料來源：TWSE BWIBBU_ALL｜資料日期：{pe_data[-1].get("date","")}｜本益比為市場中位數，14以下歷史偏低、22以上偏高')
         st.markdown('---')
 
-    st.caption(f'資料來源：Yahoo Finance ^TWII　｜　成交量欄位代表相對量能（較大代表當日成交活絡）')
+    st.caption(f'資料來源：Yahoo Finance ^TWII（指數）/ TWSE FMTQIK（成交金額）　｜　指數資料日期：{date}　｜　成交金額單位：億元')
 
     # ── 走勢圖 ─────────────────────────────
     dates   = ind.get('dates', [])
@@ -1952,7 +1952,7 @@ def render_market():
             legend=dict(orientation='h', yanchor='bottom', y=1.02),
             xaxis2=dict(showgrid=True, gridcolor='#252a38'),
             yaxis=dict(showgrid=True, gridcolor='#252a38'),
-            yaxis2=dict(showgrid=True, gridcolor='#252a38', title='成交量',
+            yaxis2=dict(showgrid=True, gridcolor='#252a38', title='成交金額（億元）',
                         title_font=dict(size=10)),
             margin=dict(l=0, r=0, t=40, b=0),
             bargap=0.2
@@ -2001,7 +2001,7 @@ def render_market():
 
             for msg in vol_msgs:
                 st.markdown(msg, unsafe_allow_html=True)
-            st.caption(f'資料日期：{vol_date}　成交量：{vol_today:,}　5日均量：{vol_ma5:,.0f}　20日均量：{vol_ma20:,.0f}')
+            st.caption(f'資料日期：{vol_date}　成交金額：{vol_today:,.0f} 億元　5日均量：{vol_ma5:,.0f} 億　20日均量：{vol_ma20:,.0f} 億　（來源：TWSE FMTQIK）')
 
     st.markdown('---')
 
@@ -2084,7 +2084,7 @@ def render_market():
         for msg in msgs:
             st.markdown(msg)
 
-        st.caption('資料來源：台灣期貨交易所 TAIFEX｜正值=淨多單（看多）、負值=淨空單（看空）')
+        st.caption(f'資料來源：台灣期貨交易所 TAIFEX｜資料日期：{latest["date"]}｜正值=淨多單（看多）、負值=淨空單（看空）')
 
     st.markdown('---')
 
@@ -2175,6 +2175,7 @@ def render_market():
             st.caption(f'📈 融資近20日增加 {mb_chg:.1f}%，籌碼略偏激進，留意高檔風險。')
         elif mb_chg < -5:
             st.caption(f'📉 融資近20日減少 {abs(mb_chg):.1f}%，籌碼正在清洗，可觀察是否落底。')
+        st.caption(f'資料來源：TWSE MI_MARGN｜資料日期：{mm_date}')
 
     st.markdown('---')
 

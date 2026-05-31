@@ -1926,7 +1926,62 @@ def fetch_taiex(months=6):
         print(f'加權指數：新增 {len(deduped)} 筆')
     else:
         print('加權指數：無新資料（請確認 yfinance 已安裝）')
+
+    # 補正成交金額（FMTQIK，比 yfinance 準確）
+    fetch_market_volume()
+
     return len(all_rows)
+
+
+def fetch_market_volume():
+    """
+    從 TWSE FMTQIK 抓取每日市場成交金額，
+    補正 prices 表中 TAIEX 的 value 欄位（億元）。
+    yfinance 對指數成交量不可靠，改用此 API 修正。
+    """
+    url = 'https://www.twse.com.tw/exchangeReport/FMTQIK?response=json'
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=15, verify=False)
+        data = r.json()
+    except Exception as e:
+        print(f'FMTQIK 成交金額抓取失敗：{e}')
+        return
+
+    if data.get('stat') != 'OK':
+        print('FMTQIK 無資料')
+        return
+
+    fields = data.get('fields', [])
+    rows   = data.get('data', [])
+
+    from database import get_conn
+    conn = get_conn()
+    updated = 0
+
+    for row in rows:
+        try:
+            # 日期：民國年 115/05/29 → 2026-05-29
+            date_std = twse_date_to_std(row[0])
+            if not date_std or len(date_std) < 8:
+                continue
+            # 成交金額（元）→ 億元
+            value_b = float(str(row[2]).replace(',', '')) / 1e8
+            # 成交股數（股）→ 億股
+            volume_b = float(str(row[1]).replace(',', '')) / 1e8
+
+            # 更新 prices 表的 value / volume 欄位
+            conn.execute(
+                'UPDATE prices SET value=?, volume=? WHERE code=? AND date=?',
+                (value_b, volume_b, 'TAIEX', date_std)
+            )
+            if conn.execute('SELECT changes()').fetchone()[0] > 0:
+                updated += 1
+        except Exception:
+            continue
+
+    conn.commit()
+    conn.close()
+    print(f'FMTQIK 成交金額補正：{updated} 筆（億元）')
 
 
 if __name__ == '__main__':
