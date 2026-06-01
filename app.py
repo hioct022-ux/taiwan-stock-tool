@@ -842,7 +842,91 @@ def render_fundamental(result, code, name):
             elif pb < 5:
                 st.warning(f'PB={pb:.2f}倍偏高，市場給予明顯溢價，需要持續的高獲利能力來支撐。')
             else:
-                st.error(f'PB={pb:.2f}倍極高，市場期待非常強勁的成長，若獲利不如預期股價修正風險大。')# ── 頁籤三：籌碼面 ──────────────────────
+                st.error(f'PB={pb:.2f}倍極高，市場期待非常強勁的成長，若獲利不如預期股價修正風險大。')
+
+    # ── 季度 EPS 歷史線圖 ────────────────────
+    st.markdown('---')
+    st.markdown('#### 📊 季度 EPS 趨勢')
+
+    @st.cache_data(ttl=3600, show_spinner=False)
+    def _get_quarterly_eps(code, market):
+        try:
+            import yfinance as yf
+            suffix = '.TWO' if market == 'TPEx' else '.TW'
+            ticker = yf.Ticker(f'{code}{suffix}')
+
+            # 用 quarterly_income_stmt 的 Net Income 計算季度 EPS
+            qi = ticker.quarterly_income_stmt
+            if qi is None or qi.empty or 'Net Income' not in qi.index:
+                return [], []
+
+            net_income = qi.loc['Net Income'].dropna()
+            if net_income.empty:
+                return [], []
+
+            info   = ticker.info
+            shares = info.get('sharesOutstanding', 0)
+            if not shares:
+                return [], []
+
+            # 由舊到新排序
+            net_income = net_income.sort_index()
+            quarters = [str(d)[:7] for d in net_income.index]  # 例：2025-06
+            eps_vals  = [round(float(v) / shares, 2) for v in net_income.values]
+            return quarters, eps_vals
+        except Exception:
+            pass
+        return [], []
+
+    # 取得市場別
+    from database import get_conn as _gc_eps
+    _conn_eps = _gc_eps()
+    _mkt_eps = (_conn_eps.execute('SELECT market FROM stocks WHERE code=?', (code,)).fetchone() or [None])[0]
+    _conn_eps.close()
+
+    q_dates, q_eps = _get_quarterly_eps(code, _mkt_eps or 'TWSE')
+
+    if q_dates and q_eps:
+        # 顏色：比上季成長→綠，衰退→紅
+        bar_colors = []
+        for i, v in enumerate(q_eps):
+            if i == 0:
+                bar_colors.append('#38bdf8')
+            elif v >= q_eps[i - 1]:
+                bar_colors.append('#22c55e')
+            else:
+                bar_colors.append('#ef4444')
+
+        fig_eps = go.Figure(go.Bar(
+            x=q_dates, y=q_eps,
+            marker_color=bar_colors,
+            text=[f'{v:.2f}' for v in q_eps],
+            textposition='outside',
+            textfont=dict(size=10)
+        ))
+        fig_eps.update_layout(
+            height=260,
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)',
+            margin=dict(l=0, r=0, t=20, b=0),
+            yaxis=dict(gridcolor='#1e293b', title='EPS（元）'),
+            xaxis=dict(gridcolor='#1e293b'),
+            font=dict(color='#94a3b8', size=11),
+        )
+        show_chart(fig_eps)
+        # 趨勢判斷
+        if len(q_eps) >= 2:
+            trend = q_eps[-1] - q_eps[-2]
+            if trend > 0:
+                st.caption(f'✅ 最近一季 EPS {q_eps[-1]:.2f} 元，較上季成長 {trend:+.2f} 元')
+            else:
+                st.caption(f'⚠️ 最近一季 EPS {q_eps[-1]:.2f} 元，較上季衰退 {trend:+.2f} 元')
+        st.caption('資料來源：yfinance　｜　綠色＝季增，紅色＝季減　｜　此圖僅供參考，不影響評分')
+    else:
+        st.info('季度 EPS 資料暫無（yfinance 尚未提供此股資料）')
+
+
+# ── 頁籤三：籌碼面 ──────────────────────
 def render_chips(result, code, name, chips_list, market=None):
     st.markdown('#### 三大法人')
 
@@ -2682,7 +2766,16 @@ def main():
     }
     icon = grade_colors.get(grade, '⚪')
 
+    # 查詢市場別
+    from database import get_conn as _gc_hdr
+    _conn_hdr = _gc_hdr()
+    _mkt_hdr = (_conn_hdr.execute('SELECT market FROM stocks WHERE code=?', (code,)).fetchone() or [None])[0]
+    _conn_hdr.close()
+    _mkt_label = '🏢 上市（TWSE）' if _mkt_hdr == 'TWSE' else '🏬 上櫃（TPEx）' if _mkt_hdr == 'TPEx' else ''
+
     st.markdown(f'## {icon} {name}（{code}）　{close}元　{grade}（{result["total_score"]}分）')
+    if _mkt_label:
+        st.caption(_mkt_label)
 
     # 六個頁籤（程式說明已移至左側欄）
     tabs = st.tabs(['📊 技術面', '💰 基本面', '🏦 籌碼面',
