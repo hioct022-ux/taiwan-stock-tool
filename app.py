@@ -176,6 +176,7 @@ _CHART_CONFIG = {'scrollZoom': False, 'displayModeBar': False, 'doubleClick': Fa
 
 def show_chart(fig, key=None):
     fig.update_layout(dragmode=False)
+    fig.update_xaxes(tickformat='%Y-%m-%d', hoverformat='%Y-%m-%d')
     st.plotly_chart(fig, use_container_width=True, config=_CHART_CONFIG, key=key)
 
 # ── 初始化 ──────────────────────────────
@@ -526,11 +527,14 @@ def render_price_chart(ind, name):
         st.warning('無法載入走勢圖，歷史資料不足')
         return
 
+    st.markdown(f'**{name} 近3個月走勢（65個交易日）**')
+
     fig = make_subplots(
         rows=2, cols=1,
         shared_xaxes=True,
         vertical_spacing=0.05,
-        row_heights=[0.7, 0.3]
+        row_heights=[0.7, 0.3],
+        subplot_titles=('', '')
     )
 
     # 收盤價
@@ -588,16 +592,18 @@ def render_price_chart(ind, name):
         marker_color=colors, opacity=0.6
     ), row=2, col=1)
 
-    if avg_vol:
-        fig.add_hline(
-            y=avg_vol, line_dash='dash',
-            line_color='#f59e0b', opacity=0.7,
-            annotation_text=f'均量({avg_vol:,})',
-            row=2, col=1
-        )
+    if avg_vol and dates:
+        fig.add_trace(go.Scatter(
+            x=[dates[0], dates[-1]],
+            y=[avg_vol, avg_vol],
+            mode='lines',
+            line=dict(dash='dash', color='#f59e0b', width=1),
+            showlegend=False,
+            hovertemplate=f'均量：{avg_vol:,}<extra></extra>'
+        ), row=2, col=1)
 
     fig.update_layout(
-        title=f'{name} 近3個月走勢（65個交易日）',
+        title=None,
         paper_bgcolor='#0d0f12',
         plot_bgcolor='#141720',
         font=dict(color='#e2e8f0', size=11),
@@ -727,12 +733,228 @@ def render_technical(result, name):
         if pos_65 is not None:
             st.metric('近3個月區間位置', f'{pos_65}%')
 
-        if cons_days and cons_dir:
+    # ── 區間相對位置（20日 / 65日 / 250日）──
+    st.markdown('---')
+    st.markdown('#### 📍 區間相對位置')
+
+    pos_20  = ind.get('pos_20')
+    pos_250 = ind.get('pos_250')
+    h20  = ind.get('high_20');  l20  = ind.get('low_20')
+    h250 = ind.get('high_250'); l250 = ind.get('low_250')
+
+    def _pos_color(p):
+        if p is None: return '#94a3b8'
+        if p >= 80:   return '#ef4444'
+        if p <= 20:   return '#22c55e'
+        return '#f59e0b'
+
+    def _pos_label(p):
+        if p is None: return '—'
+        if p >= 80:   return '高檔區 ⚠️'
+        if p <= 20:   return '低檔區 ✅'
+        return '中間段'
+
+    pc1, pc2, pc3 = st.columns(3)
+    for col, label, days, pos, hi, lo in [
+        (pc1, '近1個月（20日）', 20,  pos_20,  h20,  l20),
+        (pc2, '近3個月（65日）', 65,  pos_65,  ind.get('high_65'), ind.get('low_65')),
+        (pc3, '近1年（250日）',  250, pos_250, h250, l250),
+    ]:
+        with col:
+            color = _pos_color(pos)
+            pct_str = f'{pos:.1f}%' if pos is not None else '—'
+            col.markdown(
+                f'**{label}**<br>'
+                f'<span style="font-size:28px;font-weight:700;color:{color}">{pct_str}</span><br>'
+                f'<span style="font-size:11px;color:#64748b">{_pos_label(pos)}</span>',
+                unsafe_allow_html=True)
+            if hi and lo:
+                col.caption(f'高 {hi:,.2f}　低 {lo:,.2f}')
+
+    st.caption('位置 % = (今日收盤 − 區間最低) ÷ (區間最高 − 區間最低) × 100　｜　≥80% 高檔、≤20% 低檔')
+
+    # ── 乖離率（BIAS）────────────────────
+    bias5  = ind.get('bias5')
+    bias20 = ind.get('bias20')
+    if bias5 is not None or bias20 is not None:
+        st.markdown('#### 📐 乖離率（短線過熱/超賣）')
+        bc1, bc2 = st.columns(2)
+
+        def _bias_color(b):
+            if b is None: return '#94a3b8'
+            if b > 5:  return '#ef4444'
+            if b > 2:  return '#f59e0b'
+            if b < -5: return '#22c55e'
+            if b < -2: return '#38bdf8'
+            return '#94a3b8'
+
+        def _bias_label(b):
+            if b is None: return '—'
+            if b > 5:  return '短線過熱，留意回測 ⚠️'
+            if b > 2:  return '偏多偏貴，不追高'
+            if b < -5: return '短線超賣，留意反彈 ✅'
+            if b < -2: return '偏低偏便宜'
+            return '正常貼線'
+
+        with bc1:
+            b5c = _bias_color(bias5)
+            st.markdown(
+                f'**BIAS5（vs MA5）**<br>'
+                f'<span style="font-size:28px;font-weight:700;color:{b5c}">'
+                f'{bias5:+.2f}%</span><br>'
+                f'<span style="font-size:11px;color:#64748b">{_bias_label(bias5)}</span>',
+                unsafe_allow_html=True)
+        with bc2:
+            b20c = _bias_color(bias20)
+            st.markdown(
+                f'**BIAS20（vs MA20）**<br>'
+                f'<span style="font-size:28px;font-weight:700;color:{b20c}">'
+                f'{bias20:+.2f}%</span><br>'
+                f'<span style="font-size:11px;color:#64748b">{_bias_label(bias20)}</span>',
+                unsafe_allow_html=True)
+        st.caption('乖離率 = (收盤 − 均線) ÷ 均線 × 100　｜　BIAS5 > +5% 短線過熱、< -5% 超賣')
+
+    if cons_days and cons_dir:
             dir_str = '上漲' if cons_dir == 'up' else '下跌'
             dir_color = '#22c55e' if cons_dir == 'up' else '#ef4444'
             st.markdown(f'連續<span style="color:{dir_color};font-weight:700">'
                         f'{cons_days}個交易日{dir_str}</span>',
                         unsafe_allow_html=True)
+
+    # ── 今日 K 線解讀 ─────────────────────
+    st.markdown('---')
+    st.markdown('#### 🕯️ 今日 K 線解讀')
+
+    _dates   = ind.get('dates', [])
+    _opens   = ind.get('opens', [])
+    _highs   = ind.get('highs', [])
+    _lows    = ind.get('lows', [])
+    _closes  = ind.get('closes', [])
+    _volumes = ind.get('volumes', [])
+
+    if _dates and len(_dates) >= 2:
+        o       = _opens[-1]   if _opens   else 0
+        h       = _highs[-1]   if _highs   else 0
+        l       = _lows[-1]    if _lows    else 0
+        c       = _closes[-1]  if _closes  else 0
+        vol     = _volumes[-1] if _volumes else 0
+        prev_c  = _closes[-2]  if len(_closes) >= 2 else c
+        avg_vol = ind.get('avg_vol_20', 0)
+
+    if _dates and len(_dates) >= 2 and o and h and l and c:
+
+        if o and h and l and c:
+            body        = abs(c - o)
+            total_range = h - l if h > l else 0.001
+            upper_wick  = h - max(o, c)
+            lower_wick  = min(o, c) - l
+            is_red      = c < o
+            body_pct    = round(body / total_range * 100, 1) if total_range else 0
+            upper_pct   = round(upper_wick / total_range * 100, 1) if total_range else 0
+            lower_pct   = round(lower_wick / total_range * 100, 1) if total_range else 0
+            vol_ratio   = round(vol / avg_vol, 2) if avg_vol else 0
+
+            # ── K 線圖（近10日）＋ 數值指標並排 ──
+            _kl_col, _km_col = st.columns([1, 1])
+            with _kl_col:
+                _n = min(10, len(_dates))
+                _fig_k = go.Figure(go.Candlestick(
+                    x=_dates[-_n:],
+                    open=_opens[-_n:],  high=_highs[-_n:],
+                    low=_lows[-_n:],    close=_closes[-_n:],
+                    increasing_line_color='#ef4444', increasing_fillcolor='#ef4444',
+                    decreasing_line_color='#22c55e', decreasing_fillcolor='#22c55e',
+                    showlegend=False,
+                ))
+                _fig_k.update_layout(
+                    height=220, margin=dict(l=0, r=0, t=8, b=0),
+                    paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                    xaxis=dict(showgrid=False, tickformat='%m/%d', tickfont=dict(size=9)),
+                    yaxis=dict(showgrid=True, gridcolor='#1e293b', tickfont=dict(size=9)),
+                    xaxis_rangeslider_visible=False,
+                )
+                show_chart(_fig_k)
+            with _km_col:
+                kc1, kc2 = st.columns(2)
+                kc1.metric('開盤', f'{o:.1f}')
+                kc2.metric('最高', f'{h:.1f}', delta=f'+{h-o:.1f}' if h > o else None)
+                kc3, kc4 = st.columns(2)
+                kc3.metric('最低', f'{l:.1f}', delta=f'{l-o:.1f}' if l < o else None)
+                kc4.metric('收盤', f'{c:.1f}', delta=f'{c-prev_c:+.1f}')
+
+            # ── 下方全寬顯示指標（佔位用，後面不重複 metric）──
+            st.markdown('')
+
+            # ── 影線判斷 ──
+            msgs = []
+
+            # 上影線
+            if upper_pct >= 40:
+                msgs.append(('🔴', f'**長上影線**（{upper_pct:.0f}%）：高檔遇到強烈賣壓，多方攻高後被壓回，次日偏弱。'))
+            elif upper_pct >= 20:
+                msgs.append(('🟡', f'**中上影線**（{upper_pct:.0f}%）：高點有壓但未被完全壓制，需觀察次日能否突破。'))
+
+            # 下影線
+            if lower_pct >= 40:
+                msgs.append(('🟢', f'**長下影線**（{lower_pct:.0f}%）：低點有強力買盤承接，次日偏強。'))
+            elif lower_pct >= 20:
+                msgs.append(('🟡', f'**中下影線**（{lower_pct:.0f}%）：低點有支撐買盤，但力道尚可觀察。'))
+
+            # 實體判斷
+            if body_pct >= 60:
+                if not is_red:
+                    msgs.append(('🟢', f'**大紅K實體**（{body_pct:.0f}%）：多方強勢主導全日，買氣充沛。'))
+                else:
+                    msgs.append(('🔴', f'**大黑K實體**（{body_pct:.0f}%）：空方強勢主導全日，賣壓沉重。'))
+            elif body_pct <= 15:
+                if upper_pct >= 30 and lower_pct >= 30:
+                    msgs.append(('🟡', '**十字星**：多空交戰激烈，方向未定，為轉折警示訊號。'))
+                else:
+                    msgs.append(('🟡', '**小實體**：多空力道相當，盤整格局，方向待確認。'))
+
+            # 量能強化判斷
+            if vol_ratio >= 2.0:
+                if not is_red and upper_pct < 30:
+                    msgs.append(('🟢', f'**爆量收紅**（均量 {vol_ratio}倍）：主力積極進場，買盤強勁，次日延續機率高。'))
+                elif not is_red and upper_pct >= 30:
+                    msgs.append(('🔴', f'**爆量長上影**（均量 {vol_ratio}倍）：放量攻高後遭壓回，主力可能在出貨，**需警戒**。'))
+                elif is_red:
+                    msgs.append(('🔴', f'**爆量收黑**（均量 {vol_ratio}倍）：空方大量殺出，賣壓沉重，次日偏弱。'))
+            elif vol_ratio >= 1.3:
+                msgs.append(('🟡', f'**溫和放量**（均量 {vol_ratio}倍）：市場參與度提升，方向參考 K 線型態。'))
+            elif vol_ratio <= 0.6 and vol_ratio > 0:
+                msgs.append(('🟡', f'**明顯縮量**（均量 {vol_ratio}倍）：市場觀望，型態訊號可信度降低。'))
+
+            # 次日操作提示
+            scores = sum(1 for m in msgs if m[0] == '🟢') - sum(1 for m in msgs if m[0] == '🔴')
+            if scores >= 2:
+                verdict = '🟢 **次日偏多**：多項訊號支持，可留意開盤強弱確認後操作。'
+            elif scores <= -2:
+                verdict = '🔴 **次日偏空**：多項賣壓訊號，建議謹慎，可設保護停損。'
+            else:
+                verdict = '🟡 **次日中性**：訊號混雜，建議觀察開盤 30 分鐘量價確認方向。'
+
+            for icon, msg in msgs:
+                color = '#22c55e' if icon == '🟢' else '#ef4444' if icon == '🔴' else '#f59e0b'
+                st.markdown(
+                    f'<div style="padding:5px 10px;border-left:3px solid {color};margin-bottom:5px">'
+                    f'{icon} {msg}</div>',
+                    unsafe_allow_html=True
+                )
+
+            st.markdown(
+                f'<div style="background:#1a1f2e;border-radius:8px;padding:12px 16px;margin-top:8px">'
+                f'<span style="font-size:14px">{verdict}</span></div>',
+                unsafe_allow_html=True
+            )
+            st.caption(
+                f'振幅：{total_range:.1f}元　實體：{body_pct:.0f}%　'
+                f'上影：{upper_pct:.0f}%　下影：{lower_pct:.0f}%　'
+                f'成交量：均量 {vol_ratio} 倍　｜　僅供參考，不影響評分'
+            )
+    elif not (_dates and len(_dates) >= 2):
+        st.info('需要至少 2 日價格資料才能顯示 K 線解讀。')
+
 
 # ── 頁籤二：基本面 ──────────────────────
 def render_fundamental(result, code, name):
@@ -749,9 +971,20 @@ def render_fundamental(result, code, name):
     if ex_records:
         latest = ex_records[0]
         type_label = {'息': '除息', '權': '除權', '權息': '除權息'}.get(latest['div_type'], latest['div_type'])
-        st.info(f'🎁 **即將{type_label}**：{latest["ex_date"]}　'
-                f'權息值 {latest["div_value"]:.2f} 元　'
-                f'參考價 {latest["ref_price"]:.2f} 元')
+        # 用 DB 最新收盤價計算殖利率
+        _latest_close = close  # 已從 result 取得
+        _yield = round(latest['div_value'] / _latest_close * 100, 2) if _latest_close and _latest_close > 0 and latest['div_value'] > 0 else 0
+        _yield_str = f'　殖利率 <span style="color:#22c55e;font-weight:700">{_yield:.2f}%</span>' if _yield > 0 else ''
+        _ref_str   = f'　參考價 {latest["ref_price"]:.2f} 元' if latest.get('ref_price') and latest['ref_price'] > 0 else ''
+        _status    = '✅ 正式' if latest.get('is_confirmed') else '📋 預告'
+        st.markdown(
+            f'<div style="background:#0f2818;border:1px solid #22c55e;border-radius:8px;padding:10px 14px">'
+            f'🎁 <b>即將{type_label}</b>（{_status}）：{latest["ex_date"]}　'
+            f'權息值 <b>{latest["div_value"]:.4f} 元</b>{_ref_str}{_yield_str}'
+            f'</div>',
+            unsafe_allow_html=True
+        )
+        st.markdown('')
 
     col1, col2 = st.columns(2)
 
@@ -1950,6 +2183,56 @@ def render_market():
 
     st.caption(f'資料來源：Yahoo Finance ^TWII（指數）/ TWSE FMTQIK（成交金額）　｜　指數資料日期：{date}　｜　成交金額單位：億元')
 
+    # ── 乖離率 + 區間位置 ────────────────────
+    _bias5  = ind.get('bias5')
+    _bias20 = ind.get('bias20')
+    _pos20  = ind.get('pos_20')
+    _pos250 = ind.get('pos_250')
+
+    def _bc(b):
+        if b is None: return '#94a3b8'
+        if b > 5:  return '#ef4444'
+        if b > 2:  return '#f59e0b'
+        if b < -5: return '#22c55e'
+        if b < -2: return '#38bdf8'
+        return '#94a3b8'
+
+    def _bl(b):
+        if b is None: return '—'
+        if b > 5:  return '短線過熱 ⚠️'
+        if b > 2:  return '偏貴，不追高'
+        if b < -5: return '短線超賣 ✅'
+        if b < -2: return '偏便宜'
+        return '正常貼線'
+
+    def _pc(p):
+        if p is None: return '#94a3b8'
+        return '#ef4444' if p >= 80 else '#22c55e' if p <= 20 else '#f59e0b'
+
+    def _pl(p):
+        if p is None: return '—'
+        return '高檔區 ⚠️' if p >= 80 else '低檔區 ✅' if p <= 20 else '中間段'
+
+    mb1, mb2, mb3, mb4 = st.columns(4)
+    mb1.markdown(
+        f'**BIAS5（vs MA5）**<br>'
+        f'<span style="font-size:24px;font-weight:700;color:{_bc(_bias5)}">{f"{_bias5:+.2f}%" if _bias5 is not None else "—"}</span><br>'
+        f'<span style="font-size:11px;color:#64748b">{_bl(_bias5)}</span>', unsafe_allow_html=True)
+    mb2.markdown(
+        f'**BIAS20（vs MA20）**<br>'
+        f'<span style="font-size:24px;font-weight:700;color:{_bc(_bias20)}">{f"{_bias20:+.2f}%" if _bias20 is not None else "—"}</span><br>'
+        f'<span style="font-size:11px;color:#64748b">{_bl(_bias20)}</span>', unsafe_allow_html=True)
+    mb3.markdown(
+        f'**近1個月位置（20日）**<br>'
+        f'<span style="font-size:24px;font-weight:700;color:{_pc(_pos20)}">{f"{_pos20:.1f}%" if _pos20 is not None else "—"}</span><br>'
+        f'<span style="font-size:11px;color:#64748b">{_pl(_pos20)}</span>', unsafe_allow_html=True)
+    mb4.markdown(
+        f'**近1年位置（250日）**<br>'
+        f'<span style="font-size:24px;font-weight:700;color:{_pc(_pos250)}">{f"{_pos250:.1f}%" if _pos250 is not None else "—"}</span><br>'
+        f'<span style="font-size:11px;color:#64748b">{_pl(_pos250)}</span>', unsafe_allow_html=True)
+    st.caption('BIAS > +5% 短線過熱、< -5% 超賣　｜　位置 ≥80% 高檔、≤20% 低檔')
+    st.markdown('')
+
     # ── 走勢圖 ─────────────────────────────
     dates   = ind.get('dates', [])
     closes  = ind.get('closes', [])
@@ -2087,6 +2370,91 @@ def render_market():
                 st.markdown(msg, unsafe_allow_html=True)
             st.caption(f'資料日期：{vol_date}　成交金額：{vol_today:,.0f} 億元　5日均量：{vol_ma5:,.0f} 億　20日均量：{vol_ma20:,.0f} 億　（來源：TWSE FMTQIK）')
 
+    # ── 大盤 K 線解讀 ─────────────────────────
+    if len(prices) >= 2:
+        td = prices[-1]
+        yd = prices[-2]
+        o, h, l, c = td.get('open',0), td.get('high',0), td.get('low',0), td.get('close',0)
+        vol_td   = td.get('value', 0)   # 成交金額（億元，FMTQIK 補正後）
+        avg_vol20 = sum(p.get('value',0) for p in prices[-21:-1]) / 20 if len(prices) >= 21 else 0
+
+        if o and h and l and c:
+            body        = abs(c - o)
+            total_range = h - l if h > l else 0.001
+            upper_wick  = h - max(o, c)
+            lower_wick  = min(o, c) - l
+            is_red      = c < o
+            upper_pct   = round(upper_wick / total_range * 100, 1)
+            lower_pct   = round(lower_wick / total_range * 100, 1)
+            body_pct    = round(body / total_range * 100, 1)
+            vol_ratio   = round(vol_td / avg_vol20, 2) if avg_vol20 else 0
+
+            st.markdown('#### 🕯️ 大盤今日 K 線解讀')
+            kc1, kc2, kc3, kc4 = st.columns(4)
+            kc1.metric('開盤', f'{o:,.2f}')
+            kc2.metric('最高', f'{h:,.2f}', delta=f'+{h-o:,.2f}' if h > o else None)
+            kc3.metric('最低', f'{l:,.2f}', delta=f'{l-o:,.2f}' if l < o else None)
+            kc4.metric('收盤', f'{c:,.2f}', delta=f'{c-yd["close"]:+.2f}')
+
+            st.markdown('')
+            k_msgs = []
+
+            if upper_pct >= 40:
+                k_msgs.append(('🔴', f'**長上影線**（{upper_pct:.0f}%）：指數攻高後遭強力壓回，市場高檔賣壓明顯，次日偏弱。'))
+            elif upper_pct >= 20:
+                k_msgs.append(('🟡', f'**中上影線**（{upper_pct:.0f}%）：高點有壓，多方未能完全掌控，需觀察次日能否突破。'))
+
+            if lower_pct >= 40:
+                k_msgs.append(('🟢', f'**長下影線**（{lower_pct:.0f}%）：低點有強力買盤承接，底部支撐力道強，次日偏強。'))
+            elif lower_pct >= 20:
+                k_msgs.append(('🟡', f'**中下影線**（{lower_pct:.0f}%）：低點有支撐，但承接力道有限，觀察量能確認。'))
+
+            if body_pct >= 60:
+                if not is_red:
+                    k_msgs.append(('🟢', f'**大紅K**（實體 {body_pct:.0f}%）：多方強勢主導全日，買氣充沛。'))
+                else:
+                    k_msgs.append(('🔴', f'**大黑K**（實體 {body_pct:.0f}%）：空方強勢主導全日，賣壓沉重。'))
+            elif body_pct <= 15:
+                if upper_pct >= 25 and lower_pct >= 25:
+                    k_msgs.append(('🟡', '**十字星**：多空交戰激烈，方向未定，為潛在轉折訊號。'))
+                else:
+                    k_msgs.append(('🟡', '**小實體**：多空力道相當，盤整格局，方向待確認。'))
+
+            if vol_ratio >= 2.0:
+                if not is_red and upper_pct < 30:
+                    k_msgs.append(('🟢', f'**爆量收紅**（均量 {vol_ratio}倍）：市場資金積極進場，指數後市動能強。'))
+                elif not is_red and upper_pct >= 30:
+                    k_msgs.append(('🔴', f'**爆量長上影**（均量 {vol_ratio}倍）：大量攻高後被壓回，法人可能在出貨，需警戒。'))
+                elif is_red:
+                    k_msgs.append(('🔴', f'**爆量收黑**（均量 {vol_ratio}倍）：大量殺出，空方主導，次日偏弱。'))
+            elif vol_ratio >= 1.3:
+                k_msgs.append(('🟡', f'**溫和放量**（均量 {vol_ratio}倍）：市場參與度提升，方向參考 K 線型態。'))
+            elif 0 < vol_ratio <= 0.6:
+                k_msgs.append(('🟡', f'**明顯縮量**（均量 {vol_ratio}倍）：市場觀望，訊號可信度降低，不宜追高殺低。'))
+
+            scores = sum(1 for m in k_msgs if m[0] == '🟢') - sum(1 for m in k_msgs if m[0] == '🔴')
+            if scores >= 2:
+                verdict = '🟢 **大盤次日偏多**：多項訊號支持，留意開盤量能確認方向。'
+            elif scores <= -2:
+                verdict = '🔴 **大盤次日偏空**：多項賣壓訊號，建議謹慎，注意季線支撐。'
+            else:
+                verdict = '🟡 **大盤次日中性**：訊號混雜，建議觀察開盤 30 分鐘量價確認方向。'
+
+            for icon, msg in k_msgs:
+                color = '#22c55e' if icon == '🟢' else '#ef4444' if icon == '🔴' else '#f59e0b'
+                st.markdown(
+                    f'<div style="padding:5px 10px;border-left:3px solid {color};margin-bottom:5px">'
+                    f'{icon} {msg}</div>', unsafe_allow_html=True)
+
+            st.markdown(
+                f'<div style="background:#1a1f2e;border-radius:8px;padding:12px 16px;margin-top:8px">'
+                f'<span style="font-size:14px">{verdict}</span></div>',
+                unsafe_allow_html=True)
+            st.caption(
+                f'資料日期：{td["date"]}　振幅：{total_range:,.2f}點　'
+                f'實體：{body_pct:.0f}%　上影：{upper_pct:.0f}%　下影：{lower_pct:.0f}%　'
+                f'成交金額：{vol_td:,.0f} 億　均量：{avg_vol20:,.0f} 億')
+
     st.markdown('---')
 
     # ── 台指期三大法人未平倉 ─────────────────
@@ -2183,10 +2551,14 @@ def render_market():
         mm_date   = mm_latest['date']
         mb_now    = mm_latest['margin_balance']
         sb_now    = mm_latest['short_balance']
-        mb_20     = mmargin[-20]['margin_balance'] if len(mmargin) >= 20 else mb_now
-        sb_20     = mmargin[-20]['short_balance']  if len(mmargin) >= 20 else sb_now
+        # 比較基準：20日前，若不足20筆則用最舊的一筆
+        _cmp_idx  = min(20, len(mmargin) - 1)
+        _cmp_days = _cmp_idx  # 實際相差幾筆
+        mb_20     = mmargin[-_cmp_idx - 1]['margin_balance'] if _cmp_idx > 0 else mb_now
+        sb_20     = mmargin[-_cmp_idx - 1]['short_balance']  if _cmp_idx > 0 else sb_now
         mb_chg    = (mb_now - mb_20) / mb_20 * 100 if mb_20 > 0 else 0
         sb_chg    = (sb_now - sb_20) / sb_20 * 100 if sb_20 > 0 else 0
+        _cmp_label = f'較{_cmp_days}日前' if _cmp_days < 20 else '較20日前'
 
         # 融資使用率判斷（以近120日最高值為基準）
         mb_max    = max(r['margin_balance'] for r in mmargin)
@@ -2197,11 +2569,11 @@ def render_market():
         with col1:
             st.metric(f'融資餘額（{mm_date}）',
                       f'{mb_now:,} 億元',
-                      delta=f'{mb_chg:+.1f}% 較20日前')
+                      delta=f'{mb_chg:+.1f}% {_cmp_label}')
         with col2:
             st.metric('融券餘額',
                       f'{sb_now:,} 張',
-                      delta=f'{sb_chg:+.1f}% 較20日前')
+                      delta=f'{sb_chg:+.1f}% {_cmp_label}')
         with col3:
             if usage_pct >= 75:
                 usage_label = '融資偏高 ⚠️'
@@ -2585,7 +2957,19 @@ def render_ranking():
         if not ex_rows:
             st.warning('目前無未來一個月內的除權息公告，請先按左側「🔄 手動更新資料」。')
         else:
-            # 計算殖利率並排序（殖利率高到低）
+            # 用 DB 最新收盤價補正 prev_close（比 TWSE 預告時的舊價格更準確）
+            from database import get_conn as _gc_ex
+            _conn_ex = _gc_ex()
+            for r in ex_rows:
+                _row = _conn_ex.execute(
+                    'SELECT close FROM prices WHERE code=? ORDER BY date DESC LIMIT 1',
+                    (r['code'],)
+                ).fetchone()
+                if _row and _row[0]:
+                    r['prev_close'] = _row[0]
+            _conn_ex.close()
+
+            # 計算殖利率並排序
             for r in ex_rows:
                 r['yield_pct'] = round(r['div_value'] / r['prev_close'] * 100, 2) if r['prev_close'] > 0 else 0.0
 

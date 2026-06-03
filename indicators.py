@@ -107,6 +107,17 @@ def calc_all(prices):
         result['vol_ratio']  = None
 
     # ── 近期高低點 ───────────────────────
+    close_now = df['close'].iloc[-1]
+
+    # 20日（1個月）
+    if n >= 20:
+        result['high_20'] = round(df['high'].tail(20).max(), 2)
+        result['low_20']  = round(df['low'].tail(20).min(),  2)
+    else:
+        result['high_20'] = round(df['high'].max(), 2)
+        result['low_20']  = round(df['low'].min(),  2)
+
+    # 65日（3個月）
     if n >= 65:
         result['high_65'] = round(df['high'].tail(65).max(), 2)
         result['low_65']  = round(df['low'].tail(65).min(),  2)
@@ -114,6 +125,7 @@ def calc_all(prices):
         result['high_65'] = round(df['high'].max(), 2)
         result['low_65']  = round(df['low'].min(),  2)
 
+    # 250日（1年）
     if n >= 250:
         result['high_250'] = round(df['high'].tail(250).max(), 2)
         result['low_250']  = round(df['low'].tail(250).min(),  2)
@@ -121,14 +133,19 @@ def calc_all(prices):
         result['high_250'] = result['high_65']
         result['low_250']  = result['low_65']
 
-    # ── 目前價格在近3個月區間的位置 ───────
-    close_now = df['close'].iloc[-1]
-    h65 = result['high_65']
-    l65 = result['low_65']
-    if h65 and l65 and h65 != l65:
-        result['pos_65'] = round((close_now - l65) / (h65 - l65) * 100, 1)
-    else:
-        result['pos_65'] = None
+    # ── 相對位置計算 ─────────────────────
+    def _pos(c, h, l):
+        return round((c - l) / (h - l) * 100, 1) if h and l and h != l else None
+
+    result['pos_20']  = _pos(close_now, result['high_20'],  result['low_20'])
+    result['pos_65']  = _pos(close_now, result['high_65'],  result['low_65'])
+    result['pos_250'] = _pos(close_now, result['high_250'], result['low_250'])
+
+    # ── 乖離率（BIAS）────────────────────
+    ma5_val  = result.get('ma5')
+    ma20_val = result.get('ma20')
+    result['bias5']  = round((close_now - ma5_val)  / ma5_val  * 100, 2) if ma5_val  else None
+    result['bias20'] = round((close_now - ma20_val) / ma20_val * 100, 2) if ma20_val else None
 
     # ── 均線排列判斷 ─────────────────────
     ma5  = result['ma5']
@@ -189,6 +206,7 @@ def calc_all(prices):
     # ── 原始資料（供圖表使用）───────────
     result['dates']   = df['date'].tolist()
     result['closes']  = df['close'].tolist()
+    result['opens']   = df['open'].tolist()
     result['highs']   = df['high'].tolist()
     result['lows']    = df['low'].tolist()
     result['volumes'] = df['volume'].tolist()
