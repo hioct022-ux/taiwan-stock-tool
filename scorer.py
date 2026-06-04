@@ -223,6 +223,34 @@ def score_technical(ind, close):
             score += 12
             reasons.append(f'目前股價位於近3個月（65個交易日）區間的{pos_65}%，接近低點')
 
+    # ── 轉折風險修正（乖離率 + 近1年位置）────
+    bias5   = ind.get('bias5')
+    pos_250 = ind.get('pos_250')
+
+    # 乖離率（BIAS5）：短線過熱/超賣
+    if bias5 is not None:
+        if bias5 > 8:
+            score -= 8
+            reasons.append(f'BIAS5={bias5:+.1f}%，短線嚴重過熱，回測 MA5 機率高，轉折風險大')
+        elif bias5 > 5:
+            score -= 5
+            reasons.append(f'BIAS5={bias5:+.1f}%，短線過熱，不宜追高，留意短線壓回')
+        elif bias5 < -8:
+            score += 8
+            reasons.append(f'BIAS5={bias5:+.1f}%，短線嚴重超賣，反彈機率高')
+        elif bias5 < -5:
+            score += 5
+            reasons.append(f'BIAS5={bias5:+.1f}%，短線超賣，可留意低接機會')
+
+    # 近1年位置（pos_250）：長線高低位置
+    if pos_250 is not None:
+        if pos_250 > 90:
+            score -= 5
+            reasons.append(f'近1年位置 {pos_250:.0f}%，接近年度高點，追高風險高')
+        elif pos_250 < 10:
+            score += 5
+            reasons.append(f'近1年位置 {pos_250:.0f}%，接近年度低點，長線具支撐')
+
     score = max(0, min(100, score))
     return score, reasons
 
