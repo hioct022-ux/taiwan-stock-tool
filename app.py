@@ -2054,8 +2054,93 @@ MACD：DIF={macd_dif} / DEF={macd_def} / 柱狀={macd_hist}
         st.success('請從上方程式碼區塊複製（點右上角複製按鈕）')
 
 # ── 大盤走勢分析 ────────────────────────
+@st.cache_data(ttl=900, show_spinner=False)
+def _fetch_global_markets():
+    """即時抓取美股指數、VIX、台積電ADR（每15分鐘快取一次）"""
+    try:
+        import yfinance as yf
+        symbols = {
+            'S&P 500': '^GSPC',
+            'Nasdaq':  '^IXIC',
+            'VIX':     '^VIX',
+            'TSM ADR': 'TSM',
+        }
+        result = {}
+        for name, sym in symbols.items():
+            try:
+                t = yf.Ticker(sym)
+                hist = t.history(period='2d')
+                if not hist.empty:
+                    latest = hist.iloc[-1]
+                    prev   = hist.iloc[-2] if len(hist) >= 2 else hist.iloc[-1]
+                    chg_pct = (latest['Close'] - prev['Close']) / prev['Close'] * 100
+                    result[name] = {
+                        'close':   round(float(latest['Close']), 2),
+                        'chg_pct': round(chg_pct, 2),
+                        'date':    str(hist.index[-1])[:10],
+                    }
+            except:
+                pass
+        return result
+    except:
+        return {}
+
+
 def render_market():
     st.markdown('## 📊 大盤走勢分析（加權指數）')
+
+    # ── 外部市場警示 ─────────────────────────
+    st.markdown('#### 🌐 外部市場（即時）')
+    global_data = _fetch_global_markets()
+    if global_data:
+        gc = st.columns(len(global_data))
+        vix_val = global_data.get('VIX', {}).get('close', 0)
+        for i, (name, d) in enumerate(global_data.items()):
+            chg = d['chg_pct']
+            if name == 'VIX':
+                color = '#ef4444' if vix_val > 30 else '#f59e0b' if vix_val > 20 else '#22c55e'
+                delta_label = f'恐慌 ⚠️' if vix_val > 30 else f'警戒' if vix_val > 20 else '正常'
+            else:
+                color = '#ef4444' if chg < -2 else '#f59e0b' if chg < 0 else '#22c55e'
+                delta_label = f'{chg:+.2f}%'
+            gc[i].markdown(
+                f'**{name}**<br>'
+                f'<span style="font-size:20px;font-weight:700;color:{color}">'
+                f'{d["close"]:,.2f}</span><br>'
+                f'<span style="font-size:11px;color:#64748b">{delta_label}　{d["date"]}</span>',
+                unsafe_allow_html=True)
+
+        # 警示文字
+        sp_chg = global_data.get('S&P 500', {}).get('chg_pct', 0)
+        nq_chg = global_data.get('Nasdaq', {}).get('chg_pct', 0)
+        tsm_chg = global_data.get('TSM ADR', {}).get('chg_pct', 0)
+
+        alerts = []
+        if sp_chg <= -2:
+            alerts.append(f'🔴 S&P 500 大跌 {sp_chg:.1f}%，台股次日開盤偏弱，留意系統性風險')
+        if nq_chg <= -2:
+            alerts.append(f'🔴 Nasdaq 大跌 {nq_chg:.1f}%，科技股承壓，台股電子族群注意')
+        if tsm_chg <= -3:
+            alerts.append(f'🔴 台積電 ADR 跌 {tsm_chg:.1f}%，台積電次日開盤跟跌機率高')
+        if vix_val >= 30:
+            alerts.append(f'🔴 VIX={vix_val:.1f}，市場恐慌指數偏高，波動劇烈，建議降低倉位')
+        elif vix_val >= 20:
+            alerts.append(f'🟡 VIX={vix_val:.1f}，市場開始出現警戒情緒，操作宜保守')
+
+        if sp_chg >= 1 and nq_chg >= 1:
+            alerts.append(f'🟢 美股普漲（S&P {sp_chg:+.1f}%，Nasdaq {nq_chg:+.1f}%），台股次日開盤偏正面')
+
+        if alerts:
+            for a in alerts:
+                st.markdown(a)
+        else:
+            st.caption('外部市場無明顯異常')
+
+        st.caption('資料來源：Yahoo Finance｜每15分鐘更新一次｜VIX > 20 警戒、> 30 恐慌')
+    else:
+        st.info('外部市場資料暫時無法取得（Yahoo Finance 連線中）')
+
+    st.markdown('---')
 
     prices = get_prices('TAIEX', days=250)
     if not prices:
