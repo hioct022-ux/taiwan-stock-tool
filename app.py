@@ -413,7 +413,7 @@ def render_sidebar():
         st.markdown('#### ⭐ 自選股清單')
 
         if watchlist:
-            # 標籤篩選：直接顯示所有已建立標籤，選定後只顯示含該標籤的股票
+            # 標籤篩選
             filter_opts = ['全部'] + TAG_LIST
             sel_filter  = st.radio(
                 '篩選', filter_opts, horizontal=True,
@@ -422,14 +422,53 @@ def render_sidebar():
             filtered = (watchlist if sel_filter == '全部'
                         else [w for w in watchlist if sel_filter in w.get('tags', [])])
 
+            # 排序方式
+            sort_mode = st.radio(
+                '排序', ['加入順序', '評分高→低', '評分低→高'],
+                horizontal=True, key='watchlist_sort', label_visibility='collapsed'
+            )
+
+            if sort_mode in ('評分高→低', '評分低→高'):
+                # 計算或取用快取分數
+                _score_cache = st.session_state.get('_wl_scores', {})
+                _need_calc   = [w for w in filtered if w['code'] not in _score_cache]
+                if _need_calc:
+                    with st.spinner(f'計算評分中（{len(_need_calc)} 支）...'):
+                        for w in _need_calc:
+                            try:
+                                _p  = get_prices(w['code'], days=400)
+                                _f  = get_fundamentals(w['code'])
+                                _c  = get_chips(w['code'], days=65)
+                                _r  = full_score(_p, _f, _c, {})
+                                _score_cache[w['code']] = _r['total_score'] if _r else 0
+                            except:
+                                _score_cache[w['code']] = 0
+                    st.session_state['_wl_scores'] = _score_cache
+
+                filtered = sorted(
+                    filtered,
+                    key=lambda w: _score_cache.get(w['code'], 0),
+                    reverse=(sort_mode == '評分高→低')
+                )
+
+                # 重新計算按鈕
+                if st.button('🔄 重新計算評分', use_container_width=True, key='recalc_scores'):
+                    st.session_state.pop('_wl_scores', None)
+                    st.rerun()
+
             for w in filtered:
                 w_tags    = w.get('tags', [])
                 tag_icons = ''.join(TAG_COLOR.get(t, '⚪') for t in w_tags) or '⚪'
+                _score_str = ''
+                if sort_mode in ('評分高→低', '評分低→高'):
+                    _s = st.session_state.get('_wl_scores', {}).get(w['code'])
+                    if _s is not None:
+                        _score_str = f' {_s}分'
                 if IS_LOCAL:
                     col1, col2 = st.columns([5, 1])
                     with col1:
                         if st.button(
-                            f"{tag_icons} {w['code']} {w['name']}",
+                            f"{tag_icons} {w['code']} {w['name']}{_score_str}",
                             key=f"watch_{w['code']}", use_container_width=True
                         ):
                             st.session_state['current_code'] = w['code']
@@ -460,7 +499,7 @@ def render_sidebar():
                 else:
                     tag_icons = ''.join(TAG_COLOR.get(t, '⚪') for t in w_tags) or '⚪'
                     if st.button(
-                        f"{tag_icons} {w['code']} {w['name']}",
+                        f"{tag_icons} {w['code']} {w['name']}{_score_str}",
                         key=f"watch_{w['code']}", use_container_width=True
                     ):
                         st.session_state['current_code'] = w['code']
