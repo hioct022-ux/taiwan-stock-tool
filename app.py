@@ -302,6 +302,8 @@ def render_sidebar():
                         _status2.update(label='✅ 資料更新完成', state='complete')
                     except Exception as _e:
                         _status2.update(label=f'⚠️ 部分失敗：{_e}', state='error')
+                # 清除評分快取，讓排序使用最新資料
+                st.session_state.pop('_wl_scores', None)
                 st.rerun()
 
             # 更新並同步一鍵按鈕（本機限定）
@@ -429,17 +431,28 @@ def render_sidebar():
             )
 
             if sort_mode in ('評分高→低', '評分低→高'):
-                # 計算或取用快取分數
+                # 雲端版每次重算（資料靜態，快取無意義）；本機版快取避免重複計算
+                if not IS_LOCAL:
+                    st.session_state.pop('_wl_scores', None)
                 _score_cache = st.session_state.get('_wl_scores', {})
                 _need_calc   = [w for w in filtered if w['code'] not in _score_cache]
                 if _need_calc:
                     with st.spinner(f'計算評分中（{len(_need_calc)} 支）...'):
                         for w in _need_calc:
                             try:
-                                _p  = get_prices(w['code'], days=400)
-                                _f  = get_fundamentals(w['code'])
-                                _c  = get_chips(w['code'], days=65)
-                                _r  = full_score(_p, _f, _c, {})
+                                _p   = get_prices(w['code'], days=400)
+                                _f   = get_fundamentals(w['code'])
+                                _c   = get_chips(w['code'], days=65)
+                                _own = get_ownership(w['code'])
+                                _fpct = round(_own['foreign_pct'], 1) if _own else 52
+                                _ownership = {
+                                    'foreign':  _fpct,
+                                    'trust':    5,
+                                    'dealer':   2,
+                                    'director': 12,
+                                    'retail':   max(0, 100 - _fpct - 5 - 2 - 12),
+                                }
+                                _r  = full_score(_p, _f, _c, _ownership)
                                 _score_cache[w['code']] = _r['total_score'] if _r else 0
                             except:
                                 _score_cache[w['code']] = 0
@@ -451,10 +464,6 @@ def render_sidebar():
                     reverse=(sort_mode == '評分高→低')
                 )
 
-                # 重新計算按鈕
-                if st.button('🔄 重新計算評分', use_container_width=True, key='recalc_scores'):
-                    st.session_state.pop('_wl_scores', None)
-                    st.rerun()
 
             for w in filtered:
                 w_tags    = w.get('tags', [])
