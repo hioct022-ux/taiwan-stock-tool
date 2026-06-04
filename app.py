@@ -2429,11 +2429,39 @@ def render_market():
             vol_ratio   = round(vol_td / avg_vol20, 2) if avg_vol20 else 0
 
             st.markdown('#### 🕯️ 大盤今日 K 線解讀')
-            kc1, kc2, kc3, kc4 = st.columns(4)
-            kc1.metric('開盤', f'{o:,.2f}')
-            kc2.metric('最高', f'{h:,.2f}', delta=f'+{h-o:,.2f}' if h > o else None)
-            kc3.metric('最低', f'{l:,.2f}', delta=f'{l-o:,.2f}' if l < o else None)
-            kc4.metric('收盤', f'{c:,.2f}', delta=f'{c-yd["close"]:+.2f}')
+
+            # ── K 線圖（近10日）＋ 數值並排 ──
+            _mk_col, _mm_col = st.columns([1, 1])
+            with _mk_col:
+                _n = min(10, len(prices))
+                _mk_dates  = [p['date']  for p in prices[-_n:]]
+                _mk_opens  = [p['open']  for p in prices[-_n:]]
+                _mk_highs  = [p['high']  for p in prices[-_n:]]
+                _mk_lows   = [p['low']   for p in prices[-_n:]]
+                _mk_closes = [p['close'] for p in prices[-_n:]]
+                _fig_mk = go.Figure(go.Candlestick(
+                    x=_mk_dates,
+                    open=_mk_opens, high=_mk_highs,
+                    low=_mk_lows,   close=_mk_closes,
+                    increasing_line_color='#ef4444', increasing_fillcolor='#ef4444',
+                    decreasing_line_color='#22c55e', decreasing_fillcolor='#22c55e',
+                    showlegend=False,
+                ))
+                _fig_mk.update_layout(
+                    height=220, margin=dict(l=0, r=0, t=8, b=0),
+                    paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                    xaxis=dict(showgrid=False, tickformat='%m/%d', tickfont=dict(size=9)),
+                    yaxis=dict(showgrid=True, gridcolor='#1e293b', tickfont=dict(size=9)),
+                    xaxis_rangeslider_visible=False,
+                )
+                show_chart(_fig_mk)
+            with _mm_col:
+                mkc1, mkc2 = st.columns(2)
+                mkc1.metric('開盤', f'{o:,.2f}')
+                mkc2.metric('最高', f'{h:,.2f}', delta=f'+{h-o:,.2f}' if h > o else None)
+                mkc3, mkc4 = st.columns(2)
+                mkc3.metric('最低', f'{l:,.2f}', delta=f'{l-o:,.2f}' if l < o else None)
+                mkc4.metric('收盤', f'{c:,.2f}', delta=f'{c-yd["close"]:+.2f}')
 
             st.markdown('')
             k_msgs = []
