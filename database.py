@@ -226,6 +226,16 @@ def init_db():
         )
     ''')
 
+    # ── 三大法人現貨每日市場彙總（供雲端使用）──
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS chips_market_agg (
+            date         TEXT PRIMARY KEY,
+            foreign_net  INTEGER,
+            trust_net    INTEGER,
+            dealer_net   INTEGER
+        )
+    ''')
+
     # ── 欄位 migration（舊版 DB 相容）──
     migrations = [
         'ALTER TABLE exdividend ADD COLUMN is_confirmed INTEGER DEFAULT 0',
@@ -694,6 +704,29 @@ def get_t86_last_date():
     row = conn.execute('SELECT MAX(date) FROM t86_ranking').fetchone()
     conn.close()
     return row[0] if row and row[0] else None
+
+def save_chips_market_agg(rows):
+    """儲存三大法人現貨市場彙總（供雲端匯入使用）"""
+    conn = get_conn()
+    for r in rows:
+        conn.execute('''
+            INSERT OR REPLACE INTO chips_market_agg (date, foreign_net, trust_net, dealer_net)
+            VALUES (?, ?, ?, ?)
+        ''', (r['date'], r.get('foreign_net', 0), r.get('trust_net', 0), r.get('dealer_net', 0)))
+    conn.commit()
+    conn.close()
+
+def get_chips_market_agg_from_table(days=30):
+    """從 chips_market_agg 表讀取（雲端使用），依日期升序"""
+    conn = get_conn()
+    rows = conn.execute('''
+        SELECT date, foreign_net, trust_net, dealer_net
+        FROM chips_market_agg
+        ORDER BY date DESC LIMIT ?
+    ''', (days,)).fetchall()
+    conn.close()
+    cols = ['date', 'foreign_net', 'trust_net', 'dealer_net']
+    return list(reversed([dict(zip(cols, r)) for r in rows]))
 
 def get_chips_market_aggregate(days=60, min_stocks=500):
     """

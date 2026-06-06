@@ -225,6 +225,18 @@ def export_to_json(code=None):
     except Exception as e:
         print(f'匯出大盤本益比失敗：{e}')
 
+    try:
+        from database import get_chips_market_aggregate
+        agg_rows = get_chips_market_aggregate(days=30)
+        if agg_rows:
+            with open(os.path.join(JSON_DIR, 'chips_market_agg.json'), 'w', encoding='utf-8') as f:
+                json.dump({'rows': agg_rows,
+                           'exported_at': datetime.now().strftime('%Y-%m-%d %H:%M')},
+                          f, ensure_ascii=False)
+            print(f'匯出三大法人現貨彙總：{len(agg_rows)} 天')
+    except Exception as e:
+        print(f'匯出三大法人現貨彙總失敗：{e}')
+
     print(f'JSON 匯出完成，路徑：{JSON_DIR}')
 
 # ── 使用 git CLI 推送（推薦，不需要 Token）──
@@ -523,13 +535,26 @@ def init_cloud_data():
     except Exception as e:
         print(f'  大盤本益比匯入失敗：{e}')
 
+    try:
+        agg_path = os.path.join(JSON_DIR, 'chips_market_agg.json')
+        with open(agg_path, encoding='utf-8') as f:
+            agg = json.load(f)
+        rows = agg.get('rows', [])
+        if rows:
+            from database import save_chips_market_agg
+            save_chips_market_agg(rows)
+            print(f'  三大法人現貨彙總：{len(rows)} 天')
+    except Exception as e:
+        print(f'  三大法人現貨彙總匯入失敗：{e}')
+
     # ── 各股票歷史資料（每次都更新）──
     imported = 0
     for fname in os.listdir(JSON_DIR):
         if not fname.endswith('.json'):
             continue
         code = fname[:-5]
-        if code in ('stocks', 'watchlist', 'meta', 't86', 'exdividend', 'TAIEX'):
+        if code in ('stocks', 'watchlist', 'meta', 't86', 'exdividend', 'TAIEX',
+                    'market_margin', 'futures_institutional', 'market_pe', 'chips_market_agg'):
             continue
         try:
             with open(os.path.join(JSON_DIR, fname), encoding='utf-8') as f:

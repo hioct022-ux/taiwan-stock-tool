@@ -21,6 +21,7 @@ from database import (init_db, get_prices, get_fundamentals, get_chips,
                       get_etf_holders, get_etf_last_update, get_ownership,
                       get_t86_ranking, get_t86_ranking_bottom, get_t86_last_date,
                       get_t86_market_aggregate, get_chips_market_aggregate,
+                      get_chips_market_agg_from_table,
                       get_exdividend, get_exdividend_upcoming, get_exdividend_by_code,
                       get_market_margin, get_futures_institutional, get_market_pe,
                       get_tags, add_tag, rename_tag, delete_tag,
@@ -3084,7 +3085,11 @@ def render_market():
 
     # ── 三大法人現貨每日買賣超 ──────────────────
     st.markdown('#### 🏦 三大法人現貨每日買賣超（張）')
-    _chips_agg = get_chips_market_aggregate(days=20)
+    # 本機用 chips 原始表彙總；雲端從 chips_market_agg 表讀取（由 JSON 匯入）
+    if IS_LOCAL:
+        _chips_agg = get_chips_market_aggregate(days=20)
+    else:
+        _chips_agg = get_chips_market_agg_from_table(days=20)
 
     if not _chips_agg:
         st.info('尚無三大法人現貨資料，請按「🔄 手動更新資料」取得。')
