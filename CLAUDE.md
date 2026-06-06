@@ -1,0 +1,668 @@
+# CLAUDE.md — AI 維護交接文件
+
+> 這份文件給接手維護這個台股分析工具的 AI 看。包含所有函式簽名、資料結構、API 細節、已知陷阱，以及常見修改模式。不需要先讀源碼，讀這份文件就能直接開始工作。
+
+---
+
+## 一、專案概覽
+
+**用途：** 台股每日盤後資料收集 + 分析 + 雲端同步的工具。本機執行 Streamlit，雲端只讀。
+
+**技術棧：**
+- Python 3.11+（Streamlit 1.58+, Plotly, SQLite, yfinance, APScheduler）
+- 本機：SQLite → 每日抓資料 → 匯出 JSON → git push → GitHub
+- 雲端（Streamlit Cloud）：從 GitHub raw URL 讀取 JSON → 匯入暫時 SQLite → 唯讀瀏覽
+
+**所有者的 GitHub repo：** `hioct022-ux/taiwan-stock-tool`（`config.py` 中 `GITHUB_REPO`）
+
+---
+
+## 二、檔案職責一覽
+
+| 檔案 | 職責 | 改功能時通常需要動到 |
+|------|------|------|
+| `app.py` | 所有頁面 UI 和渲染邏輯 | 顯示邏輯、訊號閾值、圖表 |
+| `database.py` | SQLite 讀寫封裝 | 新增資料表或欄位 |
+| `fetcher.py` | TWSE/yfinance/TAIFEX 資料抓取 | 新增資料來源 |
+| `github_sync.py` | JSON 匯出/匯入、git push | 新增需要同步到雲端的資料 |
+| `indicators.py` | 技術指標計算（MA/RSI/KD/MACD/布林） | 新增指標公式 |
+| `scorer.py` | 個股評分引擎 | 調整個股評分邏輯 |
+| `backtest.py` | 開盤前預判訊號回測（本機執行） | 回測邏輯 |
+| `config.py` | 所有可調參數（閾值、係數、路徑） | 調整指標參數 |
+| `config_local.py` | **本機專屬、不上傳 Git**（Token、IS_LOCAL） | — |
+| `scheduler.py` | APScheduler 每日排程（16:30 自動抓資料） | 排程時間 |
+
+---
+
+## 三、IS_LOCAL 模式切換邏輯
+
+```python
+# config.py
+try:
+    from config_local import IS_LOCAL as _IS_LOCAL
+    IS_LOCAL = _IS_LOCAL   # 本機：True
+except ImportError:
+    IS_LOCAL = False        # 雲端：False（config_local.py 不存在）
+```
+
+IS_LOCAL 影響的功能：
+
+| 功能 | 本機（True） | 雲端（False） |
+|------|------------|-------------|
+| 資料抓取 | ✅ 可用 | ❌ 停用 |
+| 三大法人現貨資料來源 | `get_chips_market_aggregate()` | `get_chips_market_agg_from_table()` |
+| 「🚀 同步到雲端」按鈕 | ✅ 顯示 | ❌ 隱藏 |
+| 個股自動補抓 | ✅ 自動執行 | ❌ 停用 |
+
+---
+
+## 四、database.py — 所有函式簽名
+
+### 連線
+
+```python
+get_conn() -> sqlite3.Connection
+# 回傳 WAL 模式的 SQLite 連線，DB_PATH = data/stock.db
+```
+
+### 初始化
+
+```python
+init_db() -> None
+# 建立所有資料表（IF NOT EXISTS），執行 migration（ALTER TABLE 補欄位）
+# 新增資料表必須在這裡加 CREATE TABLE IF NOT EXISTS
+```
+
+### 價格資料
+
+```python
+save_prices(code: str, rows: list[dict]) -> None
+# rows 每項：{'date','open','high','low','close','volume','value','change','change_pct'}
+# UNIQUE(code, date)，使用 INSERT OR REPLACE
+
+get_prices(code: str, days: int = 400) -> list[dict]
+# 依日期升序，最多 days 筆
+# 回傳 key：date, open, high, low, close, volume, value, change, change_pct
+
+get_latest_price_date(code: str) -> str | None
+# 回傳最新有資料的日期字串，例如 '2026-06-06'
+```
+
+### 基本面
+
+```python
+save_fundamental(code, date, eps, pe, pb, div) -> None
+
+get_fundamentals(code: str, days: int = 400) -> list[dict]
+# key：date, eps_ttm, pe, pb, dividend_yield
+```
+
+### 籌碼（個股）
+
+```python
+save_chips(code: str, date: str, data: dict) -> None
+# data key：foreign_buy/sell/net, trust_buy/sell/net, dealer_buy/sell/net,
+#            margin_balance, short_balance（均為整數，單位：張）
+
+get_chips(code: str, days: int = 65) -> list[dict]
+# 注意：內部有 WHERE date >= date('now', '-{days*2} days') 的日期範圍過濾
+# key：date, foreign_buy, foreign_sell, foreign_net,
+#      trust_buy, trust_sell, trust_net,
+#      dealer_buy, dealer_sell, dealer_net,
+#      margin_balance, short_balance
+```
+
+### 三大法人市場彙總（雲端用）
+
+```python
+save_chips_market_agg(rows: list[dict]) -> None
+# rows 每項：{'date', 'foreign_net', 'trust_net', 'dealer_net'}
+
+get_chips_market_agg_from_table(days: int = 30) -> list[dict]
+# 從 chips_market_agg 表讀取（雲端使用），升序
+# key：date, foreign_net, trust_net, dealer_net（單位：張）
+
+get_chips_market_aggregate(days: int = 60, min_stocks: int = 500) -> list[dict]
+# 本機使用：從 chips 表彙整全市場，HAVING COUNT(*) >= min_stocks 過濾不完整日期
+# 必須加 WHERE date >= date('now', '-{days*2} days') 否則會撈出 2017 年老資料
+# key：date, stock_count, foreign_net, trust_net, dealer_net
+```
+
+### T86 三大法人排行
+
+```python
+save_t86_ranking(date: str, rows: list[dict]) -> None
+# 先 DELETE WHERE date=date，再批次 INSERT
+# rows 每項：{code, name, foreign_buy, foreign_sell, foreign_net,
+#             trust_buy, trust_sell, trust_net, dealer_net, total_net}
+
+get_t86_ranking(date=None, sort_by='trust_net', top=15) -> (list[dict], str)
+# date=None 自動取最新日期；sort_by 可為 trust_net/foreign_net/total_net/dealer_net
+# 回傳 (rows, date)
+
+get_t86_ranking_bottom(date=None, sort_by='trust_net', top=15) -> (list[dict], str)
+# 同上，但 ORDER BY ASC（賣超排行）
+
+get_t86_last_date() -> str | None
+# T86 最新日期
+
+get_t86_market_aggregate(days: int = 10) -> list[dict]
+# 從 t86_ranking 彙整每日市場合計（外資/投信/合計），升序
+# key：date, foreign_net_total, trust_net_total, total_net_total
+```
+
+### 大盤融資融券
+
+```python
+save_market_margin(date: str, data: dict) -> None
+# data key：margin_balance, margin_buy, margin_sell,
+#            short_balance, short_buy, short_sell（均為億元整數）
+
+get_market_margin(days: int = 120) -> list[dict]
+# 升序，key 同上加 date
+
+get_market_margin_last_date() -> str | None
+```
+
+### 台指期三大法人未平倉
+
+```python
+save_futures_institutional(date: str, data: dict) -> None
+# data key：foreign_long, foreign_short, foreign_net,
+#            trust_long, trust_short, trust_net,
+#            dealer_long, dealer_short, dealer_net（口數，正=多）
+
+get_futures_institutional(days: int = 90) -> list[dict]
+# 升序，key 同上加 date
+```
+
+### 大盤本益比
+
+```python
+save_market_pe(date, pe_ratio, pb_ratio=None, div_yield=None) -> None
+
+get_market_pe(days: int = 250) -> list[dict]
+# key：date, pe_ratio, pb_ratio, div_yield
+
+get_market_pe_last_date() -> str | None
+```
+
+### 除權息
+
+```python
+save_exdividend(rows: list[dict]) -> None
+# is_confirmed=1（TWT49U 正式）→ INSERT OR REPLACE
+# is_confirmed=0（TWT48U 早期預告）→ INSERT OR IGNORE（正式資料已存在則跳過）
+
+get_exdividend(days=30) -> list[dict]              # 近 days 天（含過去）
+get_exdividend_upcoming(days=30) -> list[dict]      # 今天起未來 days 天
+get_exdividend_by_code(code) -> list[dict]          # 個股近一年
+```
+
+### 自選股與標籤
+
+```python
+get_watchlist() -> list[dict]
+# key：code, name, tags(list), added_at
+
+add_watchlist(code: str, name: str, tags=None) -> None
+# tags 可為 list 或 str
+
+remove_watchlist(code: str) -> None
+
+update_watchlist_tags(code: str, tags: list) -> None
+update_watchlist_tag(code: str, tag: str) -> None  # 向下相容舊版
+
+get_tags() -> list[str]     # 依 sort_order 排序
+add_tag(name: str) -> bool
+rename_tag(old: str, new: str) -> bool  # 同步更新所有自選股的標籤
+delete_tag(name: str) -> bool           # 同步從所有自選股移除
+```
+
+### 其他
+
+```python
+save_stock_info(code, name, market, industry) -> None
+# market = 'TWSE' | 'TPEx'
+
+search_stock(keyword: str) -> list[dict]
+# 對 code 和 name 做 LIKE 查詢，最多 20 筆
+
+save_note(code, auto_note, user_note='') -> None
+get_notes(code, limit=10) -> list[dict]
+delete_note(note_id: int) -> None
+update_user_note(code, date, user_note) -> None
+
+save_etf_holdings(etf_code, etf_name, constituents) -> None
+# 先 DELETE 再寫入
+get_etf_holders(stock_code) -> list[dict]  # 持有此股的所有 ETF
+get_etf_last_update() -> str | None
+
+save_ownership(code, foreign_pct, date) -> None
+get_ownership(code) -> dict | None  # {'foreign_pct', 'date'}
+
+log_update(status, message) -> None
+get_last_update() -> dict | None  # {'date', 'status', 'message', 'updated_at'}
+```
+
+---
+
+## 五、資料庫 Schema 完整版
+
+```sql
+stocks (code PK, name, market, industry, updated_at)
+prices (code+date UNIQUE, open, high, low, close, volume, value, change, change_pct)
+fundamentals (code+date UNIQUE, eps_ttm, pe, pb, dividend_yield)
+chips (code+date UNIQUE, foreign_buy/sell/net, trust_buy/sell/net, dealer_buy/sell/net, margin_balance, short_balance)
+chips_market_agg (date PK, foreign_net, trust_net, dealer_net)  ← 雲端用彙整表
+watchlist (code UNIQUE, name, tag TEXT, added_at)  ← tag 欄位存逗號分隔字串
+watchlist_tags (name PK, sort_order)
+notes (id PK, code, date, auto_note, user_note, created_at)
+etf_holdings (etf_code+stock_code UNIQUE, etf_name, weight, shares, updated_at)
+update_log (id PK, date, status, message, updated_at)
+ownership (code PK, foreign_pct, date, updated_at)
+exdividend (ex_date+code UNIQUE, name, prev_close, ref_price, div_value, div_type, is_confirmed)
+t86_ranking (date+code UNIQUE, name, foreign_buy/sell/net, trust_buy/sell/net, dealer_net, total_net)
+market_margin (date PK, margin_balance/buy/sell, short_balance/buy/sell)
+futures_institutional (date PK, foreign/trust/dealer × long/short/net)
+market_pe (date PK, pe_ratio, pb_ratio, div_yield)
+```
+
+---
+
+## 六、github_sync.py — 關鍵函式
+
+### export_to_json(code=None)
+匯出所有資料到 `data/json/`。匯出的 JSON 檔列表：
+
+| 檔案 | 內容 |
+|------|------|
+| `stocks.json` | 全市場股票清單（list） |
+| `watchlist.json` | 自選股清單（list），空清單不覆蓋 |
+| `watchlist_tags.json` | 自訂標籤（list of str） |
+| `meta.json` | 最後更新時間、`exported_at`（觸發雲端重新載入的 key） |
+| `TAIEX.json` | `{'prices': [...], 'exported_at': ...}` |
+| `market_margin.json` | `{'rows': [...], 'exported_at': ...}` |
+| `futures_institutional.json` | `{'rows': [...], 'exported_at': ...}` |
+| `market_pe.json` | `{'rows': [...], 'exported_at': ...}` |
+| `exdividend.json` | `{'rows': [...], 'exported_at': ...}` |
+| `t86.json` | `{'date', trust_top/bot, foreign_top/bot, total_top/bot, 'exported_at'}` |
+| `chips_market_agg.json` | `{'rows': [...], 'exported_at': ...}` |
+| `{stock_code}.json` | `{'code', prices, fundamentals, chips, 'exported_at'}` |
+
+### sync_via_git(code=None)
+呼叫 `export_to_json()` 後執行 `git add data/json/ → git commit → git push`。使用本機 git 認證（SSH key 或 macOS Keychain），不需要 Token。
+
+### init_cloud_data()
+雲端版啟動時呼叫（被 `st.cache_resource` 包裹）。從本機 JSON 路徑讀取（Streamlit Cloud 部署時 JSON 已在 repo 內）。
+
+**重要：** 個股 JSON 迴圈的 skip 名單：
+```python
+if code in ('stocks', 'watchlist', 'meta', 't86', 'exdividend', 'TAIEX',
+            'market_margin', 'futures_institutional', 'market_pe', 'chips_market_agg',
+            'watchlist_tags'):
+    continue
+```
+**每新增一個大盤層級的 JSON 檔，都必須加到這個 skip 名單**，否則會被誤當成股票代號解析。
+
+---
+
+## 七、config.py — 可調參數
+
+```python
+# 路徑
+DB_PATH  = data/stock.db
+JSON_DIR = data/json/
+
+# GitHub
+GITHUB_REPO   = 'hioct022-ux/taiwan-stock-tool'
+GITHUB_BRANCH = 'main'
+GITHUB_TOKEN  = 從 config_local.py 讀取（雲端沒有此檔案，則為空字串）
+
+# 排程
+AUTO_FETCH_HOUR   = 16
+AUTO_FETCH_MINUTE = 30
+
+# 技術指標
+MA_SHORT = 5, MA_MID = 20, MA_LONG = 60
+RSI_PERIOD = 14, KD_PERIOD = 9
+MACD_FAST = 12, MACD_SLOW = 26, MACD_SIGNAL = 9
+BBAND_PERIOD = 20, BBAND_STD = 2
+
+# 評分權重
+WEIGHT_FUNDAMENTAL = 0.40
+WEIGHT_TECHNICAL   = 0.35
+WEIGHT_CHIPS       = 0.25
+
+# 大盤市值校準（每 6~12 個月更新一次）
+TWSE_CAP_COEF       = 16.70   # 億元 / 指數點
+TWSE_CAP_CALIBRATED = '2026-05-30'
+TWSE_CAP_WARN_DAYS  = 365
+
+# 融資警戒比例（佔市值）
+MARGIN_RATIO_WARNING = 1.0    # %
+MARGIN_RATIO_DANGER  = 1.2    # %
+
+# 個股評分等級閾值
+GRADE = {80:'強力買進', 65:'偏多操作', 50:'中性觀望', 35:'偏空謹慎', 0:'風險偏高'}
+```
+
+---
+
+## 八、外部 API 來源與注意事項
+
+### TWSE（台灣證券交易所）
+
+| 資料 | API 端點 | 格式 | 速率限制 |
+|------|----------|------|---------|
+| 個股日線價格（上市） | `STOCK_DAY` | JSON | 每月一次，間隔 ≥ 0.4s |
+| 上市股票清單 | `BWIBBU_ALL` | JSON | 日更新 |
+| 個股三大法人（T86） | `T86` | JSON | 每日一次 |
+| 大盤融資融券 | `MI_MARGN` | JSON | 日更新，標籤要完全比對 |
+| 除權息（預告）| `TWT48U` | JSON | is_confirmed=0 |
+| 除權息（正式）| `TWT49U` | JSON | is_confirmed=1 |
+
+**日期格式陷阱（最常見 Bug）：**
+```python
+# TWSE 混用兩種格式：
+# 民國年 7 碼：1150528 → 2026-05-28
+# 西元年 8 碼：20260528 → 2026-05-28
+def parse_date(s):
+    if len(s) == 7 and s[0] == '1':
+        return f'{int(s[:3])+1911}-{s[3:5]}-{s[5:7]}'
+    elif len(s) == 8 and s[0] == '2':
+        return f'{s[:4]}-{s[4:6]}-{s[6:8]}'
+```
+
+**融資融券標籤完全比對（不能用 in）：**
+```python
+# 正確
+if label == '融資(交易單位)': ...
+if label == '融資金額(仟元)': ...
+if label == '融券(交易單位)': ...
+# 錯誤：'融資' in label 會讓「融資金額」覆蓋「融資張數」
+```
+
+### TPEx（上櫃）
+- 個股日線、基本面：用 `yfinance`，suffix = `.TWO`
+- 三大法人：不支援（TWSE T86 只有上市股）
+
+### TAIFEX（台灣期貨交易所）
+- API 回傳 Big5 編碼 CSV：`r.content.decode('big5', errors='ignore')`
+- 單次查詢最多 30 天；歷史補抓需逐月分批
+- 外資期貨絕對口數（常態 -5 ~ -7 萬口）是結構性避險部位，**不代表方向**；開盤前預判用「日變化量」（±1k/±3k 口）
+
+### yfinance（即時外部市場）
+- 函式：`_fetch_global_markets()`，`@st.cache_data(ttl=900)`（15 分鐘快取）
+- Tickers：
+
+| 名稱 | Ticker | 類型 |
+|------|--------|------|
+| S&P 500 | `^GSPC` | 指數（計入評分） |
+| Nasdaq | `^IXIC` | 指數（計入評分） |
+| 費半 SOX | `^SOX` | 指數（計入評分） |
+| TSM ADR | `TSM` | 股票（計入評分） |
+| VIX | `^VIX` | 指數（計入評分） |
+| WTI 原油 | `CL=F` | 期貨（不計入評分，僅顯示） |
+| 黃金 | `GC=F` | 期貨（不計入評分，僅顯示） |
+| 美元指數 | `DX-Y.NYB` | 指數（不計入評分，僅顯示） |
+
+---
+
+## 九、app.py — 頁面路由與主要函式
+
+### 頁面架構
+
+```python
+# st.session_state['page'] 控制路由
+# 可能值：'market' | 'watchlist' | 'stock_detail' | 't86' | 'exdividend' | 'notes'
+
+def render_market()     # 大盤分析
+def render_watchlist()  # 自選股
+def render_stock(code)  # 個股查詢
+def render_t86()        # 法人排行
+def render_exdividend() # 除權息
+def render_notes()      # 個股筆記
+```
+
+### 圖表統一函式（必須用這個，不能直接 st.plotly_chart）
+
+```python
+_CHART_CONFIG = {'scrollZoom': False, 'displayModeBar': False, 'doubleClick': False}
+
+def show_chart(fig, key=None):
+    fig.update_layout(dragmode=False)
+    st.plotly_chart(fig, use_container_width=True, config=_CHART_CONFIG, key=key)
+```
+
+### K 線圖均線規格
+
+```python
+# MA5=橘色, MA20=紫色, MA60=綠色，固定不變
+ma_colors = {'MA5': '#f97316', 'MA20': '#a855f7', 'MA60': '#22c55e'}
+# 同時顯示大盤圖和個股圖，顯示最近 20 天
+# 圖例 orientation='h' 水平排列
+```
+
+### 開盤前預判訊號（Signal 1–9）
+
+Signal 1–8 使用昨日資料（本地 DB），Signal 9 使用即時 yfinance。
+
+**評分變數：** `_bear_score`（空方分）、`_bull_score`（多方分），`net = bear - bull`
+
+**訊號邏輯位置：** `render_market()` 中，搜尋 `Signal 1` 到 `Signal 9`
+
+**閾值判斷：**
+```python
+if   net >= 6:  verdict = '🔴 強烈偏空'
+elif net >= 3:  verdict = '🔴 偏空'
+elif net >= 1:  verdict = '🔴 小幅偏空'
+elif net <= -6: verdict = '🟢 強烈偏多'
+elif net <= -3: verdict = '🟢 偏多'
+elif net <= -1: verdict = '🟢 小幅偏多'
+else:           verdict = '⚪ 中性'
+```
+
+### 三大法人現貨圖（大盤）
+
+```python
+# IS_LOCAL 控制資料來源
+if IS_LOCAL:
+    _chips_agg = get_chips_market_aggregate(days=20)
+else:
+    _chips_agg = get_chips_market_agg_from_table(days=20)
+
+# 固定顏色
+INST_COLORS = {'外資': '#f97316', '投信': '#3b82f6', '自營商': '#a855f7'}
+# 兩個子圖：上=各自柱狀圖，下=合計柱狀圖 + 7日MA線
+```
+
+### 雲端初始化（模組頂層）
+
+```python
+@st.cache_resource          # 必須在模組頂層定義，不能在 if 區塊內
+def _init_cloud_cache(version: str):
+    from github_sync import init_cloud_data
+    init_cloud_data()
+    return version
+
+if not IS_LOCAL:
+    _init_cloud_cache(_get_meta_version())   # key 是 meta.json 的 exported_at
+```
+
+---
+
+## 十、已知陷阱與 Bug 記錄
+
+### 1. git push 失敗（index.lock 或 HEAD.lock）
+```bash
+rm -f ~/台股分析工具/.git/index.lock
+rm -f ~/台股分析工具/.git/HEAD.lock
+git -C ~/台股分析工具 push
+```
+
+### 2. 三大法人現貨圖顯示幾年前資料
+`chips` 表有 2017 年起的歷史資料，若不加日期範圍過濾，`HAVING stock_count >= 500` 無效（舊日期只有少數股票）。  
+**修正：** `get_chips_market_aggregate()` 需加 `WHERE date >= date('now', '-{days*2} days')`
+
+### 3. 雲端 chips_market_agg 無資料
+現象：雲端三大法人現貨圖空白。  
+原因：`chips_market_agg` 是新資料表，需要確認：
+1. `github_sync.py` 的 `export_to_json()` 有匯出 `chips_market_agg.json`
+2. `init_cloud_data()` 有匯入此檔案
+3. 個股迴圈的 skip 名單有加 `'chips_market_agg'`
+4. 本機已 `git push` 最新 `.py` 檔，且 JSON 已推送
+
+### 4. 雲端 ImportError
+本機改了函式名稱但 push 的 `.py` 不完整（例如只 push 了 `app.py` 但 `database.py` 沒更新）。  
+**修正：** 每次改函式時，確認所有涉及的 `.py` 都一起 push。
+
+### 5. Streamlit 1.58+ 的 st.html 警告
+舊版 `import streamlit.components.v1 as _components; _components.html(...)` 已棄用。  
+**修正：** 改用 `st.html(..., unsafe_allow_javascript=True)`
+
+### 6. 外資期貨口數誤判方向
+外資台指期淨多單常態為 -5 ~ -7 萬口（結構性避險，非方向性訊號）。  
+開盤前預判使用**日變化量**（`f_now - f_prev`），不用絕對口數。
+
+### 7. TWSE API 速率限制
+批次補抓歷史資料時每筆需 `time.sleep(0.4)`；大量補抓改用 2 秒。
+
+### 8. TAIFEX Big5 亂碼
+```python
+r.content.decode('big5', errors='ignore')  # 不是 r.text
+```
+
+### 9. st.cache_resource 必須在模組頂層
+若 `@st.cache_resource` 定義在 `if not IS_LOCAL:` 區塊內，雲端每次重整都會重新執行 `init_cloud_data()`（快取失效）。必須在頂層定義函式，只有呼叫放在 if 區塊內。
+
+---
+
+## 十一、新增功能的標準流程
+
+### A. 新增一個大盤指標（從 API 抓資料到顯示）
+
+1. **`database.py`**：
+   - `init_db()` 加 `CREATE TABLE IF NOT EXISTS new_table (...)`
+   - 加 `save_new(date, data)` 和 `get_new(days)` 函式
+
+2. **`fetcher.py`**：
+   - 加 `fetch_new()` 函式
+   - 在 `fetch_all()` 末端加呼叫
+
+3. **`github_sync.py`**：
+   - `export_to_json()` 加 JSON 匯出
+   - `init_cloud_data()` 加 JSON 匯入
+   - **個股迴圈 skip 名單加入新的 JSON 檔名**（重要！）
+
+4. **`app.py`**：
+   - import 新函式
+   - `render_market()` 加顯示邏輯
+
+### B. 修改開盤前預判訊號閾值
+
+`app.py` → `render_market()` → 搜尋 `Signal 1` 到 `Signal 9`，直接改數字。
+
+### C. 新增外部市場指標
+
+`app.py` → `_fetch_global_markets()` → 在 `equity_symbols` 或 `macro_symbols` dict 加入新 ticker。  
+評分邏輯在 Signal 9 區塊（`# ══ Signal 9`）。
+
+### D. 新增個股籌碼判斷欄位
+
+`app.py` → `render_chips()` → 圖表下方的判斷文字區塊。
+
+### E. 新增頁面
+
+```python
+# 側邊欄加按鈕
+if st.sidebar.button('新頁面', use_container_width=True):
+    st.session_state['page'] = 'new_page'
+
+# render 函式
+def render_new_page():
+    ...
+
+# main() 路由
+elif page == 'new_page':
+    render_new_page()
+```
+
+---
+
+## 十二、部署與維護操作
+
+### 日常推送（只改資料，不改程式碼）
+在 App 按「🚀 更新並同步到雲端」即可（本機執行）。
+
+### 推送程式碼更新到雲端
+
+```bash
+cd ~/台股分析工具
+git add app.py database.py github_sync.py fetcher.py config.py
+git commit -m "說明修改內容"
+git push
+# Streamlit Cloud 會在 1~2 分鐘內自動重新部署
+```
+
+### 補抓歷史資料
+
+```bash
+cd ~/台股分析工具
+
+# 大盤融資融券（月數）
+python3 -c "from fetcher import fetch_market_margin_history; fetch_market_margin_history(months=4)"
+
+# 台指期未平倉（逐月分批，TAIFEX 限 30 天/次）
+python3 -c "from fetcher import fetch_futures_institutional_history; fetch_futures_institutional_history(months=3)"
+
+# 單股歷史價格
+python3 -c "from fetcher import fetch_history; fetch_history('2330', months=6)"
+
+# 今日全部抓一次
+python3 -c "from fetcher import fetch_all; fetch_all()"
+
+# 初始化 DB（新增資料表後必須執行）
+python3 -c "from database import init_db; init_db()"
+
+# 執行回測
+python3 backtest.py
+```
+
+### 校準大盤市值係數
+
+1. 查 [TWSE 市場資訊](https://www.twse.com.tw/zh/statistics/statisticsReport/marketInformation.html) 最新上市總市值
+2. `TWSE_CAP_COEF = 最新市值(億) / 當日指數收盤`
+3. 更新 `config.py` 的 `TWSE_CAP_COEF` 和 `TWSE_CAP_CALIBRATED`
+
+### 查詢 DB 內容
+
+```bash
+# 直接 SQLite
+sqlite3 ~/台股分析工具/data/stock.db ".tables"
+sqlite3 ~/台股分析工具/data/stock.db "SELECT * FROM chips_market_agg ORDER BY date DESC LIMIT 10;"
+
+# Python
+python3 -c "from database import get_market_pe; [print(r) for r in get_market_pe(5)]"
+```
+
+---
+
+## 十三、config_local.py 範本
+
+```python
+# config_local.py — 此檔不上傳 Git（已在 .gitignore）
+IS_LOCAL      = True
+GITHUB_TOKEN  = 'ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'  # GitHub Personal Access Token
+FINMIND_TOKEN = 'your_finmind_token'  # FinMind API，用於 ETF 成分股
+```
+
+---
+
+## 十四、開盤前預判回測說明（backtest.py）
+
+回測使用 Signal 1–8（S9 即時資料無法回測），逐日模擬評分。
+
+**已知偏差：** 在單邊多頭市場，偏空訊號（BIAS 過高、位置偏高）系統性失準（約 42%），這是趨勢性市場的必然現象，訊號設計本身沒有問題。資料累積 6 個月以上、跨越不同市場環境後，統計意義才會提高。
+
+**使用方式：** `python3 backtest.py`，輸出整體準確率、強訊號準確率（|net|≥3）、逐日明細。
