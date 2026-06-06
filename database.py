@@ -695,6 +695,22 @@ def get_t86_last_date():
     conn.close()
     return row[0] if row and row[0] else None
 
+def get_t86_market_aggregate(days=10):
+    """取得 T86 全市場外資/投信/合計淨買賣超（每日彙總），依日期升序"""
+    conn = get_conn()
+    rows = conn.execute('''
+        SELECT date,
+               SUM(foreign_net) AS foreign_net_total,
+               SUM(trust_net)   AS trust_net_total,
+               SUM(total_net)   AS total_net_total
+        FROM t86_ranking
+        GROUP BY date
+        ORDER BY date DESC LIMIT ?
+    ''', (days,)).fetchall()
+    conn.close()
+    cols = ['date', 'foreign_net_total', 'trust_net_total', 'total_net_total']
+    return list(reversed([dict(zip(cols, r)) for r in rows]))
+
 # ── 大盤融資融券 ────────────────────────
 def save_market_margin(date, data):
     conn = get_conn()

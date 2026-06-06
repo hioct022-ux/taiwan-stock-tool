@@ -20,6 +20,7 @@ from database import (init_db, get_prices, get_fundamentals, get_chips,
                       save_note, update_user_note, delete_note, get_last_update,
                       get_etf_holders, get_etf_last_update, get_ownership,
                       get_t86_ranking, get_t86_ranking_bottom, get_t86_last_date,
+                      get_t86_market_aggregate,
                       get_exdividend, get_exdividend_upcoming, get_exdividend_by_code,
                       get_market_margin, get_futures_institutional, get_market_pe,
                       get_tags, add_tag, rename_tag, delete_tag,
@@ -214,8 +215,7 @@ if IS_LOCAL:
 
 
 # ── JS：清除sidebar localStorage + 移除收起按鈕 ──
-import streamlit.components.v1 as _components
-_components.html("""
+st.html("""
 <script>
 (function() {
     var p = window.parent;
@@ -261,7 +261,7 @@ _components.html("""
     } catch(e) {}
 })();
 </script>
-""", height=0)
+""", unsafe_allow_javascript=True)
 
 # ── 側邊欄 ──────────────────────────────
 def render_sidebar():
@@ -2148,125 +2148,180 @@ def render_market():
     _mm   = get_market_margin(days=15)
     _fut  = get_futures_institutional(days=15)
     _tpx  = get_prices('TAIEX', days=30)
+    _t86  = get_t86_market_aggregate(days=5)
 
-    if _mm and _fut and _tpx and len(_mm) >= 5 and len(_fut) >= 5:
+    if _mm and _fut and _tpx and len(_mm) >= 2 and len(_fut) >= 2 and len(_tpx) >= 2:
         _bear_score = 0   # 空方累積分
         _bull_score = 0   # 多方累積分
-        _bear_msgs  = []  # 空方訊號清單 (icon, msg, weight)
-        _bull_msgs  = []  # 多方訊號清單 (icon, msg, weight)
+        _bear_msgs  = []  # 空方訊號清單 (icon, msg)
+        _bull_msgs  = []  # 多方訊號清單 (icon, msg)
 
         # ── 計算大盤技術指標（BIAS / 位置）────
         _ind_tpx   = calc_all(_tpx)
         _bias5_tpx = _ind_tpx.get('bias5')
         _bias20_tpx= _ind_tpx.get('bias20')
         _pos20_tpx = _ind_tpx.get('pos_20')
-        _pos65_tpx = _ind_tpx.get('pos_65')
         _pos250_tpx= _ind_tpx.get('pos_250')
         _ma_trend  = _ind_tpx.get('ma_trend')
 
-        # ══ Signal 1：融資5日趨勢（用 % 相對化）═══
+        # ══ Signal 1：TAIEX 昨日漲跌（每日必有訊號）══
+        _tpx_now  = _tpx[-1]['close']
+        _tpx_prev = _tpx[-2]['close'] if len(_tpx) >= 2 else _tpx_now
+        _tpx_chg  = (_tpx_now - _tpx_prev) / _tpx_prev * 100 if _tpx_prev else 0
+
+        if _tpx_chg <= -2.0:
+            _bear_score += 3
+            _bear_msgs.append(('🔴', f'昨日大盤大跌 **{_tpx_chg:.2f}%**（收 {_tpx_now:,.2f}），空方強勢，動能偏空'))
+        elif _tpx_chg <= -1.0:
+            _bear_score += 2
+            _bear_msgs.append(('🔴', f'昨日大盤下跌 {_tpx_chg:.2f}%（收 {_tpx_now:,.2f}），空方有壓'))
+        elif _tpx_chg <= -0.3:
+            _bear_score += 1
+            _bear_msgs.append(('🟡', f'昨日大盤小跌 {_tpx_chg:.2f}%，短線偏弱'))
+        elif _tpx_chg >= 2.0:
+            _bull_score += 3
+            _bull_msgs.append(('🟢', f'昨日大盤大漲 **+{_tpx_chg:.2f}%**（收 {_tpx_now:,.2f}），多方強勢'))
+        elif _tpx_chg >= 1.0:
+            _bull_score += 2
+            _bull_msgs.append(('🟢', f'昨日大盤上漲 +{_tpx_chg:.2f}%（收 {_tpx_now:,.2f}），多方有力'))
+        elif _tpx_chg >= 0.3:
+            _bull_score += 1
+            _bull_msgs.append(('🟢', f'昨日大盤小漲 +{_tpx_chg:.2f}%，短線偏強'))
+        else:
+            _bull_msgs.append(('⚪', f'昨日大盤收平（{_tpx_chg:+.2f}%，收 {_tpx_now:,.2f}），方向待確認'))
+
+        # ══ Signal 2：融資5日趨勢（相對化）════
         _mb_now  = _mm[-1]['margin_balance']
-        _mb_5ago = _mm[-5]['margin_balance'] if len(_mm) >= 5 else _mb_now
+        _mb_5ago = _mm[-min(5, len(_mm))]['margin_balance']
         _mb_chg  = _mb_now - _mb_5ago
         _mb_chg_pct = _mb_chg / _mb_5ago * 100 if _mb_5ago > 0 else 0
 
         if _mb_chg_pct >= 2.0:
             _bear_score += 2
-            _bear_msgs.append(('🔴', f'融資5日大增 **{_mb_chg_pct:+.1f}%**（+{_mb_chg:,.0f}億）：散戶急速加槓桿，若行情反轉將出現斷頭賣壓'))
-        elif _mb_chg_pct >= 0.8:
+            _bear_msgs.append(('🔴', f'融資5日大增 **{_mb_chg_pct:+.1f}%**（+{_mb_chg:,.0f}億）：散戶加槓桿，若行情反轉易出現斷頭賣壓'))
+        elif _mb_chg_pct >= 0.5:
             _bear_score += 1
-            _bear_msgs.append(('🟡', f'融資5日增加 {_mb_chg_pct:+.1f}%（+{_mb_chg:,.0f}億）：槓桿微升，偏空'))
+            _bear_msgs.append(('🟡', f'融資5日增加 {_mb_chg_pct:+.1f}%（+{_mb_chg:,.0f}億），槓桿微升'))
         elif _mb_chg_pct <= -2.0:
             _bull_score += 2
-            _bull_msgs.append(('🟢', f'融資5日大減 {_mb_chg_pct:+.1f}%（{_mb_chg:,.0f}億）：槓桿清洗中，賣壓已有釋放，底部訊號'))
-        elif _mb_chg_pct <= -0.8:
+            _bull_msgs.append(('🟢', f'融資5日大減 {_mb_chg_pct:+.1f}%（{_mb_chg:,.0f}億）：去槓桿進行中，底部訊號'))
+        elif _mb_chg_pct <= -0.5:
             _bull_score += 1
-            _bull_msgs.append(('🟢', f'融資5日減少 {_mb_chg_pct:+.1f}%（{_mb_chg:,.0f}億）：去槓桿進行中，偏多'))
+            _bull_msgs.append(('🟢', f'融資5日減少 {_mb_chg_pct:+.1f}%（{_mb_chg:,.0f}億），槓桿緩降偏多'))
         else:
-            _bull_msgs.append(('⚪', f'融資5日變化 {_mb_chg_pct:+.1f}%（{_mb_chg:+,.0f}億），水位平穩'))
+            _bull_msgs.append(('⚪', f'融資餘額 {_mb_now:,.0f}億，5日變化 {_mb_chg_pct:+.1f}%，水位平穩'))
 
-        # ══ Signal 2：外資台指期 現有部位方向 ══
-        _f_net_now = _fut[-1]['foreign_net']
-        _f_net_5   = _fut[-5]['foreign_net'] if len(_fut) >= 5 else _f_net_now
-        _f_trend   = _f_net_now - _f_net_5  # 正 = 5日回補(偏多)，負 = 5日擴空(偏空)
+        # ══ Signal 3：外資台指期 日變化量（每日方向）══
+        # 用日變化而非絕對值，因外資慣性持有大量淨空單作避險
+        _f_net_now  = _fut[-1]['foreign_net']
+        _f_net_prev = _fut[-2]['foreign_net'] if len(_fut) >= 2 else _f_net_now
+        _f_net_5    = _fut[-min(5, len(_fut))]['foreign_net']
+        _f_day_chg  = _f_net_now - _f_net_prev   # 昨日單日變化
+        _f_trend    = _f_net_now - _f_net_5       # 5日趨勢
 
-        if _f_net_now < -40000:
+        if _f_day_chg >= 3000:
+            _bull_score += 2
+            _bull_msgs.append(('🟢', f'外資台指期昨日回補 **+{_f_day_chg:,} 口**（淨 {_f_net_now:+,} 口），期貨轉多'))
+        elif _f_day_chg >= 1000:
+            _bull_score += 1
+            _bull_msgs.append(('🟢', f'外資台指期昨日小幅回補 +{_f_day_chg:,} 口（淨 {_f_net_now:+,} 口），偏多'))
+        elif _f_day_chg <= -3000:
             _bear_score += 2
-            _bear_msgs.append(('🔴', f'外資台指期淨空單 **{_f_net_now:,} 口**：機構大規模做空佈局，系統性壓力明顯'))
-        elif _f_net_now < -15000:
+            _bear_msgs.append(('🔴', f'外資台指期昨日擴空 **{_f_day_chg:,} 口**（淨 {_f_net_now:+,} 口），期貨轉空'))
+        elif _f_day_chg <= -1000:
             _bear_score += 1
-            _bear_msgs.append(('🟡', f'外資台指期淨空單 {_f_net_now:,} 口，偏空佈局'))
-        elif _f_net_now > 15000:
-            _bull_score += 1
-            _bull_msgs.append(('🟢', f'外資台指期淨多單 {_f_net_now:+,} 口，期貨市場看多'))
+            _bear_msgs.append(('🟡', f'外資台指期昨日小幅擴空 {_f_day_chg:,} 口（淨 {_f_net_now:+,} 口），偏空'))
         else:
-            _bull_msgs.append(('⚪', f'外資台指期淨口數 {_f_net_now:+,} 口，中性'))
+            _bull_msgs.append(('⚪', f'外資台指期昨日變化 {_f_day_chg:+,} 口，部位平穩（淨 {_f_net_now:+,} 口）'))
 
-        # ── 外資期貨5日趨勢（方向動能）───────
-        if _f_trend <= -5000:
+        # 5日趨勢（方向動能）
+        if _f_trend <= -2000:
             _bear_score += 1
-            _bear_msgs.append(('🟡', f'外資期貨5日擴大空單 {_f_trend:+,} 口，方向持續偏空'))
-        elif _f_trend >= 5000:
+            _bear_msgs.append(('🟡', f'外資期貨5日持續擴空 {_f_trend:+,} 口，空方方向動能明顯'))
+        elif _f_trend >= 2000:
             _bull_score += 1
-            _bull_msgs.append(('🟢', f'外資期貨5日回補 {_f_trend:+,} 口，動能轉多'))
+            _bull_msgs.append(('🟢', f'外資期貨5日持續回補 +{_f_trend:,} 口，多方方向動能明顯'))
 
-        # ══ Signal 3：大盤 BIAS5（每日必產生訊號）══
+        # ══ Signal 4：T86 外資現貨總買賣超（每日直接訊號）══
+        if _t86 and len(_t86) >= 1:
+            _t86_latest = _t86[-1]
+            _t86_foreign = _t86_latest.get('foreign_net_total', 0) or 0
+            _t86_trust   = _t86_latest.get('trust_net_total',   0) or 0
+            _t86_date    = _t86_latest.get('date', '')
+
+            # 外資現貨（單位：張）
+            if _t86_foreign >= 150000:
+                _bull_score += 3
+                _bull_msgs.append(('🟢', f'外資現貨大買超 **+{_t86_foreign:,} 張**（{_t86_date}），現貨大量流入'))
+            elif _t86_foreign >= 50000:
+                _bull_score += 2
+                _bull_msgs.append(('🟢', f'外資現貨買超 +{_t86_foreign:,} 張（{_t86_date}），籌碼偏多'))
+            elif _t86_foreign >= 10000:
+                _bull_score += 1
+                _bull_msgs.append(('🟢', f'外資現貨小幅買超 +{_t86_foreign:,} 張（{_t86_date}），偏多'))
+            elif _t86_foreign <= -150000:
+                _bear_score += 3
+                _bear_msgs.append(('🔴', f'外資現貨大賣超 **{_t86_foreign:,} 張**（{_t86_date}），現貨大量流出'))
+            elif _t86_foreign <= -50000:
+                _bear_score += 2
+                _bear_msgs.append(('🔴', f'外資現貨賣超 {_t86_foreign:,} 張（{_t86_date}），籌碼偏空'))
+            elif _t86_foreign <= -10000:
+                _bear_score += 1
+                _bear_msgs.append(('🟡', f'外資現貨小幅賣超 {_t86_foreign:,} 張（{_t86_date}），偏空'))
+            else:
+                _bull_msgs.append(('⚪', f'外資現貨買賣超 {_t86_foreign:+,} 張（{_t86_date}），中性'))
+
+            # 投信方向（輔助訊號）
+            if _t86_trust >= 50000:
+                _bull_score += 1
+                _bull_msgs.append(('🟢', f'投信買超 +{_t86_trust:,} 張（{_t86_date}），法人偏多'))
+            elif _t86_trust <= -50000:
+                _bear_score += 1
+                _bear_msgs.append(('🟡', f'投信賣超 {_t86_trust:,} 張（{_t86_date}），法人調節'))
+
+        # ══ Signal 5：大盤 BIAS5（短線偏差）══
         if _bias5_tpx is not None:
             if _bias5_tpx >= 5:
                 _bear_score += 2
-                _bear_msgs.append(('🔴', f'大盤 BIAS5={_bias5_tpx:+.1f}%：短線嚴重過熱，均線上方過遠，高檔壓回機率高'))
-            elif _bias5_tpx >= 2.5:
+                _bear_msgs.append(('🔴', f'大盤 BIAS5={_bias5_tpx:+.1f}%：短線嚴重過熱，高檔壓回機率高'))
+            elif _bias5_tpx >= 2:
                 _bear_score += 1
                 _bear_msgs.append(('🟡', f'大盤 BIAS5={_bias5_tpx:+.1f}%：短線偏熱，注意短線壓力'))
             elif _bias5_tpx <= -5:
                 _bull_score += 2
-                _bull_msgs.append(('🟢', f'大盤 BIAS5={_bias5_tpx:+.1f}%：短線嚴重超賣，技術性反彈機率高'))
-            elif _bias5_tpx <= -2.5:
+                _bull_msgs.append(('🟢', f'大盤 BIAS5={_bias5_tpx:+.1f}%：短線嚴重超賣，技術反彈機率高'))
+            elif _bias5_tpx <= -2:
                 _bull_score += 1
-                _bull_msgs.append(('🟢', f'大盤 BIAS5={_bias5_tpx:+.1f}%：短線偏超賣，留意反彈機會'))
+                _bull_msgs.append(('🟢', f'大盤 BIAS5={_bias5_tpx:+.1f}%：短線偏超賣，留意反彈'))
             else:
-                _bull_msgs.append(('⚪', f'大盤 BIAS5={_bias5_tpx:+.1f}%，短線均線附近，無明顯偏差'))
+                _bull_msgs.append(('⚪', f'大盤 BIAS5={_bias5_tpx:+.1f}%，短線均線附近'))
 
-        # ══ Signal 4：大盤近5日漲跌走勢 ══════
-        _closes5  = [p['close'] for p in _tpx[-5:]]
-        _up_days   = sum(1 for i in range(1, len(_closes5)) if _closes5[i] > _closes5[i-1])
-        _down_days = len(_closes5) - 1 - _up_days
-        _peak5     = max(_closes5)
-        _trough5   = min(_closes5)
-        _now_close = _closes5[-1]
-        _from_peak   = (_now_close - _peak5)   / _peak5   * 100
-        _from_trough = (_now_close - _trough5) / _trough5 * 100
-
-        if _down_days >= 3 and _from_peak <= -2:
-            _bear_score += 2
-            _bear_msgs.append(('🔴', f'近5日下跌 {_down_days} 天，距高點 {_from_peak:.1f}%：趨勢轉弱，動能偏空'))
-        elif _down_days >= 2:
-            _bear_score += 1
-            _bear_msgs.append(('🟡', f'近5日下跌 {_down_days} 天，短線偏弱'))
-        elif _up_days >= 3 and _from_trough >= 2:
-            _bull_score += 1
-            _bull_msgs.append(('🟢', f'近5日上漲 {_up_days} 天，距低點 +{_from_trough:.1f}%，短線動能偏強'))
-        else:
-            _bull_msgs.append(('⚪', f'近5日漲跌各半（漲{_up_days}跌{_down_days}天），方向待確認'))
-
-        # ══ Signal 5：大盤位置判斷 ═══════════
-        if _pos20_tpx is not None:
-            if _pos20_tpx >= 85:
+        # BIAS20（中線偏差）
+        if _bias20_tpx is not None:
+            if _bias20_tpx >= 8:
                 _bear_score += 1
-                _bear_msgs.append(('🟡', f'大盤近20日高低位置 {_pos20_tpx:.0f}%：短線高檔，回調壓力存在'))
-            elif _pos20_tpx <= 15:
+                _bear_msgs.append(('🟡', f'大盤 BIAS20={_bias20_tpx:+.1f}%：中線過熱，均值回歸壓力'))
+            elif _bias20_tpx <= -8:
                 _bull_score += 1
-                _bull_msgs.append(('🟢', f'大盤近20日高低位置 {_pos20_tpx:.0f}%：短線低檔，支撐區間附近'))
+                _bull_msgs.append(('🟢', f'大盤 BIAS20={_bias20_tpx:+.1f}%：中線超賣，反彈動能累積'))
 
+        # ══ Signal 6：大盤近1年位置 ══
         if _pos250_tpx is not None:
-            if _pos250_tpx >= 85:
+            if _pos250_tpx >= 90:
                 _bear_score += 1
-                _bear_msgs.append(('🟡', f'大盤近1年位置 {_pos250_tpx:.0f}%：年度高檔，歷史壓力位置'))
-            elif _pos250_tpx <= 15:
+                _bear_msgs.append(('🟡', f'大盤近1年位置 {_pos250_tpx:.0f}%：接近年度高點，追高風險高'))
+            elif _pos250_tpx >= 75:
+                _bull_msgs.append(('⚪', f'大盤近1年位置 {_pos250_tpx:.0f}%，中高檔'))
+            elif _pos250_tpx <= 10:
                 _bull_score += 2
                 _bull_msgs.append(('🟢', f'大盤近1年位置 {_pos250_tpx:.0f}%：接近年度低點，長線支撐強'))
+            elif _pos250_tpx <= 25:
+                _bull_score += 1
+                _bull_msgs.append(('🟢', f'大盤近1年位置 {_pos250_tpx:.0f}%：中低檔，長線具吸引力'))
+            else:
+                _bull_msgs.append(('⚪', f'大盤近1年位置 {_pos250_tpx:.0f}%，中間區間'))
 
-        # ══ Signal 6：均線排列（MA趨勢）════════
+        # ══ Signal 7：均線排列（MA趨勢）════
         if _ma_trend == 'bullish':
             _bull_score += 1
             _bull_msgs.append(('🟢', f'大盤均線多頭排列（MA5>MA20>MA60），中線趨勢向上'))
@@ -2274,7 +2329,7 @@ def render_market():
             _bear_score += 1
             _bear_msgs.append(('🟡', f'大盤均線空頭排列（MA5<MA20<MA60），中線趨勢向下'))
 
-        # ══ Signal 7：成交量趨勢 ═════════════
+        # ══ Signal 8：成交量趨勢 ═════════
         _vols = [p['value'] for p in _tpx[-5:] if p.get('value', 0) > 0]
         if len(_vols) >= 3:
             _vol_avg3    = sum(_vols[-3:]) / 3
@@ -2282,12 +2337,12 @@ def render_market():
             _vol_trend   = (_vol_avg3 - _vol_avg_pre) / _vol_avg_pre * 100 if _vol_avg_pre else 0
             if _vol_trend <= -15:
                 _bear_score += 1
-                _bear_msgs.append(('🟡', f'近3日成交量萎縮 {_vol_trend:.0f}%，市場動能減弱，上漲無力'))
+                _bear_msgs.append(('🟡', f'近3日成交量萎縮 {_vol_trend:.0f}%，上漲無力'))
             elif _vol_trend >= 20:
                 _bull_score += 1
                 _bull_msgs.append(('🟢', f'近3日成交量放大 {_vol_trend:.0f}%，市場積極度提升'))
 
-        # ══ Signal 8：外部市場（美股 / TSM ADR / VIX）══
+        # ══ Signal 9：外部市場（美股 / TSM ADR / VIX）══
         if global_data:
             _sp_chg  = global_data.get('S&P 500', {}).get('chg_pct', 0) or 0
             _nq_chg  = global_data.get('Nasdaq',  {}).get('chg_pct', 0) or 0
@@ -2307,20 +2362,22 @@ def render_market():
             elif _sp_chg >= 0.5:
                 _bull_score += 1
                 _bull_msgs.append(('🟢', f'美股小漲（S&P {_sp_chg:+.1f}%），台股開盤偏正面'))
+            else:
+                _bull_msgs.append(('⚪', f'美股收平（S&P {_sp_chg:+.1f}%）'))
 
             # 台積電 ADR
             if _tsm_chg <= -2.5:
                 _bear_score += 2
-                _bear_msgs.append(('🔴', f'台積電 ADR 大跌 {_tsm_chg:.1f}%，台股台積電跟跌壓力大'))
+                _bear_msgs.append(('🔴', f'台積電 ADR 大跌 {_tsm_chg:.1f}%，台積電開盤跟跌壓力大'))
             elif _tsm_chg <= -1.0:
                 _bear_score += 1
                 _bear_msgs.append(('🟡', f'台積電 ADR 跌 {_tsm_chg:.1f}%，台積電開盤有壓'))
             elif _tsm_chg >= 2.0:
                 _bull_score += 2
-                _bull_msgs.append(('🟢', f'台積電 ADR 大漲 {_tsm_chg:+.1f}%，台股台積電領漲機率高'))
+                _bull_msgs.append(('🟢', f'台積電 ADR 大漲 {_tsm_chg:+.1f}%，台積電領漲機率高'))
             elif _tsm_chg >= 1.0:
                 _bull_score += 1
-                _bull_msgs.append(('🟢', f'台積電 ADR 漲 {_tsm_chg:+.1f}%，對台積電開盤有利'))
+                _bull_msgs.append(('🟢', f'台積電 ADR 漲 {_tsm_chg:+.1f}%，台積電開盤有利'))
 
             # VIX 恐慌指數
             if _vix_now >= 28:
@@ -2333,13 +2390,9 @@ def render_market():
                 _bull_score += 1
                 _bull_msgs.append(('🟢', f'VIX={_vix_now:.1f}，市場情緒穩定，風險偏好良好'))
 
-        # ── 整理：空方訊號 ─────────────────────
-        # 去掉空方中的中性訊號（⚪）
-        _bear_real = [(i, m) for i, m in _bear_msgs if i != '⚪']
-
-        # ── 整理：多方訊號 ─────────────────────
-        # 多方清單保留全部（含中性），但計分只算非⚪
-        _bull_real = [(i, m) for i, m in _bull_msgs if i != '⚪']
+        # ── 整理訊號清單 ──────────────────────
+        _bear_real    = [(i, m) for i, m in _bear_msgs if i != '⚪']
+        _bull_real    = [(i, m) for i, m in _bull_msgs if i != '⚪']
         _bull_neutral = [(i, m) for i, m in _bull_msgs if i == '⚪']
 
         # ── 顯示：空方訊號 ─────────────────────
@@ -2373,38 +2426,38 @@ def render_market():
 
         st.markdown('')
 
-        # ── 綜合判斷 ────────────────────────────
+        # ── 綜合判斷（門檻降低，讓正常行情也能判斷方向）────
         _net = _bear_score - _bull_score  # 正 = 偏空，負 = 偏多
 
-        if _net >= 7:
+        if _net >= 6:
             _vcolor = '#ef4444'; _vbg = '#2d0a0a'
             _verdict = (f'🚨 **強烈偏空（空方+{_bear_score} / 多方+{_bull_score}）**\n\n'
                        f'多項空方訊號同時觸發，開盤下壓機率高。\n\n'
-                       f'**操作建議：** 開盤觀望，不急進場；若量縮止穩再評估；持股者酌情減碼或設停損。')
-        elif _net >= 4:
+                       f'**操作建議：** 開盤觀望，不急進場；持股者酌情減碼或設停損。')
+        elif _net >= 3:
             _vcolor = '#f97316'; _vbg = '#2d1500'
             _verdict = (f'⚠️ **偏空（空方+{_bear_score} / 多方+{_bull_score}）**\n\n'
                        f'空方訊號偏多，開盤偏弱可能性較高。\n\n'
                        f'**操作建議：** 降低積極度，觀察開盤量價方向，逢反彈可減碼。')
-        elif _net >= 2:
+        elif _net >= 1:
             _vcolor = '#f59e0b'; _vbg = '#1a1505'
             _verdict = (f'🟡 **中性偏空（空方+{_bear_score} / 多方+{_bull_score}）**\n\n'
-                       f'空方稍佔上風，但尚無壓倒性優勢，方向待確認。\n\n'
+                       f'空方稍佔上風，方向待確認。\n\n'
                        f'**操作建議：** 保守持倉，等開盤方向明朗後再決策。')
-        elif _net <= -7:
+        elif _net <= -6:
             _vcolor = '#22c55e'; _vbg = '#0a2010'
             _verdict = (f'🚀 **強烈偏多（空方+{_bear_score} / 多方+{_bull_score}）**\n\n'
-                       f'多方訊號強勁，技術超賣＋籌碼清洗＋外資偏多，反彈條件完備。\n\n'
+                       f'多方訊號強勁，反彈或上攻條件完備。\n\n'
                        f'**操作建議：** 開盤若量能回升，可考慮積極分批布局。')
-        elif _net <= -4:
+        elif _net <= -3:
             _vcolor = '#4ade80'; _vbg = '#0a1a0a'
             _verdict = (f'🟢 **偏多（空方+{_bear_score} / 多方+{_bull_score}）**\n\n'
-                       f'多方訊號佔優，開盤偏正面，有利多方。\n\n'
+                       f'多方訊號佔優，開盤偏正面。\n\n'
                        f'**操作建議：** 可偏多操作，注意個股選股品質。')
-        elif _net <= -2:
+        elif _net <= -1:
             _vcolor = '#86efac'; _vbg = '#0a150a'
             _verdict = (f'🟩 **中性偏多（空方+{_bear_score} / 多方+{_bull_score}）**\n\n'
-                       f'多方略佔優勢，但力道有限，觀察量能是否跟上。\n\n'
+                       f'多方略佔優勢，觀察量能是否跟上。\n\n'
                        f'**操作建議：** 現有持股可繼續持有，小幅加碼需量能配合。')
         else:
             _vcolor = '#94a3b8'; _vbg = '#1a1f2e'
