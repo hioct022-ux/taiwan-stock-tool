@@ -695,6 +695,29 @@ def get_t86_last_date():
     conn.close()
     return row[0] if row and row[0] else None
 
+def get_chips_market_aggregate(days=60, min_stocks=500):
+    """
+    從 chips 表彙總全市場三大法人每日淨買賣超（張）。
+    只取 stock_count >= min_stocks 的日期，確保是全市場資料而非少數自選股。
+    回傳依日期升序的 list of dict。
+    """
+    conn = get_conn()
+    rows = conn.execute('''
+        SELECT date,
+               COUNT(*)          AS stock_count,
+               SUM(foreign_net)  AS foreign_net,
+               SUM(trust_net)    AS trust_net,
+               SUM(dealer_net)   AS dealer_net
+        FROM chips
+        WHERE date >= date('now', ? || ' days')
+        GROUP BY date
+        HAVING stock_count >= ?
+        ORDER BY date DESC LIMIT ?
+    ''', (f'-{days*2}', min_stocks, days)).fetchall()
+    conn.close()
+    cols = ['date', 'stock_count', 'foreign_net', 'trust_net', 'dealer_net']
+    return list(reversed([dict(zip(cols, r)) for r in rows]))
+
 def get_t86_market_aggregate(days=10):
     """取得 T86 全市場外資/投信/合計淨買賣超（每日彙總），依日期升序"""
     conn = get_conn()

@@ -20,7 +20,7 @@ from database import (init_db, get_prices, get_fundamentals, get_chips,
                       save_note, update_user_note, delete_note, get_last_update,
                       get_etf_holders, get_etf_last_update, get_ownership,
                       get_t86_ranking, get_t86_ranking_bottom, get_t86_last_date,
-                      get_t86_market_aggregate,
+                      get_t86_market_aggregate, get_chips_market_aggregate,
                       get_exdividend, get_exdividend_upcoming, get_exdividend_by_code,
                       get_market_margin, get_futures_institutional, get_market_pe,
                       get_tags, add_tag, rename_tag, delete_tag,
@@ -902,21 +902,39 @@ def render_technical(result, name):
             lower_pct   = round(lower_wick / total_range * 100, 1) if total_range else 0
             vol_ratio   = round(vol / avg_vol, 2) if avg_vol else 0
 
-            # ── K 線圖（近10日）＋ 數值指標並排 ──
+            # ── K 線圖（近20日）＋ 均線 ＋ 數值指標並排 ──
             _kl_col, _km_col = st.columns([1, 1])
             with _kl_col:
-                _n = min(10, len(_dates))
-                _fig_k = go.Figure(go.Candlestick(
+                _n = min(20, len(_dates))
+                _ma5s  = ind.get('ma5_series',  [])
+                _ma20s = ind.get('ma20_series', [])
+                _ma60s = ind.get('ma60_series', [])
+                _fig_k = go.Figure()
+                _fig_k.add_trace(go.Candlestick(
                     x=_dates[-_n:],
                     open=_opens[-_n:],  high=_highs[-_n:],
                     low=_lows[-_n:],    close=_closes[-_n:],
                     increasing_line_color='#ef4444', increasing_fillcolor='#ef4444',
                     decreasing_line_color='#22c55e', decreasing_fillcolor='#22c55e',
-                    showlegend=False,
+                    name='K線', showlegend=False,
                 ))
+                if _ma5s and len(_ma5s) >= _n:
+                    _fig_k.add_trace(go.Scatter(
+                        x=_dates[-_n:], y=_ma5s[-_n:], name='MA5',
+                        line=dict(color='#f59e0b', width=1.2), connectgaps=True))
+                if _ma20s and len(_ma20s) >= _n:
+                    _fig_k.add_trace(go.Scatter(
+                        x=_dates[-_n:], y=_ma20s[-_n:], name='MA20',
+                        line=dict(color='#a78bfa', width=1.2), connectgaps=True))
+                if _ma60s and len(_ma60s) >= _n:
+                    _fig_k.add_trace(go.Scatter(
+                        x=_dates[-_n:], y=_ma60s[-_n:], name='MA60',
+                        line=dict(color='#22c55e', width=1.2), connectgaps=True))
                 _fig_k.update_layout(
-                    height=220, margin=dict(l=0, r=0, t=8, b=0),
+                    height=250, margin=dict(l=0, r=0, t=8, b=0),
                     paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                    legend=dict(orientation='h', yanchor='bottom', y=1.02,
+                                font=dict(size=9), bgcolor='rgba(0,0,0,0)'),
                     xaxis=dict(showgrid=False, tickformat='%m/%d', tickfont=dict(size=9)),
                     yaxis=dict(showgrid=True, gridcolor='#1e293b', tickfont=dict(size=9)),
                     xaxis_rangeslider_visible=False,
@@ -1287,22 +1305,20 @@ def render_chips(result, code, name, chips_list, market=None):
 
         fig_chips = go.Figure()
         fig_chips.add_trace(go.Bar(
-            x=dates_c, y=f_nets, name='外資淨買賣',
-            marker_color=['#22c55e' if v >= 0 else '#ef4444' for v in f_nets],
-            opacity=0.8
+            x=dates_c, y=f_nets, name='外資',
+            marker_color='#f97316', opacity=0.85
         ))
         fig_chips.add_trace(go.Scatter(
-            x=dates_c, y=t_nets, name='投信淨買賣',
+            x=dates_c, y=t_nets, name='投信',
             mode='lines+markers', line=dict(color='#38bdf8', width=2),
             marker=dict(size=4)
         ))
-        # 自營商全為 0 時不畫（避免圖表出現無意義的貼底線）
         if any(v != 0 for v in d_nets):
             fig_chips.add_trace(go.Scatter(
-                x=dates_c, y=d_nets, name='自營商淨買賣',
-                mode='lines', line=dict(color='#facc15', width=1.5, dash='dot')
+                x=dates_c, y=d_nets, name='自營商',
+                mode='lines', line=dict(color='#a78bfa', width=1.5, dash='dot')
             ))
-        fig_chips.add_hline(y=0, line_color='#555', line_width=1)
+        fig_chips.add_hline(y=0, line_color='#475569', line_width=1)
         fig_chips.update_layout(
             title=None,
             paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
@@ -1314,6 +1330,99 @@ def render_chips(result, code, name, chips_list, market=None):
         )
         st.markdown('**三大法人每日淨買賣超（張）**')
         show_chart(fig_chips)
+
+        # ── 個股籌碼判斷 ──────────────────────
+        _ck_f1   = chips_list[-1].get('foreign_net', 0)   # 昨日外資
+        _ck_t1   = chips_list[-1].get('trust_net',   0)   # 昨日投信
+        _ck_f5   = foreign_net5                            # 近5日外資累計
+        _ck_t5   = trust_net5                              # 近5日投信累計
+
+        # 外資近3日方向
+        _ck_f3   = [r.get('foreign_net', 0) for r in chips_list[-3:]] if len(chips_list) >= 3 else []
+        _ck_f3_buy  = sum(1 for v in _ck_f3 if v > 0)
+        _ck_f3_sell = sum(1 for v in _ck_f3 if v < 0)
+
+        _ck_msgs = []
+
+        # 外資昨日
+        if _ck_f1 >= 5000:
+            _ck_msgs.append(('🟢', f'外資昨日大量買超 **+{_ck_f1:,} 張**，主力積極布局'))
+        elif _ck_f1 >= 1000:
+            _ck_msgs.append(('🟢', f'外資昨日買超 +{_ck_f1:,} 張，籌碼流入'))
+        elif _ck_f1 >= 300:
+            _ck_msgs.append(('🟢', f'外資昨日小幅買超 +{_ck_f1:,} 張'))
+        elif _ck_f1 <= -5000:
+            _ck_msgs.append(('🔴', f'外資昨日大量賣超 **{_ck_f1:,} 張**，主力明顯出脫'))
+        elif _ck_f1 <= -1000:
+            _ck_msgs.append(('🔴', f'外資昨日賣超 {_ck_f1:,} 張，籌碼流出'))
+        elif _ck_f1 <= -300:
+            _ck_msgs.append(('🟡', f'外資昨日小幅賣超 {_ck_f1:,} 張'))
+        else:
+            _ck_msgs.append(('⚪', f'外資昨日近乎中性（{_ck_f1:+,} 張）'))
+
+        # 外資近5日累計
+        if _ck_f5 >= 3000:
+            _ck_msgs.append(('🟢', f'外資近5日累計買超 +{_ck_f5:,} 張，持續布局'))
+        elif _ck_f5 <= -3000:
+            _ck_msgs.append(('🔴', f'外資近5日累計賣超 {_ck_f5:,} 張，持續調節'))
+
+        # 外資連續方向
+        if len(_ck_f3) == 3:
+            if _ck_f3_buy == 3:
+                _ck_msgs.append(('🟢', f'外資連續 3 日買超（{_ck_f3[0]:+,} / {_ck_f3[1]:+,} / {_ck_f3[2]:+,}），動能持續'))
+            elif _ck_f3_sell == 3:
+                _ck_msgs.append(('🔴', f'外資連續 3 日賣超（{_ck_f3[0]:+,} / {_ck_f3[1]:+,} / {_ck_f3[2]:+,}），持續出脫'))
+
+        # 投信方向
+        if _ck_t1 >= 1000:
+            _ck_msgs.append(('🟢', f'投信昨日買超 +{_ck_t1:,} 張，國內法人偏多'))
+        elif _ck_t1 >= 200:
+            _ck_msgs.append(('🟢', f'投信昨日小幅買超 +{_ck_t1:,} 張'))
+        elif _ck_t1 <= -1000:
+            _ck_msgs.append(('🔴', f'投信昨日賣超 {_ck_t1:,} 張，國內法人偏空'))
+        elif _ck_t1 <= -200:
+            _ck_msgs.append(('🟡', f'投信昨日小幅賣超 {_ck_t1:,} 張'))
+
+        # 外資+投信合計近5日
+        _ck_fi5 = _ck_f5 + _ck_t5
+        if _ck_fi5 >= 5000:
+            _ck_msgs.append(('🟢', f'外資＋投信近5日合計買超 +{_ck_fi5:,} 張，法人共同偏多'))
+        elif _ck_fi5 <= -5000:
+            _ck_msgs.append(('🔴', f'外資＋投信近5日合計賣超 {_ck_fi5:,} 張，法人共同偏空'))
+
+        # 顯示訊號
+        for _ick, _imsg in _ck_msgs:
+            _icolor = '#22c55e' if _ick == '🟢' else '#ef4444' if _ick == '🔴' else '#f59e0b' if _ick == '🟡' else '#475569'
+            st.markdown(
+                f'<div style="padding:5px 12px;border-left:3px solid {_icolor};margin-bottom:4px;font-size:13px">'
+                f'{_ick} {_imsg}</div>', unsafe_allow_html=True)
+
+        # 總結
+        _ck_bull = sum(1 for m in _ck_msgs if m[0] == '🟢')
+        _ck_bear = sum(1 for m in _ck_msgs if m[0] == '🔴')
+        # 以外資近5日累計為主要依據
+        if _ck_f5 >= 5000 or (_ck_f5 > 0 and _ck_bull > _ck_bear + 1):
+            _ckv, _ckb = '#22c55e', '#0a1a0a'
+            _ck_verdict = f'🟢 **籌碼偏多**：外資持續買進，法人態度積極，籌碼面有利多方。'
+        elif _ck_f5 >= 1000 or _ck_bull > _ck_bear:
+            _ckv, _ckb = '#4ade80', '#0a150a'
+            _ck_verdict = f'🟢 **籌碼略偏多**：外資小幅淨買，法人態度偏正面。'
+        elif _ck_f5 <= -5000 or (_ck_f5 < 0 and _ck_bear > _ck_bull + 1):
+            _ckv, _ckb = '#ef4444', '#2d0a0a'
+            _ck_verdict = f'🔴 **籌碼偏空**：外資持續賣出，法人調節明顯，籌碼面承壓。'
+        elif _ck_f5 <= -1000 or _ck_bear > _ck_bull:
+            _ckv, _ckb = '#f97316', '#2d1500'
+            _ck_verdict = f'🟡 **籌碼略偏空**：外資小幅淨賣，法人態度偏保守。'
+        else:
+            _ckv, _ckb = '#94a3b8', '#1a1f2e'
+            _ck_verdict = f'⚪ **籌碼中性**：外資買賣超方向不明確，靜待下一步動作。'
+
+        st.markdown(
+            f'<div style="background:{_ckb};border:2px solid {_ckv};border-radius:8px;'
+            f'padding:12px 16px;margin-top:8px">'
+            f'<span style="color:{_ckv};font-size:14px">{_ck_verdict}</span></div>',
+            unsafe_allow_html=True)
+        st.markdown('')
 
     st.markdown('---')
     st.markdown('#### 融資融券')
@@ -2861,26 +2970,44 @@ def render_market():
 
             st.markdown('#### 🕯️ 大盤今日 K 線解讀')
 
-            # ── K 線圖（近10日）＋ 數值並排 ──
+            # ── K 線圖（近20日）＋ 均線 ＋ 數值並排 ──
             _mk_col, _mm_col = st.columns([1, 1])
             with _mk_col:
-                _n = min(10, len(prices))
+                _n = min(20, len(prices))
                 _mk_dates  = [p['date']  for p in prices[-_n:]]
                 _mk_opens  = [p['open']  for p in prices[-_n:]]
                 _mk_highs  = [p['high']  for p in prices[-_n:]]
                 _mk_lows   = [p['low']   for p in prices[-_n:]]
                 _mk_closes = [p['close'] for p in prices[-_n:]]
-                _fig_mk = go.Figure(go.Candlestick(
+                _mk_ma5  = ind.get('ma5_series',  [])
+                _mk_ma20 = ind.get('ma20_series', [])
+                _mk_ma60 = ind.get('ma60_series', [])
+                _fig_mk = go.Figure()
+                _fig_mk.add_trace(go.Candlestick(
                     x=_mk_dates,
                     open=_mk_opens, high=_mk_highs,
                     low=_mk_lows,   close=_mk_closes,
                     increasing_line_color='#ef4444', increasing_fillcolor='#ef4444',
                     decreasing_line_color='#22c55e', decreasing_fillcolor='#22c55e',
-                    showlegend=False,
+                    name='K線', showlegend=False,
                 ))
+                if _mk_ma5 and len(_mk_ma5) >= _n:
+                    _fig_mk.add_trace(go.Scatter(
+                        x=_mk_dates, y=_mk_ma5[-_n:], name='MA5',
+                        line=dict(color='#f59e0b', width=1.2), connectgaps=True))
+                if _mk_ma20 and len(_mk_ma20) >= _n:
+                    _fig_mk.add_trace(go.Scatter(
+                        x=_mk_dates, y=_mk_ma20[-_n:], name='MA20',
+                        line=dict(color='#a78bfa', width=1.2), connectgaps=True))
+                if _mk_ma60 and len(_mk_ma60) >= _n:
+                    _fig_mk.add_trace(go.Scatter(
+                        x=_mk_dates, y=_mk_ma60[-_n:], name='MA60',
+                        line=dict(color='#22c55e', width=1.2), connectgaps=True))
                 _fig_mk.update_layout(
-                    height=220, margin=dict(l=0, r=0, t=8, b=0),
+                    height=250, margin=dict(l=0, r=0, t=8, b=0),
                     paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                    legend=dict(orientation='h', yanchor='bottom', y=1.02,
+                                font=dict(size=9), bgcolor='rgba(0,0,0,0)'),
                     xaxis=dict(showgrid=False, tickformat='%m/%d', tickfont=dict(size=9)),
                     yaxis=dict(showgrid=True, gridcolor='#1e293b', tickfont=dict(size=9)),
                     xaxis_rangeslider_visible=False,
@@ -2952,6 +3079,184 @@ def render_market():
                 f'資料日期：{td["date"]}　振幅：{total_range:,.2f}點　'
                 f'實體：{body_pct:.0f}%　上影：{upper_pct:.0f}%　下影：{lower_pct:.0f}%　'
                 f'成交金額：{vol_td:,.0f} 億　均量：{avg_vol20:,.0f} 億')
+
+    st.markdown('---')
+
+    # ── 三大法人現貨每日買賣超 ──────────────────
+    st.markdown('#### 🏦 三大法人現貨每日買賣超（張）')
+    _chips_agg = get_chips_market_aggregate(days=20)
+
+    if not _chips_agg:
+        st.info('尚無三大法人現貨資料，請按「🔄 手動更新資料」取得。')
+    else:
+        _ca_dates   = [r['date']        for r in _chips_agg]
+        _ca_foreign = [r['foreign_net'] for r in _chips_agg]
+        _ca_trust   = [r['trust_net']   for r in _chips_agg]
+        _ca_dealer  = [r['dealer_net']  for r in _chips_agg]
+        _ca_total   = [f + t + d for f, t, d in zip(_ca_foreign, _ca_trust, _ca_dealer)]
+
+        # 最新一日指標列
+        _ca_latest = _chips_agg[-1]
+        _cac1, _cac2, _cac3, _cac4 = st.columns(4)
+        def _cc(v): return '#22c55e' if v > 0 else '#ef4444' if v < 0 else '#94a3b8'
+        def _cl(v): return f'+{v:,}' if v > 0 else f'{v:,}'
+        _cac1.markdown(f'**外資現貨**<br><span style="font-size:20px;font-weight:700;color:{_cc(_ca_latest["foreign_net"])}">{_cl(_ca_latest["foreign_net"])}</span><br><span style="font-size:11px;color:#64748b">張　{_ca_latest["date"]}</span>', unsafe_allow_html=True)
+        _cac2.markdown(f'**投信現貨**<br><span style="font-size:20px;font-weight:700;color:{_cc(_ca_latest["trust_net"])}">{_cl(_ca_latest["trust_net"])}</span><br><span style="font-size:11px;color:#64748b">張　{_ca_latest["date"]}</span>', unsafe_allow_html=True)
+        _cac3.markdown(f'**自營商**<br><span style="font-size:20px;font-weight:700;color:{_cc(_ca_latest["dealer_net"])}">{_cl(_ca_latest["dealer_net"])}</span><br><span style="font-size:11px;color:#64748b">張　{_ca_latest["date"]}</span>', unsafe_allow_html=True)
+        _cac4.markdown(f'**三大合計**<br><span style="font-size:20px;font-weight:700;color:{_cc(_ca_latest["foreign_net"]+_ca_latest["trust_net"]+_ca_latest["dealer_net"])}">{_cl(_ca_latest["foreign_net"]+_ca_latest["trust_net"]+_ca_latest["dealer_net"])}</span><br><span style="font-size:11px;color:#64748b">張　{_ca_latest["date"]}</span>', unsafe_allow_html=True)
+
+        st.markdown('')
+
+        # 柱狀圖：外資 / 投信 / 自營商（分組） + 三大合計折線
+        _fig_chips = make_subplots(
+            rows=2, cols=1, shared_xaxes=True,
+            vertical_spacing=0.06, row_heights=[0.6, 0.4],
+            subplot_titles=('外資 / 投信 / 自營商 日別淨買賣超', '三大合計')
+        )
+
+        # 外資（固定橘色，正負靠柱子方向區分）
+        _fig_chips.add_trace(go.Bar(
+            x=_ca_dates, y=_ca_foreign, name='外資',
+            marker_color='#f97316', opacity=0.85
+        ), row=1, col=1)
+        # 投信（固定藍色）
+        _fig_chips.add_trace(go.Bar(
+            x=_ca_dates, y=_ca_trust, name='投信',
+            marker_color='#38bdf8', opacity=0.85
+        ), row=1, col=1)
+        # 自營商（固定紫色）
+        _fig_chips.add_trace(go.Bar(
+            x=_ca_dates, y=_ca_dealer, name='自營商',
+            marker_color='#a78bfa', opacity=0.75
+        ), row=1, col=1)
+        # 三大合計柱狀
+        _fig_chips.add_trace(go.Bar(
+            x=_ca_dates, y=_ca_total, name='三大合計',
+            marker_color=['#22c55e' if v >= 0 else '#ef4444' for v in _ca_total],
+            opacity=0.9
+        ), row=2, col=1)
+        # 7日移動平均線
+        _ca_total_ma7 = [
+            sum(_ca_total[max(0, i-6):i+1]) / len(_ca_total[max(0, i-6):i+1])
+            for i in range(len(_ca_total))
+        ]
+        _fig_chips.add_trace(go.Scatter(
+            x=_ca_dates, y=_ca_total_ma7, name='7日均線',
+            line=dict(color='#f59e0b', width=1.5, dash='dot'),
+            showlegend=True
+        ), row=2, col=1)
+        # 零基準線
+        _fig_chips.add_hline(y=0, line_color='#475569', line_width=1, row=1, col=1)
+        _fig_chips.add_hline(y=0, line_color='#475569', line_width=1, row=2, col=1)
+
+        _fig_chips.update_layout(
+            height=450,
+            paper_bgcolor='#0d0f12', plot_bgcolor='#141720',
+            font=dict(color='#e2e8f0', size=11),
+            barmode='group',
+            legend=dict(orientation='h', yanchor='bottom', y=1.02),
+            xaxis=dict(showgrid=False, tickformat='%m/%d'),
+            yaxis=dict(showgrid=True, gridcolor='#252a38', tickformat=','),
+            xaxis2=dict(showgrid=False, tickformat='%m/%d'),
+            yaxis2=dict(showgrid=True, gridcolor='#252a38', tickformat=','),
+            margin=dict(l=0, r=0, t=40, b=0)
+        )
+        show_chart(_fig_chips)
+        st.caption(f'資料來源：TWSE 三大法人買賣超（T86）彙總　｜　單位：張　｜　僅含上市股票、股數 ≥ 500 檔日期')
+
+        # ── 三大法人籌碼判斷 ──────────────────
+        _f_now   = _ca_foreign[-1]
+        _t_now   = _ca_trust[-1]
+        _d_now   = _ca_dealer[-1]
+        _tot_now = _ca_total[-1]
+        _ma7_now = _ca_total_ma7[-1]
+
+        # 外資近3日趨勢（連買/連賣）
+        _f_3d = _ca_foreign[-3:] if len(_ca_foreign) >= 3 else _ca_foreign
+        _f_3d_buy  = sum(1 for v in _f_3d if v > 0)
+        _f_3d_sell = sum(1 for v in _f_3d if v < 0)
+
+        _chip_msgs = []
+
+        # 外資判斷
+        if _f_now >= 300000:
+            _chip_msgs.append(('🟢', f'外資昨日大幅買超 **+{_f_now:,} 張**，主力資金大規模流入，籌碼強力偏多'))
+        elif _f_now >= 100000:
+            _chip_msgs.append(('🟢', f'外資昨日買超 +{_f_now:,} 張，外資態度積極偏多'))
+        elif _f_now >= 30000:
+            _chip_msgs.append(('🟢', f'外資昨日小幅買超 +{_f_now:,} 張，偏多但力道有限'))
+        elif _f_now <= -300000:
+            _chip_msgs.append(('🔴', f'外資昨日大幅賣超 **{_f_now:,} 張**，主力資金明顯撤退，籌碼強力偏空'))
+        elif _f_now <= -100000:
+            _chip_msgs.append(('🔴', f'外資昨日賣超 {_f_now:,} 張，外資態度偏空，需留意'))
+        elif _f_now <= -30000:
+            _chip_msgs.append(('🟡', f'外資昨日小幅賣超 {_f_now:,} 張，態度偏保守'))
+        else:
+            _chip_msgs.append(('⚪', f'外資昨日買賣超 {_f_now:+,} 張，方向中性'))
+
+        # 外資連續方向
+        if _f_3d_buy == 3:
+            _chip_msgs.append(('🟢', f'外資連續 3 日買超，短線趨勢偏多'))
+        elif _f_3d_sell == 3:
+            _chip_msgs.append(('🔴', f'外資連續 3 日賣超，短線持續調節，需謹慎'))
+
+        # 投信判斷
+        if _t_now >= 80000:
+            _chip_msgs.append(('🟢', f'投信昨日大量買超 +{_t_now:,} 張，國內法人積極加碼'))
+        elif _t_now >= 30000:
+            _chip_msgs.append(('🟢', f'投信昨日買超 +{_t_now:,} 張，國內法人偏多'))
+        elif _t_now <= -80000:
+            _chip_msgs.append(('🔴', f'投信昨日大量賣超 {_t_now:,} 張，國內法人持續調節'))
+        elif _t_now <= -30000:
+            _chip_msgs.append(('🟡', f'投信昨日賣超 {_t_now:,} 張，國內法人偏保守'))
+
+        # 三大合計 vs 7日均線
+        if _tot_now > 0 and _tot_now > _ma7_now * 1.5:
+            _chip_msgs.append(('🟢', f'三大合計買超 +{_tot_now:,} 張，顯著高於 7 日均值（{_ma7_now:+,.0f}），資金積極流入'))
+        elif _tot_now > 0 and _ma7_now < 0:
+            _chip_msgs.append(('🟢', f'三大合計由空轉多（昨 +{_tot_now:,} 張），7 日均線仍為 {_ma7_now:+,.0f}，籌碼轉向訊號'))
+        elif _tot_now < 0 and _tot_now < _ma7_now * 1.5:
+            _chip_msgs.append(('🔴', f'三大合計賣超 {_tot_now:,} 張，顯著低於 7 日均值（{_ma7_now:+,.0f}），賣壓加重'))
+        elif _tot_now < 0 and _ma7_now > 0:
+            _chip_msgs.append(('🟡', f'三大合計由多轉空（昨 {_tot_now:,} 張），7 日均線仍為 +{_ma7_now:,.0f}，留意轉弱'))
+
+        # 顯示
+        # 三大合計規模決定最終方向（外資主導，投信為輔）
+        if _tot_now >= 200000:
+            _cv, _cb = '#22c55e', '#0a1a0a'
+            _chip_verdict = f'🟢 **籌碼偏多**：三大法人合計大量買超 +{_tot_now:,} 張，資金面強力支撐。'
+        elif _tot_now >= 50000:
+            _cv, _cb = '#4ade80', '#0a150a'
+            _chip_verdict = f'🟢 **籌碼略偏多**：三大法人合計買超 +{_tot_now:,} 張，資金面小幅偏正面。'
+        elif _tot_now <= -200000:
+            _cv, _cb = '#ef4444', '#2d0a0a'
+            _chip_verdict = f'🔴 **籌碼偏空**：三大法人合計大量賣超 {_tot_now:,} 張，資金面明顯承壓。'
+        elif _tot_now <= -50000:
+            _cv, _cb = '#f97316', '#2d1500'
+            _chip_verdict = f'🟡 **籌碼略偏空**：三大法人合計賣超 {_tot_now:,} 張，資金面小幅偏弱。'
+        else:
+            _cv, _cb = '#94a3b8', '#1a1f2e'
+            _chip_verdict = f'⚪ **籌碼中性**：三大法人合計 {_tot_now:+,} 張，買賣方向尚不明確。'
+
+        for icon, msg in _chip_msgs:
+            if icon == '⚪':
+                _ic = '#475569'
+            elif icon == '🟢':
+                _ic = '#22c55e'
+            elif icon == '🟡':
+                _ic = '#f59e0b'
+            else:
+                _ic = '#ef4444'
+            st.markdown(
+                f'<div style="padding:5px 12px;border-left:3px solid {_ic};margin-bottom:4px;font-size:13px">'
+                f'{icon} {msg}</div>', unsafe_allow_html=True)
+
+        st.markdown(
+            f'<div style="background:{_cb};border:2px solid {_cv};border-radius:8px;'
+            f'padding:12px 16px;margin-top:8px">'
+            f'<span style="color:{_cv};font-size:14px">{_chip_verdict}</span></div>',
+            unsafe_allow_html=True)
+        st.markdown('')
 
     st.markdown('---')
 
