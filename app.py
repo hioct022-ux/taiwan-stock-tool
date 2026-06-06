@@ -2166,20 +2166,28 @@ MACD：DIF={macd_dif} / DEF={macd_def} / 柱狀={macd_hist}
 # ── 大盤走勢分析 ────────────────────────
 @st.cache_data(ttl=900, show_spinner=False)
 def _fetch_global_markets():
-    """即時抓取美股指數、VIX、台積電ADR（每15分鐘快取一次）"""
+    """即時抓取美股指數、VIX、台積電ADR、費半、原油、黃金、美元指數（每15分鐘快取一次）"""
     try:
         import yfinance as yf
-        symbols = {
+        # 股市指數群（納入預判評分）
+        equity_symbols = {
             'S&P 500': '^GSPC',
             'Nasdaq':  '^IXIC',
-            'VIX':     '^VIX',
+            '費半 SOX': '^SOX',
             'TSM ADR': 'TSM',
+            'VIX':     '^VIX',
+        }
+        # 總經指標群（僅顯示參考，不計入評分）
+        macro_symbols = {
+            'WTI 原油': 'CL=F',
+            '黃金':     'GC=F',
+            '美元指數': 'DX-Y.NYB',
         }
         result = {}
-        for name, sym in symbols.items():
+        for name, sym in {**equity_symbols, **macro_symbols}.items():
             try:
                 t = yf.Ticker(sym)
-                hist = t.history(period='2d')
+                hist = t.history(period='5d')
                 if not hist.empty:
                     latest = hist.iloc[-1]
                     prev   = hist.iloc[-2] if len(hist) >= 2 else hist.iloc[-1]
@@ -2203,42 +2211,85 @@ def render_market():
     st.markdown('#### 🌐 外部市場（即時）')
     global_data = _fetch_global_markets()
     if global_data:
-        gc = st.columns(len(global_data))
         vix_val = global_data.get('VIX', {}).get('close', 0)
-        for i, (name, d) in enumerate(global_data.items()):
+
+        def _market_card(col, name, d):
             chg = d['chg_pct']
             if name == 'VIX':
                 color = '#ef4444' if vix_val > 30 else '#f59e0b' if vix_val > 20 else '#22c55e'
-                delta_label = f'恐慌 ⚠️' if vix_val > 30 else f'警戒' if vix_val > 20 else '正常'
+                delta_label = f'恐慌 ⚠️' if vix_val > 30 else '警戒' if vix_val > 20 else '正常'
+            elif name == '美元指數':
+                # DXY 強 = 偏空新興市場，顏色邏輯反轉
+                color = '#ef4444' if chg > 0.8 else '#f59e0b' if chg > 0.3 else '#22c55e' if chg < -0.3 else '#94a3b8'
+                delta_label = f'{chg:+.2f}%'
             else:
                 color = '#ef4444' if chg < -2 else '#f59e0b' if chg < 0 else '#22c55e'
                 delta_label = f'{chg:+.2f}%'
-            gc[i].markdown(
-                f'**{name}**<br>'
-                f'<span style="font-size:20px;font-weight:700;color:{color}">'
-                f'{d["close"]:,.2f}</span><br>'
-                f'<span style="font-size:11px;color:#64748b">{delta_label}　{d["date"]}</span>',
+            close_str = f'{d["close"]:,.2f}' if d['close'] < 10000 else f'{d["close"]:,.0f}'
+            col.markdown(
+                f'<div style="background:#141720;border:1px solid #252a38;border-radius:8px;padding:10px 14px;margin-bottom:4px">'
+                f'<div style="font-size:11px;color:#8892a4;margin-bottom:2px">{name}</div>'
+                f'<div style="font-size:18px;font-weight:700;color:{color}">{close_str}</div>'
+                f'<div style="font-size:11px;color:{color}">{delta_label}&nbsp;&nbsp;'
+                f'<span style="color:#475569">{d["date"]}</span></div>'
+                f'</div>',
                 unsafe_allow_html=True)
 
+        # 第一列：股市指數
+        equity_keys = ['S&P 500', 'Nasdaq', '費半 SOX', 'TSM ADR', 'VIX']
+        eq_data = [(k, global_data[k]) for k in equity_keys if k in global_data]
+        if eq_data:
+            st.caption('📈 股市指數')
+            eq_cols = st.columns(len(eq_data))
+            for i, (name, d) in enumerate(eq_data):
+                _market_card(eq_cols[i], name, d)
+
+        # 第二列：總經指標
+        macro_keys = ['WTI 原油', '黃金', '美元指數']
+        mc_data = [(k, global_data[k]) for k in macro_keys if k in global_data]
+        if mc_data:
+            st.caption('🌐 總經指標（參考用，不計入評分）')
+            mc_cols = st.columns(len(mc_data))
+            for i, (name, d) in enumerate(mc_data):
+                _market_card(mc_cols[i], name, d)
+
         # 警示文字
-        sp_chg = global_data.get('S&P 500', {}).get('chg_pct', 0)
-        nq_chg = global_data.get('Nasdaq', {}).get('chg_pct', 0)
-        tsm_chg = global_data.get('TSM ADR', {}).get('chg_pct', 0)
+        sp_chg   = global_data.get('S&P 500',  {}).get('chg_pct', 0) or 0
+        nq_chg   = global_data.get('Nasdaq',   {}).get('chg_pct', 0) or 0
+        sox_chg  = global_data.get('費半 SOX', {}).get('chg_pct', 0) or 0
+        tsm_chg  = global_data.get('TSM ADR',  {}).get('chg_pct', 0) or 0
+        oil_chg  = global_data.get('WTI 原油', {}).get('chg_pct', 0) or 0
+        gold_chg = global_data.get('黃金',     {}).get('chg_pct', 0) or 0
+        dxy_chg  = global_data.get('美元指數', {}).get('chg_pct', 0) or 0
 
         alerts = []
         if sp_chg <= -2:
             alerts.append(f'🔴 S&P 500 大跌 {sp_chg:.1f}%，台股次日開盤偏弱，留意系統性風險')
         if nq_chg <= -2:
             alerts.append(f'🔴 Nasdaq 大跌 {nq_chg:.1f}%，科技股承壓，台股電子族群注意')
+        if sox_chg <= -3:
+            alerts.append(f'🔴 費半指數大跌 {sox_chg:.1f}%，台灣半導體族群開盤壓力大')
+        elif sox_chg <= -1.5:
+            alerts.append(f'🟡 費半指數跌 {sox_chg:.1f}%，半導體族群承壓')
         if tsm_chg <= -3:
             alerts.append(f'🔴 台積電 ADR 跌 {tsm_chg:.1f}%，台積電次日開盤跟跌機率高')
         if vix_val >= 30:
             alerts.append(f'🔴 VIX={vix_val:.1f}，市場恐慌指數偏高，波動劇烈，建議降低倉位')
         elif vix_val >= 20:
             alerts.append(f'🟡 VIX={vix_val:.1f}，市場開始出現警戒情緒，操作宜保守')
+        if oil_chg >= 4:
+            alerts.append(f'🟡 原油大漲 {oil_chg:+.1f}%，通膨預期升溫，留意升息壓力對科技股的影響')
+        elif oil_chg <= -4:
+            alerts.append(f'🟡 原油大跌 {oil_chg:.1f}%，需求疑慮升溫，留意景氣方向')
+        if gold_chg >= 2:
+            alerts.append(f'🟡 黃金大漲 {gold_chg:+.1f}%，避險情緒升溫，留意市場不確定性')
+        if dxy_chg >= 0.8:
+            alerts.append(f'🟡 美元指數走強 {dxy_chg:+.2f}%，強美元對外資流入新興市場不利')
 
         if sp_chg >= 1 and nq_chg >= 1:
             alerts.append(f'🟢 美股普漲（S&P {sp_chg:+.1f}%，Nasdaq {nq_chg:+.1f}%），台股次日開盤偏正面')
+        if sox_chg >= 2:
+            alerts.append(f'🟢 費半指數大漲 {sox_chg:+.1f}%，台灣半導體族群開盤偏多')
 
         if alerts:
             for a in alerts:
@@ -2246,7 +2297,7 @@ def render_market():
         else:
             st.caption('外部市場無明顯異常')
 
-        st.caption('資料來源：Yahoo Finance｜每15分鐘更新一次｜VIX > 20 警戒、> 30 恐慌')
+        st.caption('資料來源：Yahoo Finance｜每15分鐘更新一次｜總經指標僅供參考，不納入開盤前評分')
     else:
         st.info('外部市場資料暫時無法取得（Yahoo Finance 連線中）')
 
@@ -2452,12 +2503,13 @@ def render_market():
                 _bull_score += 1
                 _bull_msgs.append(('🟢', f'近3日成交量放大 {_vol_trend:.0f}%，市場積極度提升'))
 
-        # ══ Signal 9：外部市場（美股 / TSM ADR / VIX）══
+        # ══ Signal 9：外部市場（美股 / 費半 / TSM ADR / VIX）══
         if global_data:
-            _sp_chg  = global_data.get('S&P 500', {}).get('chg_pct', 0) or 0
-            _nq_chg  = global_data.get('Nasdaq',  {}).get('chg_pct', 0) or 0
-            _tsm_chg = global_data.get('TSM ADR', {}).get('chg_pct', 0) or 0
-            _vix_now = global_data.get('VIX',     {}).get('close',   0) or 0
+            _sp_chg  = global_data.get('S&P 500',  {}).get('chg_pct', 0) or 0
+            _nq_chg  = global_data.get('Nasdaq',   {}).get('chg_pct', 0) or 0
+            _sox_chg = global_data.get('費半 SOX', {}).get('chg_pct', 0) or 0
+            _tsm_chg = global_data.get('TSM ADR',  {}).get('chg_pct', 0) or 0
+            _vix_now = global_data.get('VIX',      {}).get('close',   0) or 0
 
             # 美股
             if _sp_chg <= -2.5 or _nq_chg <= -2.5:
@@ -2474,6 +2526,20 @@ def render_market():
                 _bull_msgs.append(('🟢', f'美股小漲（S&P {_sp_chg:+.1f}%），台股開盤偏正面'))
             else:
                 _bull_msgs.append(('⚪', f'美股收平（S&P {_sp_chg:+.1f}%）'))
+
+            # 費半指數（台灣半導體權重高，單獨計分）
+            if _sox_chg <= -3.0:
+                _bear_score += 2
+                _bear_msgs.append(('🔴', f'費半指數大跌 {_sox_chg:.1f}%，台灣半導體族群開盤壓力大'))
+            elif _sox_chg <= -1.5:
+                _bear_score += 1
+                _bear_msgs.append(('🟡', f'費半指數跌 {_sox_chg:.1f}%，半導體族群承壓'))
+            elif _sox_chg >= 2.5:
+                _bull_score += 2
+                _bull_msgs.append(('🟢', f'費半指數大漲 {_sox_chg:+.1f}%，台灣半導體族群開盤偏多'))
+            elif _sox_chg >= 1.0:
+                _bull_score += 1
+                _bull_msgs.append(('🟢', f'費半指數漲 {_sox_chg:+.1f}%，半導體族群有利'))
 
             # 台積電 ADR
             if _tsm_chg <= -2.5:
