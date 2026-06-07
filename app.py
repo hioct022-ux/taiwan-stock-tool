@@ -2566,6 +2566,61 @@ def render_market():
                 _bull_score += 1
                 _bull_msgs.append(('🟢', f'VIX={_vix_now:.1f}，市場情緒穩定，風險偏好良好'))
 
+        # ══ Signal 10：斷頭 / 多殺多風險評估（大跌時觸發）══
+        if len(_mm) >= 3:
+            _ms_now      = _mm[-1].get('margin_sell', 0) or 0
+            _mb_s10      = _mm[-1].get('margin_balance', 0) or 0
+            _mb_d1_s10   = _mm[-2].get('margin_balance', 0) or 0
+            _mb_d2_s10   = _mm[-3].get('margin_balance', 0) or 0
+            _ss_buy_s10  = _mm[-1].get('short_buy', 0) or 0
+            _ss_bal_s10  = _mm[-1].get('short_balance', 0) or 0
+
+            # 融資賣出比例：昨日融資賣出 / 融資餘額
+            _ms_ratio = _ms_now / _mb_s10 * 100 if _mb_s10 > 0 else 0
+            # 融資餘額連續萎縮幅度
+            _mb_d1_shrink = (_mb_s10 - _mb_d1_s10) / _mb_d1_s10 * 100 if _mb_d1_s10 > 0 else 0
+            _mb_d2_shrink = (_mb_d1_s10 - _mb_d2_s10) / _mb_d2_s10 * 100 if _mb_d2_s10 > 0 else 0
+            # 融券回補比例
+            _ss_ratio = _ss_buy_s10 / _ss_bal_s10 * 100 if _ss_bal_s10 > 0 else 0
+
+            # 條件 A/B：多殺多 / 斷頭風險（依嚴重程度取最高）
+            if _tpx_chg <= -3.0 and _ms_ratio >= 5.0:
+                _bear_score += 3
+                _bear_msgs.append(('🔴', f'⚡ **多殺多啟動**：昨日跌幅 {_tpx_chg:.2f}%，'
+                                   f'融資賣出比例 **{_ms_ratio:.1f}%**（正常 <2.5%），'
+                                   f'強制斷頭引發恐慌拋售，今日開盤續跌風險高'))
+            elif _tpx_chg <= -3.0 and _ms_ratio >= 3.5:
+                _bear_score += 2
+                _bear_msgs.append(('🔴', f'⚠️ **多殺多跡象**：昨日跌幅 {_tpx_chg:.2f}%，'
+                                   f'融資賣出比例 **{_ms_ratio:.1f}%**（異常偏高），'
+                                   f'斷頭賣壓仍在釋放，注意今日開盤量能'))
+            elif _tpx_chg <= -2.0 and _ms_ratio >= 3.5:
+                _bear_score += 2
+                _bear_msgs.append(('🔴', f'🔻 **斷頭風險**：昨日跌幅 {_tpx_chg:.2f}%，'
+                                   f'融資賣出比例 {_ms_ratio:.1f}%（>3.5% 警戒），'
+                                   f'槓桿戶面臨維持率壓力，今日若再跌易觸發連鎖斷頭'))
+            elif _tpx_chg <= -2.0 and _ms_ratio >= 2.5:
+                _bear_score += 1
+                _bear_msgs.append(('🟡', f'融資賣出比例 {_ms_ratio:.1f}%（昨跌 {_tpx_chg:.2f}%），'
+                                   f'略偏高，注意槓桿戶是否開始被動去槓桿'))
+
+            # 條件 C：斷頭加速（連續 2 日融資餘額萎縮 ≥ 1.5%/日，獨立評估）
+            if _mb_d1_shrink <= -1.5 and _mb_d2_shrink <= -1.5:
+                _bear_score += 2
+                _bear_msgs.append(('🔴', f'📉 **斷頭加速**：融資餘額連續 2 日快速萎縮'
+                                   f'（{_mb_d2_shrink:.1f}% → {_mb_d1_shrink:.1f}%），'
+                                   f'被動斷頭持續進行，賣壓尚未出清'))
+            elif _mb_d1_shrink <= -1.5:
+                _bear_score += 1
+                _bear_msgs.append(('🟡', f'融資餘額昨日萎縮 {_mb_d1_shrink:.1f}%，'
+                                   f'確認部分強制斷頭已發生，觀察今日是否延續'))
+
+            # 條件 D：融券大量回補（空頭獲利了結 = 短線反彈支撐，獨立評估）
+            if _tpx_chg <= -2.0 and _ss_ratio >= 3.0:
+                _bull_score += 1
+                _bull_msgs.append(('🟢', f'💡 **融券回補**：昨日融券回補比例 {_ss_ratio:.1f}%（>3% 偏高），'
+                                   f'空頭獲利了結，可能提供短線技術性反彈支撐'))
+
         # ── 整理訊號清單 ──────────────────────
         _bear_real    = [(i, m) for i, m in _bear_msgs if i != '⚪']
         _bull_real    = [(i, m) for i, m in _bull_msgs if i != '⚪']
