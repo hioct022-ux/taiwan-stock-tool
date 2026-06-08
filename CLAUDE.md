@@ -444,13 +444,13 @@ ma_colors = {'MA5': '#f97316', 'MA20': '#a855f7', 'MA60': '#22c55e'}
 # 圖例 orientation='h' 水平排列
 ```
 
-### 開盤前預判訊號（Signal 1–9）
+### 開盤前預判訊號（Signal 1–10）
 
-Signal 1–8 使用昨日資料（本地 DB），Signal 9 使用即時 yfinance。
+Signal 1–8 使用昨日資料（本地 DB），Signal 9 使用即時 yfinance，Signal 10 使用 `_mm`（market_margin）。
 
 **評分變數：** `_bear_score`（空方分）、`_bull_score`（多方分），`net = bear - bull`
 
-**訊號邏輯位置：** `render_market()` 中，搜尋 `Signal 1` 到 `Signal 9`
+**訊號邏輯位置：** `render_market()` 中，搜尋 `Signal 1` 到 `Signal 10`
 
 **閾值判斷：**
 ```python
@@ -462,6 +462,26 @@ elif net <= -3: verdict = '🟢 偏多'
 elif net <= -1: verdict = '🟢 小幅偏多'
 else:           verdict = '⚪ 中性'
 ```
+
+**Signal 10：斷頭 / 多殺多風險評估**
+
+資料來源：`_mm`（`get_market_margin(days=15)`），需 `len(_mm) >= 3`。  
+僅在大跌情境下觸發，平常不影響評分。
+
+| 條件 | 門檻 | 加分 |
+|------|------|------|
+| 多殺多啟動 | 跌 ≥3% 且融資賣出比例 ≥5% | Bear +3 |
+| 多殺多跡象 | 跌 ≥3% 且融資賣出比例 ≥3.5% | Bear +2 |
+| 斷頭風險 | 跌 ≥2% 且融資賣出比例 ≥3.5% | Bear +2 |
+| 斷頭警示 | 跌 ≥2% 且融資賣出比例 ≥2.5% | Bear +1 |
+| 斷頭加速（連續 2 日） | 融資餘額連跌 ≥1.5%/日 | Bear +2 |
+| 斷頭加速（單日） | 融資餘額單日萎縮 ≥1.5% | Bear +1 |
+| 融券回補反彈 | 跌 ≥2% 且融券回補比例 ≥3% | Bull +1 |
+
+**融資賣出比例**（正常值參考）：正常日 1.5–2.5%，異常 ≥3.5%，多殺多 ≥5%  
+**融資餘額萎縮**：單日 ≥1.5% 代表非主動賣出，而是被動斷頭
+
+A/B 條件（多殺多/斷頭風險）互斥取最嚴重；C（斷頭加速）與 D（融券回補）獨立疊加。
 
 ### 三大法人現貨圖（大盤）
 
@@ -561,7 +581,7 @@ r.content.decode('big5', errors='ignore')  # 不是 r.text
 
 ### B. 修改開盤前預判訊號閾值
 
-`app.py` → `render_market()` → 搜尋 `Signal 1` 到 `Signal 9`，直接改數字。
+`app.py` → `render_market()` → 搜尋 `Signal 1` 到 `Signal 10`，直接改數字。
 
 ### C. 新增外部市場指標
 
