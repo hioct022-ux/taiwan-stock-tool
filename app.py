@@ -184,15 +184,29 @@ def show_chart(fig, key=None):
 # ── 初始化 ──────────────────────────────
 init_db()
 
-# 雲端模式初始化：模組頂層直接執行，無 cache 包裝
-_CLOUD_INIT_STATUS = '未執行'
-if not IS_LOCAL:
+# 雲端模式初始化：用 @st.cache_resource 確保每次部署只跑一次
+def _get_meta_version():
+    """讀取 meta.json 的 exported_at，作為快取版本號"""
+    try:
+        import json as _jv
+        with open(os.path.join('data/json', 'meta.json'), encoding='utf-8') as _f:
+            return _jv.load(_f).get('exported_at', 'unknown')
+    except Exception:
+        return 'unknown'
+
+@st.cache_resource
+def _init_cloud_cache(version: str):
+    """每次 exported_at 版本號變化時（新部署），重新匯入 JSON 資料"""
     try:
         from github_sync import init_cloud_data
         init_cloud_data()
-        _CLOUD_INIT_STATUS = 'OK'
+        print(f'雲端資料匯入完成（版本：{version}）')
     except Exception as _ce:
-        _CLOUD_INIT_STATUS = f'ERROR: {_ce}'
+        print(f'雲端資料匯入失敗：{_ce}')
+    return version
+
+if not IS_LOCAL:
+    _init_cloud_cache(_get_meta_version())
 
 # 本機才啟動自動排程
 if IS_LOCAL:
