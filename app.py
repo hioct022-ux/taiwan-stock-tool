@@ -2958,12 +2958,13 @@ def render_market():
                 f'<div style="font-size:11px;color:#8892a4;margin-bottom:4px">{_label}</div>'
                 f'<div style="font-size:12px;color:#cbd5e1;margin-bottom:2px">'
                 f'最高 <b style="color:{_hi_color}">{_hi:,.0f}</b>'
-                f'　<span style="color:{_hi_color};font-size:11px">{_d_hi:+,.0f} 點</span></div>'
+                f'　<span style="color:{_hi_color};font-size:11px">{_d_hi:+,.0f}（距高點）</span></div>'
                 f'<div style="font-size:12px;color:#cbd5e1">'
                 f'最低 <b style="color:{_lo_color}">{_lo:,.0f}</b>'
-                f'　<span style="color:{_lo_color};font-size:11px">{_d_lo:+,.0f} 點</span></div>'
+                f'　<span style="color:{_lo_color};font-size:11px">{_d_lo:+,.0f}（距低點）</span></div>'
                 f'</div>',
                 unsafe_allow_html=True)
+    st.caption('距高點：負值 = 目前收盤低於區間最高點的點數（越負離高點越遠）　｜　距低點：正值 = 目前收盤高於區間最低點的點數（越正離低點越遠）')
     st.markdown('')
 
     # ── 走勢圖 ─────────────────────────────
