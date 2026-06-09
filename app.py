@@ -340,8 +340,13 @@ def render_sidebar():
                 st.caption(f'📅 meta.json 讀取失敗：{_me}')
             st.caption(f'🔧 init狀態：{_CLOUD_INIT_STATUS}')
             try:
-                _db_date = get_latest_price_date('TAIEX')
-                st.caption(f'🗄️ DB截至：{_db_date or "無資料"}')
+                from database import get_conn as _gc
+                _conn = _gc()
+                _taiex_date = _conn.execute("SELECT MAX(date) FROM prices WHERE code='TAIEX'").fetchone()[0]
+                _stock_date = _conn.execute("SELECT MAX(date) FROM prices WHERE code!='TAIEX'").fetchone()[0]
+                _chips_date = _conn.execute("SELECT MAX(date) FROM chips").fetchone()[0]
+                _conn.close()
+                st.caption(f'🗄️ TAIEX:{_taiex_date} 個股:{_stock_date} 籌碼:{_chips_date}')
             except Exception as _de:
                 st.caption(f'🗄️ DB查詢失敗：{_de}')
             st.markdown('---')
