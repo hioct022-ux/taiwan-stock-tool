@@ -2933,6 +2933,37 @@ def render_market():
         f'<span style="font-size:24px;font-weight:700;color:{_pc(_pos250)}">{f"{_pos250:.1f}%" if _pos250 is not None else "—"}</span><br>'
         f'<span style="font-size:11px;color:#64748b">{_pl(_pos250)}</span>', unsafe_allow_html=True)
     st.caption('BIAS > +5% 短線過熱、< -5% 超賣　｜　位置 ≥80% 高檔、≤20% 低檔')
+
+    # ── 各天數區間高低點與目前收盤落差 ──────────
+    _hl_rows = []
+    for _days, _label in [(20, '20日（1個月）'), (60, '60日（3個月）'), (120, '120日（半年）'), (250, '250日（1年）')]:
+        if len(prices) >= _days:
+            _seg   = prices[-_days:]
+            _hi    = max(p['high']  for p in _seg)
+            _lo    = min(p['low']   for p in _seg)
+            _d_hi  = close - _hi   # 負值 = 距高點還有 X 點
+            _d_lo  = close - _lo   # 正值 = 已在低點上方 X 點
+            _hl_rows.append((_label, _hi, _d_hi, _lo, _d_lo))
+
+    if _hl_rows:
+        _hi_cols = st.columns(len(_hl_rows))
+        for _col, (_label, _hi, _d_hi, _lo, _d_lo) in zip(_hi_cols, _hl_rows):
+            # 距高點：負值正常（還沒到）→ 灰；趨近0或正值（已在高點附近）→ 紅
+            _hi_color = '#ef4444' if _d_hi >= -200 else '#f97316' if _d_hi >= -500 else '#94a3b8'
+            # 距低點：正值正常（站在低點上方）→ 綠；趨近0（接近低點）→ 紅
+            _lo_color = '#22c55e' if _d_lo >= 500 else '#f59e0b' if _d_lo >= 200 else '#ef4444'
+            _col.markdown(
+                f'<div style="background:#141720;border:1px solid #252a38;border-radius:8px;'
+                f'padding:10px 12px;margin-bottom:4px">'
+                f'<div style="font-size:11px;color:#8892a4;margin-bottom:4px">{_label}</div>'
+                f'<div style="font-size:12px;color:#cbd5e1;margin-bottom:2px">'
+                f'最高 <b style="color:{_hi_color}">{_hi:,.0f}</b>'
+                f'　<span style="color:{_hi_color};font-size:11px">{_d_hi:+,.0f} 點</span></div>'
+                f'<div style="font-size:12px;color:#cbd5e1">'
+                f'最低 <b style="color:{_lo_color}">{_lo:,.0f}</b>'
+                f'　<span style="color:{_lo_color};font-size:11px">{_d_lo:+,.0f} 點</span></div>'
+                f'</div>',
+                unsafe_allow_html=True)
     st.markdown('')
 
     # ── 走勢圖 ─────────────────────────────
