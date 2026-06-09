@@ -255,7 +255,6 @@ def sync_via_git(code=None):
 
     try:
         # ── 預防性清除 lock 檔（避免上次異常中斷殘留）──
-        import os
         for _lf in ['HEAD.lock', 'index.lock']:
             _lp = os.path.join(base_dir, '.git', _lf)
             if os.path.exists(_lp):
