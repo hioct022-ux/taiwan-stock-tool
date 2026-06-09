@@ -196,18 +196,30 @@ def _init_cloud_cache(version: str):
         print(f'雲端資料匯入失敗：{_ce}')
     return version
 
+@st.cache_data(ttl=300, show_spinner=False)  # 每 5 分鐘重新確認一次 GitHub 版本
 def _get_meta_version():
+    """雲端：從 GitHub raw URL 取得最新 exported_at；本機：從本地檔案讀取"""
+    import json as _json
+    from config import GITHUB_REPO, GITHUB_BRANCH
+    if not IS_LOCAL:
+        # 直接查 GitHub，確保拿到最新版本
+        try:
+            import urllib.request
+            _url = f'https://raw.githubusercontent.com/{GITHUB_REPO}/{GITHUB_BRANCH}/data/json/meta.json'
+            with urllib.request.urlopen(_url, timeout=5) as _r:
+                return _json.loads(_r.read()).get('exported_at', 'unknown')
+        except Exception:
+            pass
+    # fallback：讀本地檔案
     try:
-        import json as _json
         from config import JSON_DIR as _JDIR
         with open(os.path.join(_JDIR, 'meta.json'), encoding='utf-8') as _f:
             return _json.load(_f).get('exported_at', 'unknown')
     except Exception:
         return 'unknown'
 
-# 雲端模式：從 JSON 匯入資料
+# 雲端模式：從 JSON 匯入資料（每次 session 都會觸發版本確認）
 if not IS_LOCAL:
-
     _init_cloud_cache(_get_meta_version())
 
 # 本機才啟動自動排程
