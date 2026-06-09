@@ -218,9 +218,7 @@ def _get_meta_version():
     except Exception:
         return 'unknown'
 
-# 雲端模式：從 JSON 匯入資料（每次 session 都會觸發版本確認）
-if not IS_LOCAL:
-    _init_cloud_cache(_get_meta_version())
+# 雲端模式初始化移至 main() 內執行，確保每次頁面載入都能觸發版本比對
 
 # 本機才啟動自動排程
 if IS_LOCAL:
@@ -4029,6 +4027,11 @@ def render_ranking():
 
 # ── 主程式 ──────────────────────────────
 def main():
+    # 雲端模式：每次頁面載入都確認版本（_get_meta_version 有 5 分鐘 cache）
+    # _init_cloud_cache 用 version 當 key，只有版本變了才重新匯入資料
+    if not IS_LOCAL:
+        _init_cloud_cache(_get_meta_version())
+
     render_sidebar()
 
     page = st.session_state.get('page', 'stock')
