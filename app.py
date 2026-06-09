@@ -2179,9 +2179,10 @@ def _fetch_global_markets():
         }
         # 總經指標群（僅顯示參考，不計入評分）
         macro_symbols = {
-            'WTI 原油': 'CL=F',
-            '黃金':     'GC=F',
-            '美元指數': 'DX-Y.NYB',
+            'WTI 原油':    'CL=F',
+            '黃金':        'GC=F',
+            '美元指數':    'DX-Y.NYB',
+            '美債10年':    '^TNX',   # 10年期公債殖利率（值為 % 數，如 4.25 = 4.25%）
         }
         result = {}
         for name, sym in {**equity_symbols, **macro_symbols}.items():
@@ -2222,10 +2223,22 @@ def render_market():
                 # DXY 強 = 偏空新興市場，顏色邏輯反轉
                 color = '#ef4444' if chg > 0.8 else '#f59e0b' if chg > 0.3 else '#22c55e' if chg < -0.3 else '#94a3b8'
                 delta_label = f'{chg:+.2f}%'
+            elif name == '美債10年':
+                # 殖利率高 / 升息疑慮 = 偏空科技股；殖利率下行 = 偏多
+                _tnx = d['close']  # 殖利率值，如 4.25 = 4.25%
+                # 變動量（殖利率本身就是 %，用絕對變動 bps 較直覺）
+                _bps = round((_tnx * chg / 100) * 100, 1)  # 約略 bps
+                color = '#ef4444' if _tnx >= 4.5 else '#f97316' if _tnx >= 4.0 else '#22c55e' if _tnx < 3.5 else '#94a3b8'
+                delta_label = f'{_bps:+.1f} bps　{"殖利率偏高⚠️" if _tnx >= 4.5 else "升息疑慮" if _tnx >= 4.0 else "利率溫和"}'
             else:
                 color = '#ef4444' if chg < -2 else '#f59e0b' if chg < 0 else '#22c55e'
                 delta_label = f'{chg:+.2f}%'
-            close_str = f'{d["close"]:,.2f}' if d['close'] < 10000 else f'{d["close"]:,.0f}'
+            if name == '美債10年':
+                close_str = f'{d["close"]:.2f}%'
+            elif d['close'] < 10000:
+                close_str = f'{d["close"]:,.2f}'
+            else:
+                close_str = f'{d["close"]:,.0f}'
             col.markdown(
                 f'<div style="background:#141720;border:1px solid #252a38;border-radius:8px;padding:10px 14px;margin-bottom:4px">'
                 f'<div style="font-size:11px;color:#8892a4;margin-bottom:2px">{name}</div>'
@@ -2245,7 +2258,7 @@ def render_market():
                 _market_card(eq_cols[i], name, d)
 
         # 第二列：總經指標
-        macro_keys = ['WTI 原油', '黃金', '美元指數']
+        macro_keys = ['WTI 原油', '黃金', '美元指數', '美債10年']
         mc_data = [(k, global_data[k]) for k in macro_keys if k in global_data]
         if mc_data:
             st.caption('🌐 總經指標（參考用，不計入評分）')
@@ -2285,6 +2298,12 @@ def render_market():
             alerts.append(f'🟡 黃金大漲 {gold_chg:+.1f}%，避險情緒升溫，留意市場不確定性')
         if dxy_chg >= 0.8:
             alerts.append(f'🟡 美元指數走強 {dxy_chg:+.2f}%，強美元對外資流入新興市場不利')
+        _tnx_val = global_data.get('美債10年', {}).get('close', 0) or 0
+        _tnx_chg = global_data.get('美債10年', {}).get('chg_pct', 0) or 0
+        if _tnx_val >= 4.5:
+            alerts.append(f'🔴 美債10年殖利率 {_tnx_val:.2f}%，處於高位，資金成本壓力大，不利科技股估值')
+        elif _tnx_val >= 4.0 and _tnx_chg > 2:
+            alerts.append(f'🟡 美債10年殖利率 {_tnx_val:.2f}%（持續走升），升息疑慮升溫，留意資金輪動')
 
         if sp_chg >= 1 and nq_chg >= 1:
             alerts.append(f'🟢 美股普漲（S&P {sp_chg:+.1f}%，Nasdaq {nq_chg:+.1f}%），台股次日開盤偏正面')
