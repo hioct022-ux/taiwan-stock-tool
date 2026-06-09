@@ -417,24 +417,18 @@ def load_meta_from_github():
 
 
 # ── 雲端版：從 JSON 匯入資料到 DB ──────────
-def _cj(name):
-    """雲端專用：從 GitHub raw URL 直接抓 JSON，繞過部署時的靜態檔案"""
-    data = load_raw(f'data/json/{name}')
-    if data is None:
-        raise RuntimeError(f'無法從 GitHub 取得 {name}')
-    return data
-
-
 def init_cloud_data():
     """
     雲端版啟動時呼叫（由 _init_cloud_cache 包裹，版本不變時不重複執行）。
-    直接從 GitHub raw URL 抓最新 JSON，不依賴部署時的靜態檔案。
+    Streamlit Cloud 部署時會 clone 整個 repo（含 data/json/），
+    直接讀本地 JSON 檔案。每次 _sync_time.py 觸發重新部署後，
+    本地檔案就是最新的。
     """
     from database import (save_prices, save_fundamental,
                           save_chips, save_stock_info,
                           add_watchlist, get_conn, get_tags)
 
-    print('雲端模式：從 GitHub 直接匯入最新 JSON...')
+    print('雲端模式：從本地 JSON 匯入資料...')
 
     # ── 清空 chips 資料，確保從 JSON 乾淨重寫 ──
     try:
@@ -442,22 +436,26 @@ def init_cloud_data():
         conn.execute('DELETE FROM chips')
         conn.commit()
         conn.close()
+        print('  chips 資料已清空，準備從 JSON 重新匯入')
     except Exception as e:
         print(f'  清空 chips 失敗：{e}')
 
     # ── 股票清單（每次更新）──
-    stocks = []
     try:
-        stocks = _cj('stocks.json')
+        with open(os.path.join(JSON_DIR, 'stocks.json'), encoding='utf-8') as f:
+            stocks = json.load(f)
         for s in stocks:
-            save_stock_info(s['code'], s['name'], s.get('market', ''), s.get('industry', ''))
+            save_stock_info(s['code'], s['name'], s.get('market',''), s.get('industry',''))
         print(f'  股票清單：{len(stocks)} 筆')
     except Exception as e:
         print(f'  股票清單匯入失敗：{e}')
+        stocks = []
 
     # ── 自訂標籤（每次更新）──
     try:
-        tags_list = _cj('watchlist_tags.json')
+        tags_path = os.path.join(JSON_DIR, 'watchlist_tags.json')
+        with open(tags_path, encoding='utf-8') as f:
+            tags_list = json.load(f)
         conn = get_conn()
         conn.execute('DELETE FROM watchlist_tags')
         for i, t in enumerate(tags_list):
@@ -470,7 +468,8 @@ def init_cloud_data():
 
     # ── 自選股清單（每次更新）──
     try:
-        wl = _cj('watchlist.json')
+        with open(os.path.join(JSON_DIR, 'watchlist.json'), encoding='utf-8') as f:
+            wl = json.load(f)
         for w in wl:
             tags_val = w.get('tags') or w.get('tag', '')
             add_watchlist(w['code'], w['name'], tags_val)
@@ -480,7 +479,8 @@ def init_cloud_data():
 
     # ── 大盤融資融券（每次更新）──
     try:
-        mm = _cj('market_margin.json')
+        with open(os.path.join(JSON_DIR, 'market_margin.json'), encoding='utf-8') as f:
+            mm = json.load(f)
         from database import save_market_margin
         for r in mm.get('rows', []):
             save_market_margin(r['date'], r)
@@ -490,7 +490,8 @@ def init_cloud_data():
 
     # ── 大盤 TAIEX（每次更新）──
     try:
-        taiex = _cj('TAIEX.json')
+        with open(os.path.join(JSON_DIR, 'TAIEX.json'), encoding='utf-8') as f:
+            taiex = json.load(f)
         prices = taiex.get('prices', [])
         if prices:
             save_stock_info('TAIEX', '加權指數', 'TWSE', '大盤')
@@ -501,7 +502,8 @@ def init_cloud_data():
 
     # ── 法人排行 T86（每次更新）──
     try:
-        t86 = _cj('t86.json')
+        with open(os.path.join(JSON_DIR, 't86.json'), encoding='utf-8') as f:
+            t86 = json.load(f)
         date = t86.get('date')
         if date:
             from database import save_t86_ranking
@@ -517,7 +519,8 @@ def init_cloud_data():
 
     # ── 除權息（每次更新）──
     try:
-        exd = _cj('exdividend.json')
+        with open(os.path.join(JSON_DIR, 'exdividend.json'), encoding='utf-8') as f:
+            exd = json.load(f)
         rows = exd.get('rows', [])
         if rows:
             from database import save_exdividend
@@ -528,7 +531,8 @@ def init_cloud_data():
 
     # ── 台指期三大法人未平倉（每次更新）──
     try:
-        fut = _cj('futures_institutional.json')
+        with open(os.path.join(JSON_DIR, 'futures_institutional.json'), encoding='utf-8') as f:
+            fut = json.load(f)
         rows = fut.get('rows', [])
         if rows:
             from database import save_futures_institutional
@@ -540,7 +544,8 @@ def init_cloud_data():
 
     # ── 大盤本益比（每次更新）──
     try:
-        pe = _cj('market_pe.json')
+        with open(os.path.join(JSON_DIR, 'market_pe.json'), encoding='utf-8') as f:
+            pe = json.load(f)
         rows = pe.get('rows', [])
         if rows:
             from database import save_market_pe
@@ -552,7 +557,9 @@ def init_cloud_data():
 
     # ── 三大法人現貨彙總（每次更新）──
     try:
-        agg = _cj('chips_market_agg.json')
+        agg_path = os.path.join(JSON_DIR, 'chips_market_agg.json')
+        with open(agg_path, encoding='utf-8') as f:
+            agg = json.load(f)
         rows = agg.get('rows', [])
         if rows:
             from database import save_chips_market_agg
@@ -561,14 +568,19 @@ def init_cloud_data():
     except Exception as e:
         print(f'  三大法人現貨彙總匯入失敗：{e}')
 
-    # ── 各股票歷史資料（從 stocks 清單迭代，不依賴本地目錄）──
+    # ── 各股票歷史資料（每次都更新）──
     imported = 0
-    for s in stocks:
-        code = s.get('code', '')
-        if not code:
+    for fname in os.listdir(JSON_DIR):
+        if not fname.endswith('.json'):
+            continue
+        code = fname[:-5]
+        if code in ('stocks', 'watchlist', 'meta', 't86', 'exdividend', 'TAIEX',
+                    'market_margin', 'futures_institutional', 'market_pe', 'chips_market_agg',
+                    'watchlist_tags'):
             continue
         try:
-            data = _cj(f'{code}.json')
+            with open(os.path.join(JSON_DIR, fname), encoding='utf-8') as f:
+                data = json.load(f)
             prices = data.get('prices', [])
             if prices:
                 save_prices(code, prices)
@@ -579,10 +591,9 @@ def init_cloud_data():
                 save_chips(code, ch['date'], ch)
             imported += 1
         except Exception as e:
-            # 非自選股可能沒有個股 JSON，靜默忽略
-            pass
+            print(f'  {code} 匯入失敗：{e}')
 
-    print(f'雲端模式：GitHub JSON 匯入完成，{imported} 支股票')
+    print(f'雲端模式：JSON 匯入完成，{imported} 支股票')
 
 
 if __name__ == '__main__':

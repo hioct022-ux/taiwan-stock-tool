@@ -196,21 +196,15 @@ def _init_cloud_cache(version: str):
         print(f'雲端資料匯入失敗：{_ce}')
     return version
 
-@st.cache_data(ttl=300, show_spinner=False)  # 每 5 分鐘重新確認一次 GitHub 版本
+@st.cache_data(ttl=600, show_spinner=False)
 def _get_meta_version():
-    """雲端：從 GitHub raw URL 取得最新 exported_at；本機：從本地檔案讀取"""
+    """
+    讀本地 meta.json 的 exported_at 作為版本 key。
+    Streamlit Cloud 每次重新部署後是新 process，cache 自動清空，
+    此時讀到的就是最新部署的 meta.json 版本。
+    _init_cloud_cache 以版本為 key，版本變了就重新匯入資料。
+    """
     import json as _json
-    from config import GITHUB_REPO, GITHUB_BRANCH
-    if not IS_LOCAL:
-        # 直接查 GitHub，確保拿到最新版本
-        try:
-            import urllib.request
-            _url = f'https://raw.githubusercontent.com/{GITHUB_REPO}/{GITHUB_BRANCH}/data/json/meta.json'
-            with urllib.request.urlopen(_url, timeout=5) as _r:
-                return _json.loads(_r.read()).get('exported_at', 'unknown')
-        except Exception:
-            pass
-    # fallback：讀本地檔案
     try:
         from config import JSON_DIR as _JDIR
         with open(os.path.join(_JDIR, 'meta.json'), encoding='utf-8') as _f:
