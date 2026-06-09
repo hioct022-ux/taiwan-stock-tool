@@ -2327,29 +2327,30 @@ def render_market():
 
         # ══ Signal 1：TAIEX 昨日漲跌（每日必有訊號）══
         _tpx_now  = _tpx[-1]['close']
+        _tpx_date = _tpx[-1]['date']   # 資料日期（取代「昨日」字眼）
         _tpx_prev = _tpx[-2]['close'] if len(_tpx) >= 2 else _tpx_now
         _tpx_chg  = (_tpx_now - _tpx_prev) / _tpx_prev * 100 if _tpx_prev else 0
 
         if _tpx_chg <= -2.0:
             _bear_score += 3
-            _bear_msgs.append(('🔴', f'昨日大盤大跌 **{_tpx_chg:.2f}%**（收 {_tpx_now:,.2f}），空方強勢，動能偏空'))
+            _bear_msgs.append(('🔴', f'大盤大跌 **{_tpx_chg:.2f}%**（{_tpx_date}，收 {_tpx_now:,.2f}），空方強勢，動能偏空'))
         elif _tpx_chg <= -1.0:
             _bear_score += 2
-            _bear_msgs.append(('🔴', f'昨日大盤下跌 {_tpx_chg:.2f}%（收 {_tpx_now:,.2f}），空方有壓'))
+            _bear_msgs.append(('🔴', f'大盤下跌 {_tpx_chg:.2f}%（{_tpx_date}，收 {_tpx_now:,.2f}），空方有壓'))
         elif _tpx_chg <= -0.3:
             _bear_score += 1
-            _bear_msgs.append(('🟡', f'昨日大盤小跌 {_tpx_chg:.2f}%，短線偏弱'))
+            _bear_msgs.append(('🟡', f'大盤小跌 {_tpx_chg:.2f}%（{_tpx_date}），短線偏弱'))
         elif _tpx_chg >= 2.0:
             _bull_score += 3
-            _bull_msgs.append(('🟢', f'昨日大盤大漲 **+{_tpx_chg:.2f}%**（收 {_tpx_now:,.2f}），多方強勢'))
+            _bull_msgs.append(('🟢', f'大盤大漲 **+{_tpx_chg:.2f}%**（{_tpx_date}，收 {_tpx_now:,.2f}），多方強勢'))
         elif _tpx_chg >= 1.0:
             _bull_score += 2
-            _bull_msgs.append(('🟢', f'昨日大盤上漲 +{_tpx_chg:.2f}%（收 {_tpx_now:,.2f}），多方有力'))
+            _bull_msgs.append(('🟢', f'大盤上漲 +{_tpx_chg:.2f}%（{_tpx_date}，收 {_tpx_now:,.2f}），多方有力'))
         elif _tpx_chg >= 0.3:
             _bull_score += 1
-            _bull_msgs.append(('🟢', f'昨日大盤小漲 +{_tpx_chg:.2f}%，短線偏強'))
+            _bull_msgs.append(('🟢', f'大盤小漲 +{_tpx_chg:.2f}%（{_tpx_date}），短線偏強'))
         else:
-            _bull_msgs.append(('⚪', f'昨日大盤收平（{_tpx_chg:+.2f}%，收 {_tpx_now:,.2f}），方向待確認'))
+            _bull_msgs.append(('⚪', f'大盤收平（{_tpx_date}，{_tpx_chg:+.2f}%，收 {_tpx_now:,.2f}），方向待確認'))
 
         # ══ Signal 2：融資5日趨勢（相對化）════
         _mb_now  = _mm[-1]['margin_balance']
@@ -2382,18 +2383,18 @@ def render_market():
 
         if _f_day_chg >= 3000:
             _bull_score += 2
-            _bull_msgs.append(('🟢', f'外資台指期昨日回補 **+{_f_day_chg:,} 口**（淨 {_f_net_now:+,} 口），期貨轉多'))
+            _bull_msgs.append(('🟢', f'外資台指期回補 **+{_f_day_chg:,} 口**（{_tpx_date}，淨 {_f_net_now:+,} 口），期貨轉多'))
         elif _f_day_chg >= 1000:
             _bull_score += 1
-            _bull_msgs.append(('🟢', f'外資台指期昨日小幅回補 +{_f_day_chg:,} 口（淨 {_f_net_now:+,} 口），偏多'))
+            _bull_msgs.append(('🟢', f'外資台指期小幅回補 +{_f_day_chg:,} 口（{_tpx_date}，淨 {_f_net_now:+,} 口），偏多'))
         elif _f_day_chg <= -3000:
             _bear_score += 2
-            _bear_msgs.append(('🔴', f'外資台指期昨日擴空 **{_f_day_chg:,} 口**（淨 {_f_net_now:+,} 口），期貨轉空'))
+            _bear_msgs.append(('🔴', f'外資台指期擴空 **{_f_day_chg:,} 口**（{_tpx_date}，淨 {_f_net_now:+,} 口），期貨轉空'))
         elif _f_day_chg <= -1000:
             _bear_score += 1
-            _bear_msgs.append(('🟡', f'外資台指期昨日小幅擴空 {_f_day_chg:,} 口（淨 {_f_net_now:+,} 口），偏空'))
+            _bear_msgs.append(('🟡', f'外資台指期小幅擴空 {_f_day_chg:,} 口（{_tpx_date}，淨 {_f_net_now:+,} 口），偏空'))
         else:
-            _bull_msgs.append(('⚪', f'外資台指期昨日變化 {_f_day_chg:+,} 口，部位平穩（淨 {_f_net_now:+,} 口）'))
+            _bull_msgs.append(('⚪', f'外資台指期變化 {_f_day_chg:+,} 口（{_tpx_date}），部位平穩（淨 {_f_net_now:+,} 口）'))
 
         # 5日趨勢（方向動能）
         if _f_trend <= -2000:
@@ -2586,22 +2587,22 @@ def render_market():
             # 條件 A/B：多殺多 / 斷頭風險（依嚴重程度取最高）
             if _tpx_chg <= -3.0 and _ms_ratio >= 5.0:
                 _bear_score += 3
-                _bear_msgs.append(('🔴', f'⚡ **多殺多啟動**：昨日跌幅 {_tpx_chg:.2f}%，'
+                _bear_msgs.append(('🔴', f'⚡ **多殺多啟動**：{_tpx_date} 跌幅 {_tpx_chg:.2f}%，'
                                    f'融資賣出比例 **{_ms_ratio:.1f}%**（正常 <2.5%），'
                                    f'強制斷頭引發恐慌拋售，今日開盤續跌風險高'))
             elif _tpx_chg <= -3.0 and _ms_ratio >= 3.5:
                 _bear_score += 2
-                _bear_msgs.append(('🔴', f'⚠️ **多殺多跡象**：昨日跌幅 {_tpx_chg:.2f}%，'
+                _bear_msgs.append(('🔴', f'⚠️ **多殺多跡象**：{_tpx_date} 跌幅 {_tpx_chg:.2f}%，'
                                    f'融資賣出比例 **{_ms_ratio:.1f}%**（異常偏高），'
                                    f'斷頭賣壓仍在釋放，注意今日開盤量能'))
             elif _tpx_chg <= -2.0 and _ms_ratio >= 3.5:
                 _bear_score += 2
-                _bear_msgs.append(('🔴', f'🔻 **斷頭風險**：昨日跌幅 {_tpx_chg:.2f}%，'
+                _bear_msgs.append(('🔴', f'🔻 **斷頭風險**：{_tpx_date} 跌幅 {_tpx_chg:.2f}%，'
                                    f'融資賣出比例 {_ms_ratio:.1f}%（>3.5% 警戒），'
                                    f'槓桿戶面臨維持率壓力，今日若再跌易觸發連鎖斷頭'))
             elif _tpx_chg <= -2.0 and _ms_ratio >= 2.5:
                 _bear_score += 1
-                _bear_msgs.append(('🟡', f'融資賣出比例 {_ms_ratio:.1f}%（昨跌 {_tpx_chg:.2f}%），'
+                _bear_msgs.append(('🟡', f'融資賣出比例 {_ms_ratio:.1f}%（{_tpx_date} 跌 {_tpx_chg:.2f}%），'
                                    f'略偏高，注意槓桿戶是否開始被動去槓桿'))
 
             # 條件 C：斷頭加速（連續 2 日融資餘額萎縮 ≥ 1.5%/日，獨立評估）
@@ -2612,13 +2613,13 @@ def render_market():
                                    f'被動斷頭持續進行，賣壓尚未出清'))
             elif _mb_d1_shrink <= -1.5:
                 _bear_score += 1
-                _bear_msgs.append(('🟡', f'融資餘額昨日萎縮 {_mb_d1_shrink:.1f}%，'
+                _bear_msgs.append(('🟡', f'融資餘額（{_tpx_date}）萎縮 {_mb_d1_shrink:.1f}%，'
                                    f'確認部分強制斷頭已發生，觀察今日是否延續'))
 
             # 條件 D：融券大量回補（空頭獲利了結 = 短線反彈支撐，獨立評估）
             if _tpx_chg <= -2.0 and _ss_ratio >= 3.0:
                 _bull_score += 1
-                _bull_msgs.append(('🟢', f'💡 **融券回補**：昨日融券回補比例 {_ss_ratio:.1f}%（>3% 偏高），'
+                _bull_msgs.append(('🟢', f'💡 **融券回補**：{_tpx_date} 融券回補比例 {_ss_ratio:.1f}%（>3% 偏高），'
                                    f'空頭獲利了結，可能提供短線技術性反彈支撐'))
 
         # ── 整理訊號清單 ──────────────────────
@@ -3303,22 +3304,23 @@ def render_market():
         _f_3d_sell = sum(1 for v in _f_3d if v < 0)
 
         _chip_msgs = []
+        _ca_last_date = _ca_dates[-1]  # 資料日期
 
         # 外資判斷
         if _f_now >= 300000:
-            _chip_msgs.append(('🟢', f'外資昨日大幅買超 **+{_f_now:,} 張**，主力資金大規模流入，籌碼強力偏多'))
+            _chip_msgs.append(('🟢', f'外資大幅買超 **+{_f_now:,} 張**（{_ca_last_date}），主力資金大規模流入，籌碼強力偏多'))
         elif _f_now >= 100000:
-            _chip_msgs.append(('🟢', f'外資昨日買超 +{_f_now:,} 張，外資態度積極偏多'))
+            _chip_msgs.append(('🟢', f'外資買超 +{_f_now:,} 張（{_ca_last_date}），外資態度積極偏多'))
         elif _f_now >= 30000:
-            _chip_msgs.append(('🟢', f'外資昨日小幅買超 +{_f_now:,} 張，偏多但力道有限'))
+            _chip_msgs.append(('🟢', f'外資小幅買超 +{_f_now:,} 張（{_ca_last_date}），偏多但力道有限'))
         elif _f_now <= -300000:
-            _chip_msgs.append(('🔴', f'外資昨日大幅賣超 **{_f_now:,} 張**，主力資金明顯撤退，籌碼強力偏空'))
+            _chip_msgs.append(('🔴', f'外資大幅賣超 **{_f_now:,} 張**（{_ca_last_date}），主力資金明顯撤退，籌碼強力偏空'))
         elif _f_now <= -100000:
-            _chip_msgs.append(('🔴', f'外資昨日賣超 {_f_now:,} 張，外資態度偏空，需留意'))
+            _chip_msgs.append(('🔴', f'外資賣超 {_f_now:,} 張（{_ca_last_date}），外資態度偏空，需留意'))
         elif _f_now <= -30000:
-            _chip_msgs.append(('🟡', f'外資昨日小幅賣超 {_f_now:,} 張，態度偏保守'))
+            _chip_msgs.append(('🟡', f'外資小幅賣超 {_f_now:,} 張（{_ca_last_date}），態度偏保守'))
         else:
-            _chip_msgs.append(('⚪', f'外資昨日買賣超 {_f_now:+,} 張，方向中性'))
+            _chip_msgs.append(('⚪', f'外資買賣超 {_f_now:+,} 張（{_ca_last_date}），方向中性'))
 
         # 外資連續方向
         if _f_3d_buy == 3:
@@ -3328,13 +3330,13 @@ def render_market():
 
         # 投信判斷
         if _t_now >= 80000:
-            _chip_msgs.append(('🟢', f'投信昨日大量買超 +{_t_now:,} 張，國內法人積極加碼'))
+            _chip_msgs.append(('🟢', f'投信大量買超 +{_t_now:,} 張（{_ca_last_date}），國內法人積極加碼'))
         elif _t_now >= 30000:
-            _chip_msgs.append(('🟢', f'投信昨日買超 +{_t_now:,} 張，國內法人偏多'))
+            _chip_msgs.append(('🟢', f'投信買超 +{_t_now:,} 張（{_ca_last_date}），國內法人偏多'))
         elif _t_now <= -80000:
-            _chip_msgs.append(('🔴', f'投信昨日大量賣超 {_t_now:,} 張，國內法人持續調節'))
+            _chip_msgs.append(('🔴', f'投信大量賣超 {_t_now:,} 張（{_ca_last_date}），國內法人持續調節'))
         elif _t_now <= -30000:
-            _chip_msgs.append(('🟡', f'投信昨日賣超 {_t_now:,} 張，國內法人偏保守'))
+            _chip_msgs.append(('🟡', f'投信賣超 {_t_now:,} 張（{_ca_last_date}），國內法人偏保守'))
 
         # 三大合計 vs 7日均線
         if _tot_now > 0 and _tot_now > _ma7_now * 1.5:
