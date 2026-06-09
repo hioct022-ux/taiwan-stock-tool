@@ -1333,8 +1333,9 @@ def render_chips(result, code, name, chips_list, market=None):
         show_chart(fig_chips)
 
         # ── 個股籌碼判斷 ──────────────────────
-        _ck_f1   = chips_list[-1].get('foreign_net', 0)   # 昨日外資
-        _ck_t1   = chips_list[-1].get('trust_net',   0)   # 昨日投信
+        _ck_date = chips_list[-1].get('date', '')          # 資料日期
+        _ck_f1   = chips_list[-1].get('foreign_net', 0)   # 最新外資
+        _ck_t1   = chips_list[-1].get('trust_net',   0)   # 最新投信
         _ck_f5   = foreign_net5                            # 近5日外資累計
         _ck_t5   = trust_net5                              # 近5日投信累計
 
@@ -1345,21 +1346,21 @@ def render_chips(result, code, name, chips_list, market=None):
 
         _ck_msgs = []
 
-        # 外資昨日
+        # 外資最新日
         if _ck_f1 >= 5000:
-            _ck_msgs.append(('🟢', f'外資昨日大量買超 **+{_ck_f1:,} 張**，主力積極布局'))
+            _ck_msgs.append(('🟢', f'外資大量買超 **+{_ck_f1:,} 張**（{_ck_date}），主力積極布局'))
         elif _ck_f1 >= 1000:
-            _ck_msgs.append(('🟢', f'外資昨日買超 +{_ck_f1:,} 張，籌碼流入'))
+            _ck_msgs.append(('🟢', f'外資買超 +{_ck_f1:,} 張（{_ck_date}），籌碼流入'))
         elif _ck_f1 >= 300:
-            _ck_msgs.append(('🟢', f'外資昨日小幅買超 +{_ck_f1:,} 張'))
+            _ck_msgs.append(('🟢', f'外資小幅買超 +{_ck_f1:,} 張（{_ck_date}）'))
         elif _ck_f1 <= -5000:
-            _ck_msgs.append(('🔴', f'外資昨日大量賣超 **{_ck_f1:,} 張**，主力明顯出脫'))
+            _ck_msgs.append(('🔴', f'外資大量賣超 **{_ck_f1:,} 張**（{_ck_date}），主力明顯出脫'))
         elif _ck_f1 <= -1000:
-            _ck_msgs.append(('🔴', f'外資昨日賣超 {_ck_f1:,} 張，籌碼流出'))
+            _ck_msgs.append(('🔴', f'外資賣超 {_ck_f1:,} 張（{_ck_date}），籌碼流出'))
         elif _ck_f1 <= -300:
-            _ck_msgs.append(('🟡', f'外資昨日小幅賣超 {_ck_f1:,} 張'))
+            _ck_msgs.append(('🟡', f'外資小幅賣超 {_ck_f1:,} 張（{_ck_date}）'))
         else:
-            _ck_msgs.append(('⚪', f'外資昨日近乎中性（{_ck_f1:+,} 張）'))
+            _ck_msgs.append(('⚪', f'外資近乎中性（{_ck_date}，{_ck_f1:+,} 張）'))
 
         # 外資近5日累計
         if _ck_f5 >= 3000:
@@ -1376,13 +1377,13 @@ def render_chips(result, code, name, chips_list, market=None):
 
         # 投信方向
         if _ck_t1 >= 1000:
-            _ck_msgs.append(('🟢', f'投信昨日買超 +{_ck_t1:,} 張，國內法人偏多'))
+            _ck_msgs.append(('🟢', f'投信買超 +{_ck_t1:,} 張（{_ck_date}），國內法人偏多'))
         elif _ck_t1 >= 200:
-            _ck_msgs.append(('🟢', f'投信昨日小幅買超 +{_ck_t1:,} 張'))
+            _ck_msgs.append(('🟢', f'投信小幅買超 +{_ck_t1:,} 張（{_ck_date}）'))
         elif _ck_t1 <= -1000:
-            _ck_msgs.append(('🔴', f'投信昨日賣超 {_ck_t1:,} 張，國內法人偏空'))
+            _ck_msgs.append(('🔴', f'投信賣超 {_ck_t1:,} 張（{_ck_date}），國內法人偏空'))
         elif _ck_t1 <= -200:
-            _ck_msgs.append(('🟡', f'投信昨日小幅賣超 {_ck_t1:,} 張'))
+            _ck_msgs.append(('🟡', f'投信小幅賣超 {_ck_t1:,} 張（{_ck_date}）'))
 
         # 外資+投信合計近5日
         _ck_fi5 = _ck_f5 + _ck_t5
