@@ -185,14 +185,14 @@ def show_chart(fig, key=None):
 init_db()
 
 # 雲端模式初始化：模組頂層直接執行，無 cache 包裝
-# 模組只在 server process 啟動時載入一次，重新部署後自然重跑
+_CLOUD_INIT_STATUS = '未執行'
 if not IS_LOCAL:
     try:
         from github_sync import init_cloud_data
         init_cloud_data()
-        print('雲端資料匯入完成')
+        _CLOUD_INIT_STATUS = 'OK'
     except Exception as _ce:
-        print(f'雲端資料匯入失敗：{_ce}')
+        _CLOUD_INIT_STATUS = f'ERROR: {_ce}'
 
 # 本機才啟動自動排程
 if IS_LOCAL:
@@ -330,21 +330,20 @@ def render_sidebar():
             st.markdown('---')
 
         else:
-            # 雲端版資料時間提示（讀本地 meta.json，private repo 也可用）
+            # 雲端版診斷顯示
             try:
                 import json as _jmeta
                 from config import JSON_DIR as _jdir
                 _meta = _jmeta.load(open(os.path.join(_jdir, 'meta.json'), encoding='utf-8'))
                 st.caption(f'📅 資料同步：{_meta.get("exported_at", "—")}')
-            except Exception:
-                pass
-            # 顯示 DB 實際最新資料日期（確認 init_cloud_data 有跑）
+            except Exception as _me:
+                st.caption(f'📅 meta.json 讀取失敗：{_me}')
+            st.caption(f'🔧 init狀態：{_CLOUD_INIT_STATUS}')
             try:
                 _db_date = get_latest_price_date('TAIEX')
-                if _db_date:
-                    st.caption(f'🗄️ DB 資料截至：{_db_date}')
-            except Exception:
-                pass
+                st.caption(f'🗄️ DB截至：{_db_date or "無資料"}')
+            except Exception as _de:
+                st.caption(f'🗄️ DB查詢失敗：{_de}')
             st.markdown('---')
 
         # 大盤分析
