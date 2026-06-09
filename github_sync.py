@@ -265,9 +265,15 @@ def sync_via_git(code=None):
                 except Exception as _le:
                     return False, f'Lock 檔無法清除（{_lf}），請手動執行：rm -f ~/台股分析工具/.git/{_lf}'
 
-        # git add data/json/
+        # ── 更新 _sync_time.py（觸發 Streamlit Cloud 自動重新部署）──
+        _trigger_path = os.path.join(base_dir, '_sync_time.py')
+        with open(_trigger_path, 'w', encoding='utf-8') as _f:
+            _f.write(f'# 每次資料同步自動更新，用於觸發 Streamlit Cloud 重新部署，請勿手動修改\n')
+            _f.write(f'LAST_SYNC = "{now_str}"\n')
+
+        # git add data/json/ + _sync_time.py
         subprocess.run(
-            ['git', 'add', 'data/json/'],
+            ['git', 'add', 'data/json/', '_sync_time.py'],
             cwd=base_dir, check=True, capture_output=True, text=True
         )
         # git commit（若沒有變更也不報錯）
