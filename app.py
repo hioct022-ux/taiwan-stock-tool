@@ -322,19 +322,24 @@ def render_sidebar():
                         _fetch_ok = False
                     # Step 2: 同步 GitHub
                     st.write('📤 步驟 2／2　同步到 GitHub...')
+                    _sync_ok = False
                     try:
                         from github_sync import sync_via_git
                         ok, msg = sync_via_git()
                         if ok:
                             st.write(f'✅ {msg}')
                             st.write('🌐 雲端版約 1 分鐘後自動更新')
+                            _sync_ok = True
                         else:
-                            st.write(f'⚠️ 同步失敗：{msg}')
+                            st.error(f'❌ 同步失敗：{msg}')
+                            st.warning('雲端資料**未更新**。請至終端機確認：`cd ~/台股分析工具 && git status`')
+                            _sync_ok = False
                     except Exception as _e:
-                        st.write(f'❌ 同步失敗：{_e}')
+                        st.error(f'❌ 同步失敗：{_e}')
+                        _sync_ok = False
                     _status.update(
-                        label='✅ 完成！' if _fetch_ok else '⚠️ 完成（抓取部分失敗）',
-                        state='complete'
+                        label='✅ 完成！' if (_fetch_ok and _sync_ok) else '❌ 同步失敗，雲端未更新' if not _sync_ok else '⚠️ 完成（抓取部分失敗）',
+                        state='complete' if (_fetch_ok and _sync_ok) else 'error'
                     )
                 st.rerun()
 

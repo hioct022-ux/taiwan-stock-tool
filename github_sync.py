@@ -254,6 +254,17 @@ def sync_via_git(code=None):
     now_str  = datetime.now().strftime('%Y-%m-%d %H:%M')
 
     try:
+        # ── 預防性清除 lock 檔（避免上次異常中斷殘留）──
+        import os
+        for _lf in ['HEAD.lock', 'index.lock']:
+            _lp = os.path.join(base_dir, '.git', _lf)
+            if os.path.exists(_lp):
+                try:
+                    os.remove(_lp)
+                    print(f'已清除殘留 lock 檔：{_lf}')
+                except Exception as _le:
+                    return False, f'Lock 檔無法清除（{_lf}），請手動執行：rm -f ~/台股分析工具/.git/{_lf}'
+
         # git add data/json/
         subprocess.run(
             ['git', 'add', 'data/json/'],
@@ -267,6 +278,10 @@ def sync_via_git(code=None):
         if 'nothing to commit' in result.stdout or 'nothing to commit' in result.stderr:
             print('資料沒有變化，無需推送')
             return True, '資料沒有變化，無需推送'
+        if result.returncode != 0:
+            err = (result.stderr or result.stdout).strip()
+            print(f'git commit 失敗：{err}')
+            return False, f'Commit 失敗：{err}'
         # git push
         push = subprocess.run(
             ['git', 'push'],
