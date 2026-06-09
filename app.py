@@ -25,7 +25,7 @@ from database import (init_db, get_prices, get_fundamentals, get_chips,
                       get_exdividend, get_exdividend_upcoming, get_exdividend_by_code,
                       get_market_margin, get_futures_institutional, get_market_pe,
                       get_tags, add_tag, rename_tag, delete_tag,
-                      update_watchlist_tags)
+                      update_watchlist_tags, get_latest_price_date)
 from indicators import calc_all
 from scorer import full_score, get_grade, generate_auto_note
 from scheduler import start_scheduler, get_data_status, manual_fetch
