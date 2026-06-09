@@ -345,8 +345,15 @@ def render_sidebar():
                 _taiex_date = _conn.execute("SELECT MAX(date) FROM prices WHERE code='TAIEX'").fetchone()[0]
                 _stock_date = _conn.execute("SELECT MAX(date) FROM prices WHERE code!='TAIEX'").fetchone()[0]
                 _chips_date = _conn.execute("SELECT MAX(date) FROM chips").fetchone()[0]
+                # 取第一支自選股的籌碼最新日
+                _wl0 = get_watchlist()
+                _wl0_chips = ''
+                if _wl0:
+                    _c0 = _wl0[0]['code']
+                    _r0 = _conn.execute("SELECT MAX(date) FROM chips WHERE code=?", (_c0,)).fetchone()[0]
+                    _wl0_chips = f' | {_c0}籌碼:{_r0}'
                 _conn.close()
-                st.caption(f'🗄️ TAIEX:{_taiex_date} 個股:{_stock_date} 籌碼:{_chips_date}')
+                st.caption(f'🗄️ TAIEX:{_taiex_date} 個股:{_stock_date} 籌碼:{_chips_date}{_wl0_chips}')
             except Exception as _de:
                 st.caption(f'🗄️ DB查詢失敗：{_de}')
             st.markdown('---')
