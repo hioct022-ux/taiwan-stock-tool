@@ -2227,9 +2227,9 @@ def render_market():
                 # 殖利率高 / 升息疑慮 = 偏空科技股；殖利率下行 = 偏多
                 _tnx = d['close']  # 殖利率值，如 4.25 = 4.25%
                 # 變動量（殖利率本身就是 %，用絕對變動 bps 較直覺）
-                _bps = round((_tnx * chg / 100) * 100, 1)  # 約略 bps
+                _tnx_abs_chg = round(_tnx * chg / 100, 3)  # 殖利率絕對變動（百分點）
                 color = '#ef4444' if _tnx >= 4.5 else '#f97316' if _tnx >= 4.0 else '#22c55e' if _tnx < 3.5 else '#94a3b8'
-                delta_label = f'{_bps:+.1f} bps　{"殖利率偏高⚠️" if _tnx >= 4.5 else "升息疑慮" if _tnx >= 4.0 else "利率溫和"}'
+                delta_label = f'今日變動 {_tnx_abs_chg:+.3f}%　{"殖利率偏高⚠️" if _tnx >= 4.5 else "升息疑慮" if _tnx >= 4.0 else "利率溫和"}'
             else:
                 color = '#ef4444' if chg < -2 else '#f59e0b' if chg < 0 else '#22c55e'
                 delta_label = f'{chg:+.2f}%'
