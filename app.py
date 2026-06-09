@@ -184,35 +184,15 @@ def show_chart(fig, key=None):
 # ── 初始化 ──────────────────────────────
 init_db()
 
-# 雲端模式初始化（定義在 module 頂層，確保 cache_resource 正常運作）
-@st.cache_resource
-def _init_cloud_cache(version: str):
-    """每個 exported_at 版本只初始化一次（跨 session 共用）"""
+# 雲端模式初始化：模組頂層直接執行，無 cache 包裝
+# 模組只在 server process 啟動時載入一次，重新部署後自然重跑
+if not IS_LOCAL:
     try:
         from github_sync import init_cloud_data
         init_cloud_data()
-        print(f'雲端資料匯入完成（版本：{version}）')
+        print('雲端資料匯入完成')
     except Exception as _ce:
         print(f'雲端資料匯入失敗：{_ce}')
-    return version
-
-@st.cache_data(ttl=600, show_spinner=False)
-def _get_meta_version():
-    """
-    讀本地 meta.json 的 exported_at 作為版本 key。
-    Streamlit Cloud 每次重新部署後是新 process，cache 自動清空，
-    此時讀到的就是最新部署的 meta.json 版本。
-    _init_cloud_cache 以版本為 key，版本變了就重新匯入資料。
-    """
-    import json as _json
-    try:
-        from config import JSON_DIR as _JDIR
-        with open(os.path.join(_JDIR, 'meta.json'), encoding='utf-8') as _f:
-            return _json.load(_f).get('exported_at', 'unknown')
-    except Exception:
-        return 'unknown'
-
-# 雲端模式初始化移至 main() 內執行，確保每次頁面載入都能觸發版本比對
 
 # 本機才啟動自動排程
 if IS_LOCAL:
@@ -350,12 +330,19 @@ def render_sidebar():
             st.markdown('---')
 
         else:
-            # 雲端版資料時間提示
+            # 雲端版資料時間提示（讀本地 meta.json，private repo 也可用）
             try:
-                from github_sync import load_meta_raw
-                meta = load_meta_raw()
-                if meta and meta.get('exported_at'):
-                    st.caption(f'📅 資料更新：{meta["exported_at"]}')
+                import json as _jmeta
+                from config import JSON_DIR as _jdir
+                _meta = _jmeta.load(open(os.path.join(_jdir, 'meta.json'), encoding='utf-8'))
+                st.caption(f'📅 資料同步：{_meta.get("exported_at", "—")}')
+            except Exception:
+                pass
+            # 顯示 DB 實際最新資料日期（確認 init_cloud_data 有跑）
+            try:
+                _db_date = get_latest_price_date('TAIEX')
+                if _db_date:
+                    st.caption(f'🗄️ DB 資料截至：{_db_date}')
             except Exception:
                 pass
             st.markdown('---')
@@ -4021,11 +4008,6 @@ def render_ranking():
 
 # ── 主程式 ──────────────────────────────
 def main():
-    # 雲端模式：每次頁面載入都確認版本（_get_meta_version 有 5 分鐘 cache）
-    # _init_cloud_cache 用 version 當 key，只有版本變了才重新匯入資料
-    if not IS_LOCAL:
-        _init_cloud_cache(_get_meta_version())
-
     render_sidebar()
 
     page = st.session_state.get('page', 'stock')
