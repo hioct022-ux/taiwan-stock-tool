@@ -122,11 +122,14 @@ def export_to_json(code=None):
 
     for c in codes:
         try:
+            from database import get_ownership as _get_own
+            _own_row = _get_own(c)
             stock_data = {
                 'code':         c,
                 'prices':       get_prices(c, days=400),
                 'fundamentals': get_fundamentals(c, days=400),
                 'chips':        get_chips(c, days=65),
+                'ownership':    _own_row,          # {'foreign_pct': float, 'date': str} 或 None
                 'exported_at':  datetime.now().strftime('%Y-%m-%d %H:%M')
             }
             path = os.path.join(JSON_DIR, f'{c}.json')

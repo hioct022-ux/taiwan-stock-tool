@@ -185,15 +185,15 @@ def show_chart(fig, key=None):
 init_db()
 
 def _read_stock_json(code):
-    """雲端專用：直接從 JSON 讀個股資料，不依賴 DB 匯入。回傳 (prices, fundamentals, chips)"""
+    """雲端專用：直接從 JSON 讀個股資料，不依賴 DB 匯入。回傳 (prices, fundamentals, chips, ownership)"""
     try:
         import json as _js
         with open(os.path.join('data', 'json', f'{code}.json'), encoding='utf-8') as _f:
             d = _js.load(_f)
         chips_raw = d.get('chips', [])
-        return d.get('prices', []), d.get('fundamentals', []), chips_raw
+        return d.get('prices', []), d.get('fundamentals', []), chips_raw, d.get('ownership')
     except Exception:
-        return [], [], []
+        return [], [], [], None
 
 # 雲端模式初始化：用 exported_at 當版本號，每次新部署（sync 後）才重新匯入
 def _get_meta_version():
@@ -470,13 +470,13 @@ def render_sidebar():
                         for w in _need_calc:
                             try:
                                 if IS_LOCAL:
-                                    _p  = get_prices(w['code'], days=400)
-                                    _f  = get_fundamentals(w['code'])
-                                    _c  = get_chips(w['code'], days=65)
+                                    _p   = get_prices(w['code'], days=400)
+                                    _f   = get_fundamentals(w['code'])
+                                    _c   = get_chips(w['code'], days=65)
+                                    _own = get_ownership(w['code'])
                                 else:
-                                    _p, _f, _c_raw = _read_stock_json(w['code'])
+                                    _p, _f, _c_raw, _own = _read_stock_json(w['code'])
                                     _c = _c_raw[-65:] if len(_c_raw) > 65 else _c_raw
-                                _own = get_ownership(w['code'])
                                 _fpct = round(_own['foreign_pct'], 1) if _own else 52
                                 _ownership = {
                                     'foreign':  _fpct,
