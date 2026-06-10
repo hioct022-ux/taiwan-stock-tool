@@ -348,6 +348,7 @@ def render_sidebar():
                         label='✅ 完成！' if (_fetch_ok and _sync_ok) else '❌ 同步失敗，雲端未更新' if not _sync_ok else '⚠️ 完成（抓取部分失敗）',
                         state='complete' if (_fetch_ok and _sync_ok) else 'error'
                     )
+                st.session_state.pop('_wl_scores', None)  # 清評分快取，確保左側用最新資料
                 st.rerun()
 
             st.markdown('---')
