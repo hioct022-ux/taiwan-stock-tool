@@ -394,6 +394,10 @@ def render_sidebar():
 
         st.markdown('---')
 
+        # 雲端版：每次進入自選股頁都清除評分快取，確保分數永遠從最新 JSON 計算
+        if not IS_LOCAL:
+            st.session_state.pop('_wl_scores', None)
+
         # 先讀取自選股和標籤（搜尋區塊也會用到）
         watchlist = get_watchlist()
         TAG_LIST  = get_tags()
@@ -461,9 +465,6 @@ def render_sidebar():
             )
 
             if sort_mode in ('評分高→低', '評分低→高'):
-                # 雲端版每次重算（資料靜態，快取無意義）；本機版快取避免重複計算
-                if not IS_LOCAL:
-                    st.session_state.pop('_wl_scores', None)
                 _score_cache = st.session_state.get('_wl_scores', {})
                 _need_calc   = [w for w in filtered if w['code'] not in _score_cache]
                 if _need_calc:
