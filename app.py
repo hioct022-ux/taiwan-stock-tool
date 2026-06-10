@@ -1259,7 +1259,7 @@ def render_fundamental(result, code, name):
 
 
 # ── 頁籤三：籌碼面 ──────────────────────
-def render_chips(result, code, name, chips_list, market=None):
+def render_chips(result, code, name, chips_list, market=None, ownership_override=None):
     st.markdown('#### 三大法人')
 
     if not chips_list:
@@ -1530,8 +1530,8 @@ def render_chips(result, code, name, chips_list, market=None):
 
     st.markdown('---')
     # ── 持股結構 + ETF 持股（同一排）──
-    # 外資持股%從 DB 讀取（每日更新自 TWSE MI_QFIIS）
-    _own = get_ownership(code)
+    # 外資持股%（優先用傳入的 ownership_override，確保雲端與評分來源一致）
+    _own = ownership_override if ownership_override is not None else get_ownership(code)
     _fp  = round(_own['foreign_pct'], 1) if _own else None
     if _fp is not None:
         ownership = {
@@ -4106,10 +4106,18 @@ def main():
 
     code = st.session_state['current_code']
 
-    # 抓取資料
-    prices    = get_prices(code, days=400)
-    fund_data = get_fundamentals(code, days=400)
-    chips_list = get_chips(code, days=65)
+    # 抓取資料（雲端直接讀 JSON，確保與左側評分來源一致）
+    if not IS_LOCAL:
+        _p_json, _f_json, _c_json, _own_json = _read_stock_json(code)
+        prices    = _p_json
+        fund_data = _f_json
+        chips_list = _c_json[-65:] if len(_c_json) > 65 else _c_json
+        _stock_ownership_json = _own_json   # 後面 render_score 用
+    else:
+        prices    = get_prices(code, days=400)
+        fund_data = get_fundamentals(code, days=400)
+        chips_list = get_chips(code, days=65)
+        _stock_ownership_json = None        # 本機從 DB 讀，見下方
 
     # 價格或籌碼歷史不足時自動補抓（每支股票每次 session 只試一次，避免無限循環）
     need_price = len(prices) < 60
@@ -4176,8 +4184,11 @@ def main():
     results = search_stock(code)
     name = results[0]['name'] if results else code
 
-    # 計算評分（外資持股比率從 DB 讀取真實資料）
-    _own = get_ownership(code)
+    # 計算評分（外資持股比率：雲端從 JSON，本機從 DB）
+    if not IS_LOCAL:
+        _own = _stock_ownership_json
+    else:
+        _own = get_ownership(code)
     _foreign_pct = round(_own['foreign_pct'], 1) if _own else 52
     ownership = {
         'foreign':  _foreign_pct,
@@ -4225,7 +4236,7 @@ def main():
         _conn_tab = _gc_tab()
         _mkt_tab = (_conn_tab.execute('SELECT market FROM stocks WHERE code=?', (code,)).fetchone() or [None])[0]
         _conn_tab.close()
-        render_chips(result, code, name, chips_list, market=_mkt_tab)
+        render_chips(result, code, name, chips_list, market=_mkt_tab, ownership_override=_own)
     with tabs[3]:
         render_score(result, code, name)
     with tabs[4]:
