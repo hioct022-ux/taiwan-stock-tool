@@ -184,6 +184,17 @@ def show_chart(fig, key=None):
 # ── 初始化 ──────────────────────────────
 init_db()
 
+def _read_stock_json(code):
+    """雲端專用：直接從 JSON 讀個股資料，不依賴 DB 匯入。回傳 (prices, fundamentals, chips)"""
+    try:
+        import json as _js
+        with open(os.path.join('data', 'json', f'{code}.json'), encoding='utf-8') as _f:
+            d = _js.load(_f)
+        chips_raw = d.get('chips', [])
+        return d.get('prices', []), d.get('fundamentals', []), chips_raw
+    except Exception:
+        return [], [], []
+
 # 雲端模式初始化：用 exported_at 當版本號，每次新部署（sync 後）才重新匯入
 def _get_meta_version():
     try:
@@ -458,9 +469,13 @@ def render_sidebar():
                     with st.spinner(f'計算評分中（{len(_need_calc)} 支）...'):
                         for w in _need_calc:
                             try:
-                                _p   = get_prices(w['code'], days=400)
-                                _f   = get_fundamentals(w['code'])
-                                _c   = get_chips(w['code'], days=65)
+                                if IS_LOCAL:
+                                    _p  = get_prices(w['code'], days=400)
+                                    _f  = get_fundamentals(w['code'])
+                                    _c  = get_chips(w['code'], days=65)
+                                else:
+                                    _p, _f, _c_raw = _read_stock_json(w['code'])
+                                    _c = _c_raw[-65:] if len(_c_raw) > 65 else _c_raw
                                 _own = get_ownership(w['code'])
                                 _fpct = round(_own['foreign_pct'], 1) if _own else 52
                                 _ownership = {
@@ -2343,9 +2358,25 @@ def render_market():
     # ── 開盤前預判（每日常態化）────────────────
     st.markdown('#### 🔭 開盤前預判')
 
-    _mm   = get_market_margin(days=15)
-    _fut  = get_futures_institutional(days=15)
-    _tpx  = get_prices('TAIEX', days=30)
+    # 雲端直接從 JSON 讀，確保資料是最新部署版本，不依賴 DB 匯入是否成功
+    if IS_LOCAL:
+        _mm  = get_market_margin(days=15)
+        _fut = get_futures_institutional(days=15)
+        _tpx = get_prices('TAIEX', days=30)
+    else:
+        try:
+            import json as _jmm
+            _jbase = os.path.join('data', 'json')
+            with open(os.path.join(_jbase, 'market_margin.json'), encoding='utf-8') as _f:
+                _mm = _jmm.load(_f).get('rows', [])[-15:]
+            with open(os.path.join(_jbase, 'futures_institutional.json'), encoding='utf-8') as _f:
+                _fut = _jmm.load(_f).get('rows', [])[-15:]
+            with open(os.path.join(_jbase, 'TAIEX.json'), encoding='utf-8') as _f:
+                _tpx = _jmm.load(_f).get('prices', [])[-30:]
+        except Exception as _je:
+            _mm  = get_market_margin(days=15)
+            _fut = get_futures_institutional(days=15)
+            _tpx = get_prices('TAIEX', days=30)
     _t86  = get_t86_market_aggregate(days=5)
 
     if _mm and _fut and _tpx and len(_mm) >= 2 and len(_fut) >= 2 and len(_tpx) >= 2:
@@ -3276,11 +3307,17 @@ def render_market():
 
     # ── 三大法人現貨每日買賣超 ──────────────────
     st.markdown('#### 🏦 三大法人現貨每日買賣超（張）')
-    # 本機用 chips 原始表彙總；雲端從 chips_market_agg 表讀取（由 JSON 匯入）
+    # 本機用 chips 原始表彙總；雲端直接讀 JSON 檔（不經 DB，確保資料最新）
     if IS_LOCAL:
         _chips_agg = get_chips_market_aggregate(days=20)
     else:
-        _chips_agg = get_chips_market_agg_from_table(days=20)
+        try:
+            import json as _jca
+            with open(os.path.join('data', 'json', 'chips_market_agg.json'), encoding='utf-8') as _f:
+                _all_rows = _jca.load(_f).get('rows', [])
+            _chips_agg = _all_rows[-20:] if len(_all_rows) > 20 else _all_rows
+        except Exception:
+            _chips_agg = get_chips_market_agg_from_table(days=20)
 
     if not _chips_agg:
         st.info('尚無三大法人現貨資料，請按「🔄 手動更新資料」取得。')
