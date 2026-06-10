@@ -2377,7 +2377,21 @@ def render_market():
             _mm  = get_market_margin(days=15)
             _fut = get_futures_institutional(days=15)
             _tpx = get_prices('TAIEX', days=30)
-    _t86  = get_t86_market_aggregate(days=5)
+    # Signal 4 與三大法人圖統一使用 chips_market_agg 來源，確保上下一致
+    if IS_LOCAL:
+        _t86_raw = get_chips_market_aggregate(days=5)
+    else:
+        try:
+            import json as _jt86
+            with open(os.path.join('data', 'json', 'chips_market_agg.json'), encoding='utf-8') as _f:
+                _t86_raw = _jt86.load(_f).get('rows', [])[-5:]
+        except Exception:
+            _t86_raw = get_chips_market_agg_from_table(days=5)
+    _t86 = [{'date': r['date'],
+             'foreign_net_total': r.get('foreign_net', 0),
+             'trust_net_total':   r.get('trust_net', 0),
+             'total_net_total':   r.get('foreign_net', 0) + r.get('trust_net', 0) + r.get('dealer_net', 0)}
+            for r in _t86_raw]
 
     if _mm and _fut and _tpx and len(_mm) >= 2 and len(_fut) >= 2 and len(_tpx) >= 2:
         _bear_score = 0   # 空方累積分
