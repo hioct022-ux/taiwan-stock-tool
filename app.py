@@ -184,9 +184,8 @@ def show_chart(fig, key=None):
 # ── 初始化 ──────────────────────────────
 init_db()
 
-# 雲端模式初始化：用 @st.cache_resource 確保每次部署只跑一次
+# 雲端模式初始化：用 exported_at 當版本號，每次新部署（sync 後）才重新匯入
 def _get_meta_version():
-    """讀取 meta.json 的 exported_at，作為快取版本號"""
     try:
         import json as _jv
         with open(os.path.join('data/json', 'meta.json'), encoding='utf-8') as _f:
@@ -196,7 +195,6 @@ def _get_meta_version():
 
 @st.cache_resource
 def _init_cloud_cache(version: str):
-    """每次 exported_at 版本號變化時（新部署），重新匯入 JSON 資料"""
     try:
         from github_sync import init_cloud_data
         init_cloud_data()
@@ -355,9 +353,19 @@ def render_sidebar():
             try:
                 _db_date = get_latest_price_date('TAIEX')
                 if _db_date:
-                    st.caption(f'🗄️ 資料截至：{_db_date}')
+                    st.caption(f'🗄️ 價格截至：{_db_date}')
             except Exception:
                 pass
+            try:
+                from database import get_conn as _gc
+                _conn = _gc()
+                _agg_date = _conn.execute(
+                    'SELECT date FROM chips_market_agg ORDER BY date DESC LIMIT 1'
+                ).fetchone()
+                _conn.close()
+                st.caption(f'📊 法人現貨截至：{_agg_date[0] if _agg_date else "無資料"}')
+            except Exception as _ae:
+                st.caption(f'📊 法人現貨讀取失敗：{_ae}')
             st.markdown('---')
 
         # 大盤分析

@@ -554,16 +554,22 @@ def init_cloud_data():
     except Exception as e:
         print(f'  大盤本益比匯入失敗：{e}')
 
-    # ── 三大法人現貨彙總（每次更新）──
+    # ── 三大法人現貨彙總（先清空再寫入，確保資料完整）──
     try:
         agg_path = os.path.join(JSON_DIR, 'chips_market_agg.json')
         with open(agg_path, encoding='utf-8') as f:
             agg = json.load(f)
         rows = agg.get('rows', [])
         if rows:
-            from database import save_chips_market_agg
+            from database import save_chips_market_agg, get_conn as _gc_agg
+            # 先清空舊資料再寫入，避免殘留舊日期
+            _ac = _gc_agg()
+            _ac.execute('DELETE FROM chips_market_agg')
+            _ac.commit()
+            _ac.close()
             save_chips_market_agg(rows)
-            print(f'  三大法人現貨彙總：{len(rows)} 天')
+            last_date = rows[-1]['date'] if rows else '?'
+            print(f'  三大法人現貨彙總：{len(rows)} 天，最新：{last_date}')
     except Exception as e:
         print(f'  三大法人現貨彙總匯入失敗：{e}')
 
