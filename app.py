@@ -13,7 +13,7 @@ import os
 
 sys.path.insert(0, os.path.expanduser('~/台股分析工具'))
 
-from config import VERSION, VERSION_DATE, IS_LOCAL
+from config import VERSION, VERSION_DATE, IS_LOCAL, WEIGHT_FUNDAMENTAL, WEIGHT_TECHNICAL, WEIGHT_CHIPS
 from database import (init_db, get_prices, get_fundamentals, get_chips,
                       get_watchlist, add_watchlist, remove_watchlist,
                       update_watchlist_tag, search_stock, get_notes,
@@ -2116,15 +2116,15 @@ def render_score(result, code, name):
     # 分項評分
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric('基本面（40%）', f'{result["fund_score"]}分')
+        st.metric(f'基本面（{round(WEIGHT_FUNDAMENTAL*100):.0f}%）', f'{result["fund_score"]}分')
         for r in result['fund_reasons'][:3]:
             st.caption(f'・{r}')
     with col2:
-        st.metric('技術面（35%）', f'{result["tech_score"]}分')
+        st.metric(f'技術面（{round(WEIGHT_TECHNICAL*100):.0f}%）', f'{result["tech_score"]}分')
         for r in result['tech_reasons'][:3]:
             st.caption(f'・{r}')
     with col3:
-        st.metric('籌碼面（25%）', f'{result["chip_score"]}分')
+        st.metric(f'籌碼面（{round(WEIGHT_CHIPS*100):.0f}%）', f'{result["chip_score"]}分')
         for r in result['chip_reasons'][:3]:
             st.caption(f'・{r}')
 
