@@ -829,7 +829,8 @@ def get_options_pc(days: int = 60) -> list:
         LIMIT ?
     ''', (days,)).fetchall()
     conn.close()
-    return [dict(r) for r in reversed(rows)]
+    cols = ['date', 'call_oi', 'put_oi', 'pc_ratio']
+    return [dict(zip(cols, r)) for r in reversed(rows)]
 
 def get_options_pc_last_date() -> str | None:
     conn = get_conn()
@@ -837,7 +838,7 @@ def get_options_pc_last_date() -> str | None:
         'SELECT date FROM options_pc_ratio ORDER BY date DESC LIMIT 1'
     ).fetchone()
     conn.close()
-    return row['date'] if row else None
+    return row[0] if row else None
 
 
 # ── 大盤本益比 ───────────────────────────

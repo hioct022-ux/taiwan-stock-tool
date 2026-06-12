@@ -1412,28 +1412,30 @@ def fetch_futures_institutional_history(months=3):
 def _parse_pc_csv(content: bytes) -> list:
     """
     解析 TAIFEX pcRatioDown CSV（Big5），回傳 list of dict。
-    欄位：日期, 買權成交量, 賣權成交量, 買賣權成交量比率%,
-          買權未平倉量, 賣權未平倉量, 買賣權未平倉量比率%
+    實際欄位順序（以回傳資料確認）：
+      日期, 賣權成交量, 買權成交量, 買賣權成交量比率%,
+      賣權未平倉量, 買權未平倉量, 買賣權未平倉量比率%
+    日期格式：2026/06/12（斜線分隔西元年）
+    比率欄：168.35 代表 put/call OI = 1.6835
     """
     text = content.decode('big5', errors='ignore')
     rows = []
     for line in text.splitlines():
-        cols = [c.strip().replace(',', '') for c in line.split(',')]
+        cols = [c.strip() for c in line.split(',')]
         if len(cols) < 7:
             continue
-        # 日期欄：民國年 1150528 或西元年 20260528
         raw_date = cols[0].strip()
         try:
-            if len(raw_date) == 7 and raw_date[0] == '1':
-                date = f'{int(raw_date[:3])+1911}-{raw_date[3:5]}-{raw_date[5:7]}'
-            elif len(raw_date) == 8 and raw_date[0] == '2':
-                date = f'{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:8]}'
+            # 格式：2026/06/12 → 2026-06-12
+            if '/' in raw_date and len(raw_date) == 10:
+                date = raw_date.replace('/', '-')
             else:
                 continue
-            call_oi = int(cols[4]) if cols[4].lstrip('-').isdigit() else 0
-            put_oi  = int(cols[5]) if cols[5].lstrip('-').isdigit() else 0
-            # 比率欄已是百分比值，例如 71.20 代表 P/C = 0.7120
-            pc_pct  = float(cols[6]) if cols[6] else 0.0
+            # 賣權未平倉量 = cols[4]，買權未平倉量 = cols[5]
+            put_oi  = int(cols[4].replace(',', '')) if cols[4].replace(',', '').lstrip('-').isdigit() else 0
+            call_oi = int(cols[5].replace(',', '')) if cols[5].replace(',', '').lstrip('-').isdigit() else 0
+            # 比率欄：168.35 → pc_ratio = 1.6835
+            pc_pct   = float(cols[6].replace(',', '')) if cols[6].replace(',', '') else 0.0
             pc_ratio = round(pc_pct / 100, 4)
             if call_oi > 0 and put_oi > 0:
                 rows.append({'date': date, 'call_oi': call_oi,
