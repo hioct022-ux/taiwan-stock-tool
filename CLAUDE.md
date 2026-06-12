@@ -50,7 +50,10 @@ IS_LOCAL 影響的功能：
 | 功能 | 本機（True） | 雲端（False） |
 |------|------------|-------------|
 | 資料抓取 | ✅ 可用 | ❌ 停用 |
-| 三大法人現貨資料來源 | `get_chips_market_aggregate()` | `get_chips_market_agg_from_table()` |
+| 三大法人現貨圖資料來源 | `get_chips_market_aggregate()` | 直接讀 `chips_market_agg.json` |
+| 開盤前預判資料來源 | DB（`get_market_margin` 等） | 直接讀各 JSON 檔 |
+| 自選股評分資料來源 | DB（`get_prices` 等） | 直接讀 `{code}.json` via `_read_stock_json()` |
+| Signal 4（法人現貨）資料來源 | `get_chips_market_aggregate()` 轉換格式 | 同左（讀 `chips_market_agg.json`） |
 | 「🚀 同步到雲端」按鈕 | ✅ 顯示 | ❌ 隱藏 |
 | 個股自動補抓 | ✅ 自動執行 | ❌ 停用 |
 
@@ -288,7 +291,7 @@ market_pe (date PK, pe_ratio, pb_ratio, div_yield)
 | `exdividend.json` | `{'rows': [...], 'exported_at': ...}` |
 | `t86.json` | `{'date', trust_top/bot, foreign_top/bot, total_top/bot, 'exported_at'}` |
 | `chips_market_agg.json` | `{'rows': [...], 'exported_at': ...}` |
-| `{stock_code}.json` | `{'code', prices, fundamentals, chips, 'exported_at'}` |
+| `{stock_code}.json` | `{'code', prices, fundamentals, chips, ownership, 'exported_at'}` |
 
 ### sync_via_git(code=None)
 呼叫 `export_to_json()` 後執行 `git add data/json/ → git commit → git push`。使用本機 git 認證（SSH key 或 macOS Keychain），不需要 Token。
@@ -425,6 +428,42 @@ def render_exdividend() # 除權息
 def render_notes()      # 個股筆記
 ```
 
+### 個股頁籤結構（render_stock 內）
+
+```python
+tabs = st.tabs(['📊 技術面', '💰 基本面', '📈 估值分析',
+                '🏦 籌碼面', '⭐ 綜合評分', '📝 備註欄', '📤 匯出分析'])
+# tabs[0] render_technical(result, name)
+# tabs[1] render_fundamental(result, code, name)
+# tabs[2] render_valuation(result, code, name, fund_data)   ← 2026-06 新增
+# tabs[3] render_chips(result, code, name, chips_list, market, ownership_override=_own)
+# tabs[4] render_score(result, code, name)
+# tabs[5] render_notes(result, code, name)
+# tabs[6] render_export(result, code, name, chips_list)
+```
+
+**`fund_data` 來源（render_stock 內）：**
+- 本機：`get_fundamentals(code, days=400)`
+- 雲端：`_read_stock_json(code)` 回傳的第二個元素
+
+### render_valuation(result, code, name, fund_data) — 估值分析頁籤
+
+**Section 1：歷史估值百分位**
+- 用 `fund_data` 過濾有效 PE（0 < pe < 500）、PB（0 < pb < 100）
+- 計算各分位值（25%/50%/75%）與現值百分位排名
+- 顏色：≥85% 紅（偏貴）、≥60% 橘、≥40% 黃、≥20% 淡綠、<20% 綠（便宜）
+- PE 歷史走勢圖：橘線 + 三條虛線（25%/50%/75%）+ 紫色現值線 + 藍色合理區間帶
+
+**Section 2：合理價格區間（三情境 PE 估值）**
+- 預設 PE 假設：歷史 25%（悲觀）/ 50%（合理）/ 75%（樂觀）分位
+- 預設 EPS 預估：eps_now × 0.9 / 1.0 / 1.2
+- 用 `st.number_input` 讓用戶自行調整各情境 PE 與 EPS
+- 計算 `val = pe × eps` 並顯示現價相對估值的漲跌幅
+- 長條圖 + 紫色虛線（現價）對比三情境
+- EPS ≤ 0 時不顯示估值區間（PE 法不適用）
+
+**注意：** widget key 為 `f'pe_bear_{code}'` 等，帶入股票代號避免多股同時渲染衝突。
+
 ### 圖表統一函式（必須用這個，不能直接 st.plotly_chart）
 
 ```python
@@ -446,7 +485,13 @@ ma_colors = {'MA5': '#f97316', 'MA20': '#a855f7', 'MA60': '#22c55e'}
 
 ### 開盤前預判訊號（Signal 1–10）
 
-Signal 1–8 使用昨日資料（本地 DB），Signal 9 使用即時 yfinance，Signal 10 使用 `_mm`（market_margin）。
+Signal 1–8 使用昨日資料（本機 DB / 雲端 JSON），Signal 9 使用即時 yfinance，Signal 10 使用 `_mm`（market_margin）。
+
+**資料變數（`render_market()` 開頭載入）：**
+- `_mm`：大盤融資融券（`market_margin.json` 或 DB）
+- `_fut`：台指期三大法人（`futures_institutional.json` 或 DB）
+- `_tpx`：TAIEX 價格（`TAIEX.json` 或 DB）
+- `_t86`：三大法人現貨彙總，**本機和雲端均從 `chips_market_agg` 來源轉換**，key 為 `foreign_net_total / trust_net_total / total_net_total`
 
 **評分變數：** `_bear_score`（空方分）、`_bull_score`（多方分），`net = bear - bull`
 
@@ -486,16 +531,20 @@ A/B 條件（多殺多/斷頭風險）互斥取最嚴重；C（斷頭加速）�
 ### 三大法人現貨圖（大盤）
 
 ```python
-# IS_LOCAL 控制資料來源
+# IS_LOCAL 控制資料來源（雲端直接讀 JSON，不經 DB，確保資料最新）
 if IS_LOCAL:
     _chips_agg = get_chips_market_aggregate(days=20)
 else:
-    _chips_agg = get_chips_market_agg_from_table(days=20)
+    # 直接讀 JSON，跳過 init_cloud_data() 的 DB 匯入
+    with open('data/json/chips_market_agg.json') as f:
+        _chips_agg = json.load(f).get('rows', [])[-20:]
 
 # 固定顏色
 INST_COLORS = {'外資': '#f97316', '投信': '#3b82f6', '自營商': '#a855f7'}
 # 兩個子圖：上=各自柱狀圖，下=合計柱狀圖 + 7日MA線
 ```
+
+**注意：** Signal 4 的 `_t86` 變數與此圖使用**相同資料來源**，確保頁面上下數字一致。`_t86` 是將 `_chips_agg` 格式轉換為 `{foreign_net_total, trust_net_total, total_net_total}`。
 
 ### 雲端初始化（模組頂層）
 
@@ -509,6 +558,29 @@ def _init_cloud_cache(version: str):
 if not IS_LOCAL:
     _init_cloud_cache(_get_meta_version())   # key 是 meta.json 的 exported_at
 ```
+
+**雲端的直接 JSON 讀取模式（2026-06 架構調整）：**  
+大盤分析、開盤前預判、自選股評分等關鍵資料，雲端版**不依賴 `init_cloud_data()` 的 DB 匯入**，改為直接從 JSON 檔讀取。這樣確保 sync 後資料即時反映，不受 `@st.cache_resource` 快取影響。
+
+| 資料 | 雲端讀取位置 |
+|------|------------|
+| 三大法人現貨 | `data/json/chips_market_agg.json` |
+| Signal 4（法人現貨訊號） | 同上，轉換 key 格式 |
+| 大盤融資融券 | `data/json/market_margin.json` |
+| 台指期三大法人 | `data/json/futures_institutional.json` |
+| TAIEX 價格 | `data/json/TAIEX.json` |
+| 個股評分（prices/fundamentals/chips/ownership） | `data/json/{code}.json` via `_read_stock_json()` |
+
+### _read_stock_json(code) — 雲端專用
+
+```python
+def _read_stock_json(code) -> (prices, fundamentals, chips, ownership):
+    # 直接從 data/json/{code}.json 讀取，回傳 4-tuple
+    # ownership 是 {'foreign_pct': float, 'date': str} 或 None
+    # 例外時回傳 ([], [], [], None)
+```
+
+**重要：** 個股 JSON 的 `ownership` 欄位是 2026-06 加入的。同步後才有此欄位；舊版 JSON 沒有，`_read_stock_json()` 會回傳 `None`，評分時自動 fallback 到 52%。
 
 ---
 
@@ -555,6 +627,18 @@ r.content.decode('big5', errors='ignore')  # 不是 r.text
 
 ### 9. st.cache_resource 必須在模組頂層
 若 `@st.cache_resource` 定義在 `if not IS_LOCAL:` 區塊內，雲端每次重整都會重新執行 `init_cloud_data()`（快取失效）。必須在頂層定義函式，只有呼叫放在 if 區塊內。
+
+### 10. 雲端法人張數「上下不一致」
+現象：大盤分析頁面，三大法人現貨圖的數字與開盤前預判 Signal 4 的外資現貨數字不同。  
+原因：Signal 4 用 `get_t86_market_aggregate()`，雲端 `t86_ranking` 只有前15名股票，加總遠小於真實市場總計；圖表用 `chips_market_agg`（全市場）。  
+**修正（2026-06）：** Signal 4 的 `_t86` 變數改成由 `chips_market_agg` 資料轉換，兩邊來源統一。
+
+### 11. 雲端自選股評分與本機不同
+現象：雲端評分明顯偏高或偏低，無法對齊本機結果。  
+原因：個股 JSON 缺少 `ownership`（外資持股比例），雲端固定用預設 52%，而本機讀 DB 取真實值（各股差異顯著）。  
+**修正（2026-06）：** `export_to_json()` 的個股 JSON 加入 `ownership` 欄位；`_read_stock_json()` 回傳 4-tuple 含 ownership；評分路徑雲端/本機均使用各自的 ownership 資料。
+
+**操作提醒：** 修正後須重新按「🚀 更新並同步到雲端」，讓新版 JSON（含 ownership）推到 GitHub，雲端評分才會正確。
 
 ---
 

@@ -1260,7 +1260,303 @@ def render_fundamental(result, code, name):
         st.info('季度 EPS 資料暫無（yfinance 尚未提供此股資料）')
 
 
-# ── 頁籤三：籌碼面 ──────────────────────
+# ── 頁籤三：估值分析 ──────────────────────
+def render_valuation(result, code, name, fund_data):
+    """歷史估值百分位 + 合理價格區間（三情境）"""
+    close   = result.get('close') or 0
+    fund    = result.get('fund') or {}
+    pe_now  = fund.get('pe')
+    pb_now  = fund.get('pb')
+    eps_now = fund.get('eps_ttm')
+
+    # ── 工具函式 ─────────────────────────────────────
+    def _pct_rank(data, val):
+        """val 在 data 中的百分位（0–100，含自身）"""
+        if not data: return None
+        return round(len([x for x in data if x <= val]) / len(data) * 100, 1)
+
+    def _pct_val(data, p):
+        """data 的第 p 百分位值（線性插值）"""
+        if not data: return None
+        s   = sorted(data)
+        idx = (len(s) - 1) * p / 100
+        lo  = int(idx)
+        hi  = min(lo + 1, len(s) - 1)
+        return round(s[lo] + (s[hi] - s[lo]) * (idx - lo), 1)
+
+    def _pct_color(p):
+        if p is None: return '#64748b'
+        if p >= 85: return '#ef4444'
+        if p >= 60: return '#f97316'
+        if p >= 40: return '#facc15'
+        if p >= 20: return '#86efac'
+        return '#22c55e'
+
+    def _pct_label(p):
+        if p is None: return ''
+        if p >= 85: return '⚠️ 歷史高位，估值偏貴'
+        if p >= 60: return '📈 略高於歷史中位'
+        if p >= 40: return '⚖️ 接近歷史中位，估值合理'
+        if p >= 20: return '📉 略低於歷史中位'
+        return '✅ 歷史低位，估值偏便宜'
+
+    # ── 過濾有效歷史數據 ──────────────────────────────
+    pe_valid  = [(r['date'], r['pe']) for r in fund_data
+                 if r.get('pe') and 0 < r['pe'] < 500]
+    pb_valid  = [(r['date'], r['pb']) for r in fund_data
+                 if r.get('pb') and 0 < r['pb'] < 100]
+    eps_valid = [(r['date'], r['eps_ttm']) for r in fund_data
+                 if r.get('eps_ttm') is not None and r['eps_ttm'] != 0]
+
+    # ═══════════════════════════════════════════════════
+    # Section 1：歷史估值百分位
+    # ═══════════════════════════════════════════════════
+    st.markdown('#### 📊 歷史估值百分位')
+
+    if pe_valid:
+        from datetime import datetime as _dt
+        try:
+            d0 = min(d for d, _ in pe_valid)
+            d1 = max(d for d, _ in pe_valid)
+            _months = round((_dt.strptime(d1,'%Y-%m-%d') - _dt.strptime(d0,'%Y-%m-%d')).days / 30)
+            st.caption(f'📅 估值資料範圍：{d0} ～ {d1}（約 {_months} 個月，{len(pe_valid)} 筆）')
+            if _months < 12:
+                st.warning('⚠️ 資料涵蓋不足 12 個月，百分位結論僅供參考')
+        except Exception:
+            pass
+    else:
+        st.info('無歷史估值資料（基本面尚未收集）')
+
+    _col1, _col2 = st.columns(2)
+
+    # PE 百分位卡片
+    with _col1:
+        st.markdown('**本益比（PE）**')
+        if pe_valid and pe_now and pe_now > 0:
+            pe_vals = [v for _, v in pe_valid]
+            pe_rank = _pct_rank(pe_vals, pe_now)
+            pe_c    = _pct_color(pe_rank)
+            _p25 = _pct_val(pe_vals, 25)
+            _p50 = _pct_val(pe_vals, 50)
+            _p75 = _pct_val(pe_vals, 75)
+            st.markdown(
+                f'<div style="border:1px solid {pe_c};border-radius:10px;padding:14px 16px;background:#0d1117">'
+                f'<div style="font-size:30px;font-weight:700;color:{pe_c}">{pe_now:.1f}x</div>'
+                f'<div style="font-size:13px;color:{pe_c};margin:4px 0 8px">'
+                f'歷史第 {pe_rank:.0f} 百分位　{_pct_label(pe_rank)}</div>'
+                f'<div style="font-size:11px;color:#94a3b8">'
+                f'最低 {min(pe_vals):.1f}x　25% {_p25}x　中位 {_p50}x　75% {_p75}x　最高 {max(pe_vals):.1f}x'
+                f'</div></div>',
+                unsafe_allow_html=True
+            )
+            st.markdown(
+                f'<div style="margin-top:6px;background:#1e293b;border-radius:4px;height:7px">'
+                f'<div style="width:{min(pe_rank,100):.0f}%;background:{pe_c};border-radius:4px;height:7px"></div>'
+                f'</div>',
+                unsafe_allow_html=True
+            )
+        else:
+            st.caption('無 PE 資料')
+
+    # PB 百分位卡片
+    with _col2:
+        st.markdown('**股價淨值比（PB）**')
+        if pb_valid and pb_now and pb_now > 0:
+            pb_vals = [v for _, v in pb_valid]
+            pb_rank = _pct_rank(pb_vals, pb_now)
+            pb_c    = _pct_color(pb_rank)
+            _b25 = _pct_val(pb_vals, 25)
+            _b50 = _pct_val(pb_vals, 50)
+            _b75 = _pct_val(pb_vals, 75)
+            st.markdown(
+                f'<div style="border:1px solid {pb_c};border-radius:10px;padding:14px 16px;background:#0d1117">'
+                f'<div style="font-size:30px;font-weight:700;color:{pb_c}">{pb_now:.1f}x</div>'
+                f'<div style="font-size:13px;color:{pb_c};margin:4px 0 8px">'
+                f'歷史第 {pb_rank:.0f} 百分位　{_pct_label(pb_rank)}</div>'
+                f'<div style="font-size:11px;color:#94a3b8">'
+                f'最低 {min(pb_vals):.1f}x　25% {_b25}x　中位 {_b50}x　75% {_b75}x　最高 {max(pb_vals):.1f}x'
+                f'</div></div>',
+                unsafe_allow_html=True
+            )
+            st.markdown(
+                f'<div style="margin-top:6px;background:#1e293b;border-radius:4px;height:7px">'
+                f'<div style="width:{min(pb_rank,100):.0f}%;background:{pb_c};border-radius:4px;height:7px"></div>'
+                f'</div>',
+                unsafe_allow_html=True
+            )
+        else:
+            st.caption('無 PB 資料')
+
+    # PE 歷史走勢圖
+    if len(pe_valid) >= 6:
+        st.markdown('')
+        st.markdown('**PE 歷史走勢**')
+        _pe_dates = [d for d, _ in pe_valid]
+        _pe_vals  = [v for _, v in pe_valid]
+        _all_vals = [v for _, v in pe_valid]
+        _l25 = _pct_val(_all_vals, 25)
+        _l50 = _pct_val(_all_vals, 50)
+        _l75 = _pct_val(_all_vals, 75)
+
+        fig_pe = go.Figure()
+        # 合理區間帶（25%~75%）
+        fig_pe.add_trace(go.Scatter(
+            x=_pe_dates + _pe_dates[::-1],
+            y=[_l75]*len(_pe_dates) + [_l25]*len(_pe_dates),
+            fill='toself', fillcolor='rgba(59,130,246,0.10)',
+            line=dict(width=0), name='合理區間（25%–75%）', showlegend=True
+        ))
+        fig_pe.add_trace(go.Scatter(
+            x=_pe_dates, y=_pe_vals, name='PE',
+            line=dict(color='#f97316', width=1.5)
+        ))
+        for _yv, _lbl, _clr in [(_l25, f'25% {_l25}x', '#22c55e'),
+                                 (_l50, f'中位 {_l50}x', '#facc15'),
+                                 (_l75, f'75% {_l75}x', '#ef4444')]:
+            fig_pe.add_hline(y=_yv, line_dash='dot', line_color=_clr,
+                             annotation_text=_lbl, annotation_position='right',
+                             annotation_font_color=_clr, annotation_font_size=11)
+        if pe_now:
+            fig_pe.add_hline(y=pe_now, line_dash='solid', line_color='#a855f7', line_width=1.5,
+                             annotation_text=f'現在 {pe_now:.1f}x', annotation_position='right',
+                             annotation_font_color='#a855f7', annotation_font_size=11)
+        fig_pe.update_layout(
+            height=260, paper_bgcolor='#0d0f12', plot_bgcolor='#141720',
+            font=dict(color='#e2e8f0', size=11),
+            margin=dict(l=0, r=90, t=20, b=0),
+            xaxis=dict(showgrid=False, tickformat='%y/%m'),
+            yaxis=dict(showgrid=True, gridcolor='#252a38', ticksuffix='x'),
+            legend=dict(orientation='h', y=1.12)
+        )
+        show_chart(fig_pe)
+
+    st.markdown('---')
+
+    # ═══════════════════════════════════════════════════
+    # Section 2：合理價格區間
+    # ═══════════════════════════════════════════════════
+    st.markdown('#### 💰 合理價格區間（三情境 PE 估值）')
+
+    if not eps_now or eps_now <= 0:
+        st.info('EPS 為負或缺失，PE 估值法不適用。可至「基本面」頁籤查看財務狀況。')
+        return
+
+    # EPS 成長趨勢提示（近8筆 vs 更早4筆）
+    _eps_vals = [v for _, v in eps_valid]
+    _growth_hint = None
+    if len(_eps_vals) >= 8:
+        _r = _eps_vals[-4:]
+        _p = _eps_vals[-8:-4]
+        if _p and all(x != 0 for x in _p):
+            _avg_r = sum(_r) / 4
+            _avg_p = sum(_p) / 4
+            if _avg_p != 0:
+                _growth_hint = round((_avg_r - _avg_p) / abs(_avg_p) * 100, 1)
+
+    # 歷史 PE 分位作為預設值
+    _pe_all = [v for _, v in pe_valid] if pe_valid else []
+    _def_bear = float(round(_pct_val(_pe_all, 25) or 15))  if _pe_all else 15.0
+    _def_base = float(round(_pct_val(_pe_all, 50) or 20))  if _pe_all else 20.0
+    _def_bull = float(round(_pct_val(_pe_all, 75) or 28))  if _pe_all else 28.0
+
+    if _growth_hint is not None:
+        _trend_clr = '#22c55e' if _growth_hint > 0 else '#ef4444'
+        st.markdown(
+            f'<span style="font-size:13px;color:{_trend_clr}">📊 EPS 近期趨勢：{_growth_hint:+.1f}%（年化估算）</span>',
+            unsafe_allow_html=True
+        )
+    st.caption('PE 假設預填自歷史 25% / 50% / 75% 分位；EPS 預估可依自身判斷調整')
+    st.markdown('')
+
+    _ca, _cb, _cc = st.columns(3)
+    with _ca:
+        st.markdown('<div style="color:#ef4444;font-weight:600;font-size:15px">🔴 悲觀情境</div>', unsafe_allow_html=True)
+        _pe_bear  = st.number_input('PE 假設', value=_def_bear, min_value=1.0, max_value=999.0,
+                                    step=1.0, key=f'pe_bear_{code}', label_visibility='collapsed')
+        st.caption(f'PE 假設：{_pe_bear:.0f}x')
+        _eps_bear = st.number_input('EPS 預估', value=round(float(eps_now) * 0.9, 1),
+                                    min_value=0.1, step=0.5, key=f'eps_bear_{code}', label_visibility='collapsed')
+        st.caption(f'EPS 預估：{_eps_bear:.1f} 元')
+    with _cb:
+        st.markdown('<div style="color:#facc15;font-weight:600;font-size:15px">🟡 合理情境</div>', unsafe_allow_html=True)
+        _pe_base  = st.number_input('PE 假設', value=_def_base, min_value=1.0, max_value=999.0,
+                                    step=1.0, key=f'pe_base_{code}', label_visibility='collapsed')
+        st.caption(f'PE 假設：{_pe_base:.0f}x')
+        _eps_base = st.number_input('EPS 預估', value=round(float(eps_now), 1),
+                                    min_value=0.1, step=0.5, key=f'eps_base_{code}', label_visibility='collapsed')
+        st.caption(f'EPS 預估：{_eps_base:.1f} 元')
+    with _cc:
+        st.markdown('<div style="color:#22c55e;font-weight:600;font-size:15px">🟢 樂觀情境</div>', unsafe_allow_html=True)
+        _pe_bull  = st.number_input('PE 假設', value=_def_bull, min_value=1.0, max_value=999.0,
+                                    step=1.0, key=f'pe_bull_{code}', label_visibility='collapsed')
+        st.caption(f'PE 假設：{_pe_bull:.0f}x')
+        _eps_bull = st.number_input('EPS 預估', value=round(float(eps_now) * 1.2, 1),
+                                    min_value=0.1, step=0.5, key=f'eps_bull_{code}', label_visibility='collapsed')
+        st.caption(f'EPS 預估：{_eps_bull:.1f} 元')
+
+    _val_bear = round(_pe_bear * _eps_bear)
+    _val_base = round(_pe_base * _eps_base)
+    _val_bull = round(_pe_bull * _eps_bull)
+
+    def _delta_str(cur, tgt):
+        if cur and tgt and tgt > 0:
+            d = (cur - tgt) / tgt * 100
+            clr = '#ef4444' if d > 0 else '#22c55e'
+            return f'<span style="color:{clr}">{d:+.1f}%</span>'
+        return '-'
+
+    st.markdown('')
+    # 結果卡片
+    _r1, _r2, _r3 = st.columns(3)
+    for _col_r, _val, _clr, _label in [
+            (_r1, _val_bear, '#ef4444', '悲觀'),
+            (_r2, _val_base, '#facc15', '合理'),
+            (_r3, _val_bull, '#22c55e', '樂觀')]:
+        _d = (close - _val) / _val * 100 if _val else 0
+        _dc = '#ef4444' if _d > 0 else '#22c55e'
+        _col_r.markdown(
+            f'<div style="border:1px solid {_clr};border-radius:10px;padding:12px 14px;background:#0d1117;text-align:center">'
+            f'<div style="font-size:11px;color:#94a3b8;margin-bottom:4px">{_label}合理股價</div>'
+            f'<div style="font-size:26px;font-weight:700;color:{_clr}">{_val:,}</div>'
+            f'<div style="font-size:11px;color:#94a3b8;margin-top:4px">現價 {close:,.0f} 元</div>'
+            f'<div style="font-size:13px;color:{_dc};margin-top:2px">{_d:+.1f}%</div>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
+
+    st.markdown('')
+
+    # 視覺化對比圖
+    fig_val = go.Figure()
+    fig_val.add_trace(go.Bar(
+        x=['悲觀', '合理', '樂觀'], y=[_val_bear, _val_base, _val_bull],
+        marker_color=['#ef4444', '#facc15', '#22c55e'], opacity=0.75,
+        text=[f'{v:,}' for v in [_val_bear, _val_base, _val_bull]],
+        textposition='outside', textfont=dict(color='#e2e8f0', size=12)
+    ))
+    fig_val.add_hline(
+        y=close, line_color='#a855f7', line_width=2, line_dash='dash',
+        annotation_text=f'現價 {close:,.0f}',
+        annotation_font_color='#a855f7', annotation_font_size=12
+    )
+    fig_val.update_layout(
+        height=240, paper_bgcolor='#0d0f12', plot_bgcolor='#141720',
+        font=dict(color='#e2e8f0', size=12),
+        margin=dict(l=0, r=80, t=40, b=0),
+        yaxis=dict(showgrid=True, gridcolor='#252a38', tickformat=','),
+        showlegend=False
+    )
+    show_chart(fig_val)
+
+    # 總結文字
+    if close and _val_base:
+        if   close > _val_bull: st.error(  f'⚠️ 現價 {close:,} 元高於樂觀估值 {_val_bull:,} 元（{(close-_val_bull)/_val_bull*100:+.1f}%），估值明顯偏貴')
+        elif close > _val_base: st.warning(f'📈 現價 {close:,} 元高於合理估值 {_val_base:,} 元（{(close-_val_base)/_val_base*100:+.1f}%），略微偏貴')
+        elif close > _val_bear: st.success(f'✅ 現價 {close:,} 元介於悲觀與合理估值之間，估值合理偏低')
+        else:                   st.success(f'🟢 現價 {close:,} 元低於悲觀估值 {_val_bear:,} 元，極度低估（或基本面有疑慮，請確認 EPS）')
+
+
+# ── 頁籤四：籌碼面 ──────────────────────
 def render_chips(result, code, name, chips_list, market=None, ownership_override=None):
     st.markdown('#### 三大法人')
 
@@ -4225,25 +4521,27 @@ def main():
     if _mkt_label:
         st.caption(_mkt_label)
 
-    # 六個頁籤（程式說明已移至左側欄）
-    tabs = st.tabs(['📊 技術面', '💰 基本面', '🏦 籌碼面',
-                    '⭐ 綜合評分', '📝 備註欄', '📤 匯出分析'])
+    # 七個頁籤
+    tabs = st.tabs(['📊 技術面', '💰 基本面', '📈 估值分析',
+                    '🏦 籌碼面', '⭐ 綜合評分', '📝 備註欄', '📤 匯出分析'])
 
     with tabs[0]:
         render_technical(result, name)
     with tabs[1]:
         render_fundamental(result, code, name)
     with tabs[2]:
+        render_valuation(result, code, name, fund_data)
+    with tabs[3]:
         from database import get_conn as _gc_tab
         _conn_tab = _gc_tab()
         _mkt_tab = (_conn_tab.execute('SELECT market FROM stocks WHERE code=?', (code,)).fetchone() or [None])[0]
         _conn_tab.close()
         render_chips(result, code, name, chips_list, market=_mkt_tab, ownership_override=_own)
-    with tabs[3]:
-        render_score(result, code, name)
     with tabs[4]:
-        render_notes(result, code, name)
+        render_score(result, code, name)
     with tabs[5]:
+        render_notes(result, code, name)
+    with tabs[6]:
         render_export(result, code, name, chips_list)
 
 if __name__ == '__main__':
