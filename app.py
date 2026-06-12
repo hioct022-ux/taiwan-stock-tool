@@ -2390,7 +2390,7 @@ ETF 持股欄位目前使用**人工整理的備援資料**，並非即時抓取
     ''')
 
 # ── 頁籤七：匯出分析 ────────────────────
-def render_export(result, code, name, chips_list):
+def render_export(result, code, name, chips_list, fund_data=None):
     ind   = result['indicators']
     fund  = result['fund']
     close = result['close']
@@ -2420,6 +2420,43 @@ def render_export(result, code, name, chips_list):
     pb  = fund.get('pb')  or 0.0
     div = fund.get('dividend_yield') or 0.0
     eps = fund.get('eps_ttm') or 0.0
+
+    # ── 估值計算（供匯出用） ─────────────────────
+    def _exp_pct_val(data, p):
+        if not data: return None
+        s = sorted(data); idx = (len(s)-1)*p/100
+        lo = int(idx); hi = min(lo+1, len(s)-1)
+        return round(s[lo] + (s[hi]-s[lo])*(idx-lo), 1)
+
+    def _exp_pct_rank(data, val):
+        if not data or not val: return None
+        return round(len([x for x in data if x <= val]) / len(data) * 100)
+
+    _val_section = '（無歷史估值資料）'
+    if fund_data:
+        _pe_hist = [r['pe'] for r in fund_data if r.get('pe') and 0 < r['pe'] < 500]
+        _pb_hist = [r['pb'] for r in fund_data if r.get('pb') and 0 < r['pb'] < 100]
+        if _pe_hist and pe and eps and eps > 0:
+            _pe_p25 = _exp_pct_val(_pe_hist, 25)
+            _pe_p50 = _exp_pct_val(_pe_hist, 50)
+            _pe_p75 = _exp_pct_val(_pe_hist, 75)
+            _pe_rank = _exp_pct_rank(_pe_hist, pe)
+            _pb_rank = _exp_pct_rank(_pb_hist, pb) if _pb_hist and pb else None
+            _v_bear = round(_pe_p25 * eps * 0.9)
+            _v_base = round(_pe_p50 * eps)
+            _v_bull = round(_pe_p75 * eps * 1.2)
+            def _d(cur, tgt): return f'{(cur-tgt)/tgt*100:+.1f}%' if tgt else 'N/A'
+            _pb_line = f'PB：目前 {pb:.1f}x，歷史第 {_pb_rank} 百分位' if _pb_rank else ''
+            _val_section = f'''PE：目前 {pe:.1f}x，歷史第 {_pe_rank} 百分位（比過去 {"{}%的時間都貴".format(_pe_rank) if _pe_rank >= 50 else "{}%的時間都便宜".format(100-_pe_rank)}）
+{_pb_line}
+歷史PE分位：25%={_pe_p25}x　中位={_pe_p50}x　75%={_pe_p75}x
+合理股價區間（PE分位 × EPS情境）：
+  悲觀（PE {_pe_p25}x × EPS×0.9）：{_v_bear:,}元　現價 {_d(close, _v_bear)}
+  合理（PE {_pe_p50}x × EPS×1.0）：{_v_base:,}元　現價 {_d(close, _v_base)}
+  樂觀（PE {_pe_p75}x × EPS×1.2）：{_v_bull:,}元　現價 {_d(close, _v_bull)}'''
+        elif _pe_hist:
+            _pe_rank = _exp_pct_rank(_pe_hist, pe) if pe else None
+            _val_section = f'PE：目前 {pe:.1f}x，歷史第 {_pe_rank} 百分位\nEPS ≤ 0，PE 估值法不適用'
 
     recent5  = chips_list[-5:]  if len(chips_list) >= 5  else chips_list
     recent20 = chips_list[-20:] if len(chips_list) >= 20 else chips_list
@@ -2451,6 +2488,9 @@ EPS（近四季TTM）：{eps:.2f}元
 本益比（PE）：{pe:.1f}倍
 殖利率：{div:.2f}%
 股價淨值比（PB）：{pb:.2f}倍
+
+【估值分析】
+{_val_section}
 
 【技術面】
 MA5：{ma5}　MA20：{ma20}　MA60：{ma60}
@@ -4554,7 +4594,7 @@ def main():
     with tabs[5]:
         render_notes(result, code, name)
     with tabs[6]:
-        render_export(result, code, name, chips_list)
+        render_export(result, code, name, chips_list, fund_data=fund_data)
 
 if __name__ == '__main__':
     main()
