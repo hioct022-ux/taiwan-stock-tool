@@ -1294,11 +1294,21 @@ def render_valuation(result, code, name, fund_data):
 
     def _pct_label(p):
         if p is None: return ''
-        if p >= 85: return '⚠️ 歷史高位，估值偏貴'
-        if p >= 60: return '📈 略高於歷史中位'
-        if p >= 40: return '⚖️ 接近歷史中位，估值合理'
-        if p >= 20: return '📉 略低於歷史中位'
-        return '✅ 歷史低位，估值偏便宜'
+        if p >= 85: return '⚠️ 估值偏貴'
+        if p >= 60: return '📈 略貴'
+        if p >= 40: return '⚖️ 估值合理'
+        if p >= 20: return '📉 略便宜'
+        return '✅ 估值偏低'
+
+    def _pct_desc(p):
+        """白話描述：比過去幾%的時間便宜/貴"""
+        if p is None: return ''
+        cheap_pct = round(100 - p)
+        exp_pct   = round(p)
+        if p >= 50:
+            return f'比過去 {exp_pct}% 的時間都貴'
+        else:
+            return f'比過去 {cheap_pct}% 的時間都便宜'
 
     # ── 過濾有效歷史數據 ──────────────────────────────
     pe_valid  = [(r['date'], r['pe']) for r in fund_data
@@ -1342,8 +1352,9 @@ def render_valuation(result, code, name, fund_data):
             st.markdown(
                 f'<div style="border:1px solid {pe_c};border-radius:10px;padding:14px 16px;background:#0d1117">'
                 f'<div style="font-size:30px;font-weight:700;color:{pe_c}">{pe_now:.1f}x</div>'
-                f'<div style="font-size:13px;color:{pe_c};margin:4px 0 8px">'
-                f'歷史第 {pe_rank:.0f} 百分位　{_pct_label(pe_rank)}</div>'
+                f'<div style="font-size:14px;font-weight:600;color:{pe_c};margin:4px 0 2px">'
+                f'{_pct_desc(pe_rank)}</div>'
+                f'<div style="font-size:12px;color:{pe_c};margin-bottom:8px">{_pct_label(pe_rank)}</div>'
                 f'<div style="font-size:11px;color:#94a3b8">'
                 f'最低 {min(pe_vals):.1f}x　25% {_p25}x　中位 {_p50}x　75% {_p75}x　最高 {max(pe_vals):.1f}x'
                 f'</div></div>',
@@ -1371,8 +1382,9 @@ def render_valuation(result, code, name, fund_data):
             st.markdown(
                 f'<div style="border:1px solid {pb_c};border-radius:10px;padding:14px 16px;background:#0d1117">'
                 f'<div style="font-size:30px;font-weight:700;color:{pb_c}">{pb_now:.1f}x</div>'
-                f'<div style="font-size:13px;color:{pb_c};margin:4px 0 8px">'
-                f'歷史第 {pb_rank:.0f} 百分位　{_pct_label(pb_rank)}</div>'
+                f'<div style="font-size:14px;font-weight:600;color:{pb_c};margin:4px 0 2px">'
+                f'{_pct_desc(pb_rank)}</div>'
+                f'<div style="font-size:12px;color:{pb_c};margin-bottom:8px">{_pct_label(pb_rank)}</div>'
                 f'<div style="font-size:11px;color:#94a3b8">'
                 f'最低 {min(pb_vals):.1f}x　25% {_b25}x　中位 {_b50}x　75% {_b75}x　最高 {max(pb_vals):.1f}x'
                 f'</div></div>',
