@@ -3054,6 +3054,41 @@ def render_market():
                 _bull_msgs.append(('🟢', f'💡 **融券回補**：{_tpx_date} 融券回補比例 {_ss_ratio:.1f}%（>3% 偏高），'
                                    f'空頭獲利了結，可能提供短線技術性反彈支撐'))
 
+        # ══ Signal 11：選擇權 P/C 比率 ══
+        try:
+            if IS_LOCAL:
+                from database import get_options_pc as _get_pc
+                _pc_data = _get_pc(days=60)
+            else:
+                import json as _jpc
+                _pc_path = os.path.join('data', 'json', 'options_pc.json')
+                with open(_pc_path, encoding='utf-8') as _f:
+                    _pc_data = _jpc.load(_f).get('rows', [])
+            if len(_pc_data) >= 5:
+                _pc_now  = _pc_data[-1].get('pc_ratio', 0)
+                _pc_vals = [r['pc_ratio'] for r in _pc_data if r.get('pc_ratio')]
+                _pc_rank = round(len([x for x in _pc_vals if x <= _pc_now]) / len(_pc_vals) * 100)
+                _pc_date = _pc_data[-1].get('date', '')
+                # 低百分位（樂觀過熱）→ 偏空；高百分位（悲觀避險）→ 偏空；極高（恐慌底）→ 偏多
+                if _pc_rank <= 15:
+                    _bull_score += 0  # 樂觀但過熱，不加分，僅記錄
+                    _bull_msgs.append(('🟡', f'P/C 比率（{_pc_date}）{_pc_now:.2f}，'
+                                       f'歷史第 {_pc_rank} 百分位，市場過度樂觀，留意過熱風險'))
+                elif _pc_rank >= 90:
+                    _bull_score += 1
+                    _bull_msgs.append(('🟢', f'P/C 比率（{_pc_date}）{_pc_now:.2f}，'
+                                       f'歷史第 {_pc_rank} 百分位，市場極度恐慌，可能接近短線底部'))
+                elif _pc_rank >= 75:
+                    _bear_score += 1
+                    _bear_msgs.append(('🟡', f'P/C 比率（{_pc_date}）{_pc_now:.2f}，'
+                                       f'歷史第 {_pc_rank} 百分位，市場避險需求偏高'))
+                elif _pc_rank <= 25:
+                    _bear_score += 1
+                    _bear_msgs.append(('🟡', f'P/C 比率（{_pc_date}）{_pc_now:.2f}，'
+                                       f'歷史第 {_pc_rank} 百分位，市場偏樂觀，注意過熱風險'))
+        except Exception:
+            pass  # 尚無 P/C 資料，靜默略過
+
         # ── 整理訊號清單 ──────────────────────
         _bear_real    = [(i, m) for i, m in _bear_msgs if i != '⚪']
         _bull_real    = [(i, m) for i, m in _bull_msgs if i != '⚪']
@@ -4033,6 +4068,83 @@ def render_market():
         elif mb_chg < -5:
             st.caption(f'📉 融資近20日減少 {abs(mb_chg):.1f}%，籌碼正在清洗，可觀察是否落底。')
         st.caption(f'資料來源：TWSE MI_MARGN｜資料日期：{mm_date}')
+
+    st.markdown('---')
+
+    # ── 選擇權 P/C 比率趨勢 ──────────────────
+    st.markdown('#### 📊 選擇權 P/C 比率（未平倉）')
+    try:
+        if IS_LOCAL:
+            from database import get_options_pc as _get_pc_chart
+            _pc_chart = _get_pc_chart(days=60)
+        else:
+            import json as _jpc2
+            with open(os.path.join('data', 'json', 'options_pc.json'), encoding='utf-8') as _f2:
+                _pc_chart = _jpc2.load(_f2).get('rows', [])[-60:]
+    except Exception:
+        _pc_chart = []
+
+    if not _pc_chart:
+        st.info('尚無 P/C 比率資料，執行「更新並同步」後即可顯示。')
+    else:
+        _pc_vals_all = [r['pc_ratio'] for r in _pc_chart if r.get('pc_ratio')]
+        _pc_latest   = _pc_chart[-1]
+        _pc_now_v    = _pc_latest.get('pc_ratio', 0)
+        _pc_date_v   = _pc_latest.get('date', '')
+        _pc_avg20    = round(sum(_pc_vals_all[-20:]) / min(len(_pc_vals_all), 20), 3) if _pc_vals_all else 0
+
+        def _pc_pct_rank(val):
+            if not _pc_vals_all: return 50
+            return round(len([x for x in _pc_vals_all if x <= val]) / len(_pc_vals_all) * 100)
+
+        _pc_rank_now = _pc_pct_rank(_pc_now_v)
+        _pc_color_now = '#22c55e' if _pc_rank_now <= 25 else '#ef4444' if _pc_rank_now >= 75 else '#3b82f6'
+
+        # 指標卡片
+        _pcc1, _pcc2, _pcc3 = st.columns(3)
+        _pcc1.metric(f'今日 P/C（{_pc_date_v}）', f'{_pc_now_v:.2f}',
+                     help='賣權/買權未平倉比率。>1 代表市場偏向買保護（偏空）；<1 代表偏樂觀')
+        _pcc2.metric('20日均值', f'{_pc_avg20:.2f}')
+        _pcc3.metric('歷史百分位', f'{_pc_rank_now}%',
+                     help=f'比過去 {"{}%的時間都貴（偏空）".format(_pc_rank_now) if _pc_rank_now >= 50 else "{}%的時間都便宜（偏多）".format(100-_pc_rank_now)}')
+
+        # P/C 走勢圖
+        _pc_dates_plot = [r['date'] for r in _pc_chart]
+        _pc_vals_plot  = [r.get('pc_ratio', 0) for r in _pc_chart]
+        _pc_colors     = ['#22c55e' if v < 0.7 else '#ef4444' if v > 1.3 else '#3b82f6'
+                          for v in _pc_vals_plot]
+
+        fig_pc = go.Figure()
+        fig_pc.add_trace(go.Bar(
+            x=_pc_dates_plot, y=_pc_vals_plot,
+            marker_color=_pc_colors, opacity=0.8, name='P/C 比率'
+        ))
+        # 20日均線
+        _pc_ma20 = []
+        for _i in range(len(_pc_vals_plot)):
+            _w = _pc_vals_plot[max(0, _i-19):_i+1]
+            _pc_ma20.append(round(sum(_w) / len(_w), 3))
+        fig_pc.add_trace(go.Scatter(
+            x=_pc_dates_plot, y=_pc_ma20,
+            name='20日均值', line=dict(color='#f97316', width=1.5, dash='dot')
+        ))
+        fig_pc.add_hline(y=0.7, line_dash='dot', line_color='#22c55e',
+                         annotation_text='0.7 偏多', annotation_font_color='#22c55e',
+                         annotation_font_size=11, annotation_position='right')
+        fig_pc.add_hline(y=1.3, line_dash='dot', line_color='#ef4444',
+                         annotation_text='1.3 偏空', annotation_font_color='#ef4444',
+                         annotation_font_size=11, annotation_position='right')
+        fig_pc.update_layout(
+            height=240, paper_bgcolor='#0d0f12', plot_bgcolor='#141720',
+            font=dict(color='#e2e8f0', size=11),
+            margin=dict(l=0, r=80, t=20, b=0),
+            xaxis=dict(showgrid=False, tickformat='%m/%d'),
+            yaxis=dict(showgrid=True, gridcolor='#252a38'),
+            legend=dict(orientation='h', y=1.12),
+            barmode='overlay'
+        )
+        show_chart(fig_pc)
+        st.caption('綠＝偏多（<0.7）　藍＝中性（0.7–1.3）　紅＝偏空（>1.3）　橘虛線＝20日均值　｜　資料來源：TAIFEX')
 
     st.markdown('---')
 

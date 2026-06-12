@@ -236,6 +236,16 @@ def init_db():
         )
     ''')
 
+    # ── 選擇權 P/C 比率 ──
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS options_pc_ratio (
+            date      TEXT PRIMARY KEY,
+            call_oi   INTEGER DEFAULT 0,
+            put_oi    INTEGER DEFAULT 0,
+            pc_ratio  REAL
+        )
+    ''')
+
     # ── 欄位 migration（舊版 DB 相容）──
     migrations = [
         'ALTER TABLE exdividend ADD COLUMN is_confirmed INTEGER DEFAULT 0',
@@ -798,6 +808,37 @@ def get_market_margin_last_date():
     row = conn.execute('SELECT MAX(date) FROM market_margin').fetchone()
     conn.close()
     return row[0] if row and row[0] else None
+
+# ── 選擇權 P/C 比率 ─────────────────────
+def save_options_pc(date: str, call_oi: int, put_oi: int, pc_ratio: float) -> None:
+    conn = get_conn()
+    conn.execute('''
+        INSERT OR REPLACE INTO options_pc_ratio (date, call_oi, put_oi, pc_ratio)
+        VALUES (?, ?, ?, ?)
+    ''', (date, call_oi, put_oi, round(pc_ratio, 4)))
+    conn.commit()
+    conn.close()
+
+def get_options_pc(days: int = 60) -> list:
+    """回傳近 days 筆，升序。key：date, call_oi, put_oi, pc_ratio"""
+    conn = get_conn()
+    rows = conn.execute('''
+        SELECT date, call_oi, put_oi, pc_ratio
+        FROM options_pc_ratio
+        ORDER BY date DESC
+        LIMIT ?
+    ''', (days,)).fetchall()
+    conn.close()
+    return [dict(r) for r in reversed(rows)]
+
+def get_options_pc_last_date() -> str | None:
+    conn = get_conn()
+    row = conn.execute(
+        'SELECT date FROM options_pc_ratio ORDER BY date DESC LIMIT 1'
+    ).fetchone()
+    conn.close()
+    return row['date'] if row else None
+
 
 # ── 大盤本益比 ───────────────────────────
 def save_market_pe(date, pe_ratio, pb_ratio=None, div_yield=None):

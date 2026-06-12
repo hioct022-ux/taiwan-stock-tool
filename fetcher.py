@@ -1057,6 +1057,19 @@ def fetch_all():
 
     time.sleep(1)
 
+    # ── 選擇權 P/C 比率 ──────────────────────
+    try:
+        from database import get_options_pc
+        pc_data = get_options_pc(days=5)
+        if len(pc_data) < 3:
+            fetch_options_pc_history(months=3)
+        else:
+            fetch_options_pc()
+    except Exception as e:
+        errors.append(f'P/C比率：{e}')
+
+    time.sleep(1)
+
     # ── 除權息資料（最後執行，避免被 TWSE 限流）──
     time.sleep(3)
     try:
@@ -1392,6 +1405,108 @@ def fetch_futures_institutional_history(months=3):
             print(f'  {month_start.strftime("%Y/%m")} 失敗：{e}')
 
     print(f'台指期未平倉歷史：共 {total} 筆')
+    return total
+
+
+# ── 選擇權 P/C 比率 ───────────────────────
+def _parse_pc_csv(content: bytes) -> list:
+    """
+    解析 TAIFEX pcRatioDown CSV（Big5），回傳 list of dict。
+    欄位：日期, 買權成交量, 賣權成交量, 買賣權成交量比率%,
+          買權未平倉量, 賣權未平倉量, 買賣權未平倉量比率%
+    """
+    text = content.decode('big5', errors='ignore')
+    rows = []
+    for line in text.splitlines():
+        cols = [c.strip().replace(',', '') for c in line.split(',')]
+        if len(cols) < 7:
+            continue
+        # 日期欄：民國年 1150528 或西元年 20260528
+        raw_date = cols[0].strip()
+        try:
+            if len(raw_date) == 7 and raw_date[0] == '1':
+                date = f'{int(raw_date[:3])+1911}-{raw_date[3:5]}-{raw_date[5:7]}'
+            elif len(raw_date) == 8 and raw_date[0] == '2':
+                date = f'{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:8]}'
+            else:
+                continue
+            call_oi = int(cols[4]) if cols[4].lstrip('-').isdigit() else 0
+            put_oi  = int(cols[5]) if cols[5].lstrip('-').isdigit() else 0
+            # 比率欄已是百分比值，例如 71.20 代表 P/C = 0.7120
+            pc_pct  = float(cols[6]) if cols[6] else 0.0
+            pc_ratio = round(pc_pct / 100, 4)
+            if call_oi > 0 and put_oi > 0:
+                rows.append({'date': date, 'call_oi': call_oi,
+                             'put_oi': put_oi, 'pc_ratio': pc_ratio})
+        except (ValueError, IndexError):
+            continue
+    return rows
+
+
+def fetch_options_pc():
+    """抓取今日（或最近一交易日）選擇權 P/C 比率"""
+    from database import save_options_pc, get_options_pc_last_date
+    print('抓取選擇權 P/C 比率...')
+    url   = 'https://www.taifex.com.tw/cht/3/pcRatioDown'
+    today = datetime.now().strftime('%Y/%m/%d')
+    try:
+        r = requests.get(url, params={
+            'queryStartDate': today,
+            'queryEndDate':   today,
+        }, headers=HEADERS, timeout=15)
+        rows = _parse_pc_csv(r.content)
+        if not rows:
+            # 當日可能還沒資料，試前一交易日
+            prev = (datetime.now() - timedelta(days=1)).strftime('%Y/%m/%d')
+            r2 = requests.get(url, params={
+                'queryStartDate': prev, 'queryEndDate': prev,
+            }, headers=HEADERS, timeout=15)
+            rows = _parse_pc_csv(r2.content)
+        count = 0
+        for row in rows:
+            save_options_pc(row['date'], row['call_oi'], row['put_oi'], row['pc_ratio'])
+            count += 1
+        print(f'P/C 比率：{count} 筆')
+    except Exception as e:
+        print(f'P/C 比率失敗：{e}')
+
+
+def fetch_options_pc_history(months=3):
+    """補抓選擇權 P/C 比率歷史（逐月分批，最多 30 天/次）"""
+    import calendar
+    from database import save_options_pc
+    print(f'補抓 P/C 比率歷史（{months} 個月）...')
+    url   = 'https://www.taifex.com.tw/cht/3/pcRatioDown'
+    total = 0
+    now   = datetime.now()
+
+    month_ranges = []
+    for i in range(months - 1, -1, -1):
+        m = now.month - i
+        y = now.year
+        while m <= 0:
+            m += 12
+            y -= 1
+        month_start = datetime(y, m, 1)
+        month_end   = now if i == 0 else datetime(y, m, calendar.monthrange(y, m)[1])
+        month_ranges.append((month_start, month_end))
+
+    for ms, me in month_ranges:
+        try:
+            r = requests.get(url, params={
+                'queryStartDate': ms.strftime('%Y/%m/%d'),
+                'queryEndDate':   me.strftime('%Y/%m/%d'),
+            }, headers=HEADERS, timeout=20)
+            rows = _parse_pc_csv(r.content)
+            for row in rows:
+                save_options_pc(row['date'], row['call_oi'], row['put_oi'], row['pc_ratio'])
+                total += 1
+            print(f'  {ms.strftime("%Y/%m")}：{len(rows)} 筆')
+            time.sleep(0.5)
+        except Exception as e:
+            print(f'  {ms.strftime("%Y/%m")} 失敗：{e}')
+
+    print(f'P/C 比率歷史：共 {total} 筆')
     return total
 
 

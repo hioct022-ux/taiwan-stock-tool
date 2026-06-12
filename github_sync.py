@@ -240,6 +240,18 @@ def export_to_json(code=None):
     except Exception as e:
         print(f'匯出三大法人現貨彙總失敗：{e}')
 
+    try:
+        from database import get_options_pc
+        pc_rows = get_options_pc(days=120)
+        if pc_rows:
+            with open(os.path.join(JSON_DIR, 'options_pc.json'), 'w', encoding='utf-8') as f:
+                json.dump({'rows': pc_rows,
+                           'exported_at': datetime.now().strftime('%Y-%m-%d %H:%M')},
+                          f, ensure_ascii=False)
+            print(f'匯出 P/C 比率：{len(pc_rows)} 天')
+    except Exception as e:
+        print(f'匯出 P/C 比率失敗：{e}')
+
     print(f'JSON 匯出完成，路徑：{JSON_DIR}')
 
 # ── 使用 git CLI 推送（推薦，不需要 Token）──
@@ -576,6 +588,24 @@ def init_cloud_data():
     except Exception as e:
         print(f'  三大法人現貨彙總匯入失敗：{e}')
 
+    # ── 選擇權 P/C 比率（每次更新）──
+    try:
+        pc_path = os.path.join(JSON_DIR, 'options_pc.json')
+        with open(pc_path, encoding='utf-8') as f:
+            pc = json.load(f)
+        rows = pc.get('rows', [])
+        if rows:
+            from database import save_options_pc, get_conn as _gc_pc
+            _pc = _gc_pc()
+            _pc.execute('DELETE FROM options_pc_ratio')
+            _pc.commit()
+            _pc.close()
+            for r in rows:
+                save_options_pc(r['date'], r['call_oi'], r['put_oi'], r['pc_ratio'])
+            print(f'  P/C 比率：{len(rows)} 天')
+    except Exception as e:
+        print(f'  P/C 比率匯入失敗：{e}')
+
     # ── 各股票歷史資料（每次都更新）──
     imported = 0
     for fname in os.listdir(JSON_DIR):
@@ -584,7 +614,7 @@ def init_cloud_data():
         code = fname[:-5]
         if code in ('stocks', 'watchlist', 'meta', 't86', 'exdividend', 'TAIEX',
                     'market_margin', 'futures_institutional', 'market_pe', 'chips_market_agg',
-                    'watchlist_tags'):
+                    'watchlist_tags', 'options_pc'):
             continue
         try:
             with open(os.path.join(JSON_DIR, fname), encoding='utf-8') as f:
