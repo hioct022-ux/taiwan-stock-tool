@@ -2590,6 +2590,7 @@ def _fetch_global_markets():
 
 def render_market():
     st.markdown('## 📊 大盤走勢分析（加權指數）')
+    _market_score_placeholder = st.empty()   # ← 大盤評分佔位符，稍後填入
 
     # ── 外部市場警示 ─────────────────────────
     st.markdown('#### 🌐 外部市場（即時）')
@@ -3125,8 +3126,40 @@ def render_market():
 
         st.markdown('')
 
-        # ── 綜合判斷（門檻降低，讓正常行情也能判斷方向）────
+        # ── 大盤評分（填入頂部佔位符）────────────
         _net = _bear_score - _bull_score  # 正 = 偏空，負 = 偏多
+        _ms  = max(0, min(100, 50 - _net * 5))   # 0–100 分
+
+        if   _ms >= 85: _ms_grade = '強烈偏多'; _ms_c = '#22c55e'; _ms_bg = '#0a2010'
+        elif _ms >= 70: _ms_grade = '偏多';     _ms_c = '#4ade80'; _ms_bg = '#0a1a0a'
+        elif _ms >= 55: _ms_grade = '中性偏多'; _ms_c = '#86efac'; _ms_bg = '#0a150a'
+        elif _ms >= 45: _ms_grade = '中性';     _ms_c = '#94a3b8'; _ms_bg = '#1a1f2e'
+        elif _ms >= 35: _ms_grade = '中性偏空'; _ms_c = '#f59e0b'; _ms_bg = '#1a1505'
+        elif _ms >= 20: _ms_grade = '偏空';     _ms_c = '#f97316'; _ms_bg = '#2d1500'
+        else:           _ms_grade = '強烈偏空'; _ms_c = '#ef4444'; _ms_bg = '#2d0a0a'
+
+        if   _ms >= 70: _ms_rec = '大盤條件良好，個股 ≥65 分可積極考慮進場'
+        elif _ms >= 55: _ms_rec = '大盤偏多，個股建議門檻提高至 70 分'
+        elif _ms >= 45: _ms_rec = '大盤中性，個股建議門檻提高至 75 分，保守操作'
+        else:           _ms_rec = '大盤偏空，建議暫停進場，觀望為主'
+
+        _market_score_placeholder.markdown(
+            f'<div style="background:{_ms_bg};border:2px solid {_ms_c};'
+            f'border-radius:10px;padding:14px 18px;margin-bottom:16px">'
+            f'<div style="display:flex;align-items:center;gap:20px">'
+            f'<div style="text-align:center;min-width:70px">'
+            f'<div style="font-size:11px;color:#8892a4;margin-bottom:2px">大盤評分</div>'
+            f'<div style="font-size:40px;font-weight:800;color:{_ms_c};line-height:1">{_ms}</div>'
+            f'<div style="font-size:10px;color:#475569;margin-top:2px">滿分100</div></div>'
+            f'<div style="border-left:1px solid #2d3748;padding-left:20px;flex:1">'
+            f'<div style="font-size:18px;font-weight:700;color:{_ms_c}">{_ms_grade}</div>'
+            f'<div style="font-size:12px;color:#94a3b8;margin-top:6px">{_ms_rec}</div>'
+            f'<div style="font-size:11px;color:#475569;margin-top:4px">'
+            f'空方 +{_bear_score} ／ 多方 +{_bull_score}　｜　淨值 {_net:+d}</div>'
+            f'</div></div></div>',
+            unsafe_allow_html=True)
+
+        # ── 綜合判斷（門檻降低，讓正常行情也能判斷方向）────
 
         if _net >= 6:
             _vcolor = '#ef4444'; _vbg = '#2d0a0a'
