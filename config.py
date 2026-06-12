@@ -66,9 +66,10 @@ BBAND_PERIOD = 20
 BBAND_STD    = 2
 
 # ── 評分權重 ────────────────────────────
-WEIGHT_FUNDAMENTAL = 0.40   # 基本面 40%
-WEIGHT_TECHNICAL   = 0.35   # 技術面 35%
-WEIGHT_CHIPS       = 0.25   # 籌碼面 25%
+# 2026-06 調整：強化短線預判，提升技術面與籌碼面，降低基本面
+WEIGHT_FUNDAMENTAL = 0.25   # 基本面 25%
+WEIGHT_TECHNICAL   = 0.40   # 技術面 40%
+WEIGHT_CHIPS       = 0.35   # 籌碼面 35%
 
 # ── 進出場參數 ──────────────────────────
 STOP_LOSS_RATIO  = 0.92     # 停損：買進價 × 0.92（跌8%停損）
