@@ -386,6 +386,12 @@ def render_sidebar():
             st.session_state.pop('current_code', None)
             st.rerun()
 
+        # 投資策略
+        if st.button('📋 投資策略', use_container_width=True):
+            st.session_state['page'] = 'strategy'
+            st.session_state.pop('current_code', None)
+            st.rerun()
+
         # 法人排行
         if st.button('🏆 法人買超排行榜', use_container_width=True):
             st.session_state['page'] = 'ranking'
@@ -3130,6 +3136,12 @@ def render_market():
         _net = _bear_score - _bull_score  # 正 = 偏空，負 = 偏多
         _ms  = max(0, min(100, 50 - _net * 5))   # 0–100 分
 
+        # 存入 session_state，供策略頁使用
+        st.session_state['_market_ms']   = _ms
+        st.session_state['_market_net']  = _net
+        st.session_state['_market_bear'] = _bear_score
+        st.session_state['_market_bull'] = _bull_score
+
         if   _ms >= 85: _ms_grade = '強烈偏多'; _ms_c = '#22c55e'; _ms_bg = '#0a2010'
         elif _ms >= 70: _ms_grade = '偏多';     _ms_c = '#4ade80'; _ms_bg = '#0a1a0a'
         elif _ms >= 55: _ms_grade = '中性偏多'; _ms_c = '#86efac'; _ms_bg = '#0a150a'
@@ -4573,6 +4585,163 @@ def render_ranking():
             st.markdown(html_table, unsafe_allow_html=True)
             st.caption('💡 殖利率 = 權息值 ÷ 前收盤價　｜　✅ 正式 = TWSE 已確認　📋 預告 = 早期公告')
 
+# ── 投資策略頁 ──────────────────────────
+def render_strategy():
+    st.markdown('## 📋 投資策略')
+
+    # ── 大盤評分區塊 ──
+    _ms   = st.session_state.get('_market_ms')
+    _net  = st.session_state.get('_market_net')
+    _bear = st.session_state.get('_market_bear')
+    _bull = st.session_state.get('_market_bull')
+
+    if _ms is None:
+        st.info('請先前往「📊 大盤分析」頁面，系統即可自動帶入今日大盤評分。')
+        _threshold = 65  # 預設門檻
+    else:
+        if   _ms >= 85: _ms_grade = '強烈偏多'; _ms_c = '#22c55e'; _ms_bg = '#0a2010'
+        elif _ms >= 70: _ms_grade = '偏多';     _ms_c = '#4ade80'; _ms_bg = '#0a1a0a'
+        elif _ms >= 55: _ms_grade = '中性偏多'; _ms_c = '#86efac'; _ms_bg = '#0a150a'
+        elif _ms >= 45: _ms_grade = '中性';     _ms_c = '#94a3b8'; _ms_bg = '#1a1f2e'
+        elif _ms >= 35: _ms_grade = '中性偏空'; _ms_c = '#f59e0b'; _ms_bg = '#1a1505'
+        elif _ms >= 20: _ms_grade = '偏空';     _ms_c = '#f97316'; _ms_bg = '#2d1500'
+        else:           _ms_grade = '強烈偏空'; _ms_c = '#ef4444'; _ms_bg = '#2d0a0a'
+
+        if   _ms >= 70: _threshold = 65;  _th_note = '≥65 分可進場'
+        elif _ms >= 55: _threshold = 70;  _th_note = '建議提高至 ≥70 分'
+        elif _ms >= 45: _threshold = 75;  _th_note = '建議提高至 ≥75 分'
+        else:           _threshold = 999; _th_note = '建議暫停進場'
+
+        st.markdown(
+            f'<div style="background:{_ms_bg};border:2px solid {_ms_c};'
+            f'border-radius:10px;padding:14px 18px;margin-bottom:16px">'
+            f'<div style="display:flex;align-items:center;gap:24px;flex-wrap:wrap">'
+            f'<div style="text-align:center;min-width:70px">'
+            f'<div style="font-size:11px;color:#8892a4;margin-bottom:2px">今日大盤評分</div>'
+            f'<div style="font-size:40px;font-weight:800;color:{_ms_c};line-height:1">{_ms}</div>'
+            f'<div style="font-size:10px;color:#475569;margin-top:2px">滿分100</div></div>'
+            f'<div style="border-left:1px solid #2d3748;padding-left:20px;flex:1">'
+            f'<div style="font-size:18px;font-weight:700;color:{_ms_c}">{_ms_grade}</div>'
+            f'<div style="font-size:13px;color:#94a3b8;margin-top:6px">個股門檻：{_th_note}</div>'
+            f'<div style="font-size:11px;color:#475569;margin-top:4px">'
+            f'空方 +{_bear} ／ 多方 +{_bull}　｜　淨值 {_net:+d}</div>'
+            f'</div></div></div>',
+            unsafe_allow_html=True)
+
+    st.markdown('---')
+
+    # ── 今日進場訊號 ──
+    st.markdown('### 🎯 今日自選股訊號')
+
+    watchlist = get_watchlist()
+    if not watchlist:
+        st.info('自選股清單為空，請先新增股票。')
+    elif _threshold >= 999:
+        st.warning('大盤偏空，建議今日暫停進場，持股設好停損觀望。')
+    else:
+        # 計算所有自選股評分
+        _score_cache = dict(st.session_state.get('_wl_scores', {}))
+        _need = [w for w in watchlist if w['code'] not in _score_cache]
+        if _need:
+            with st.spinner(f'計算評分中（{len(_need)} 支）...'):
+                for w in _need:
+                    try:
+                        if IS_LOCAL:
+                            _p   = get_prices(w['code'], days=400)
+                            _f   = get_fundamentals(w['code'])
+                            _c   = get_chips(w['code'], days=65)
+                            _own = get_ownership(w['code'])
+                        else:
+                            _p, _f, _c_raw, _own = _read_stock_json(w['code'])
+                            _c = _c_raw[-65:] if len(_c_raw) > 65 else _c_raw
+                        _fpct = round(_own['foreign_pct'], 1) if _own else 52
+                        _ownership = {'foreign': _fpct, 'trust': 5, 'dealer': 2,
+                                      'director': 12, 'retail': max(0, 100 - _fpct - 5 - 2 - 12)}
+                        _r = full_score(_p, _f, _c, _ownership)
+                        _score_cache[w['code']] = _r['total_score'] if _r else 0
+                    except Exception:
+                        _score_cache[w['code']] = 0
+            st.session_state['_wl_scores'] = _score_cache
+
+        # 分成符合 / 不符合
+        qualified = [(w, _score_cache.get(w['code'], 0))
+                     for w in watchlist if _score_cache.get(w['code'], 0) >= _threshold]
+        qualified.sort(key=lambda x: x[1], reverse=True)
+        others    = [(w, _score_cache.get(w['code'], 0))
+                     for w in watchlist if _score_cache.get(w['code'], 0) < _threshold]
+        others.sort(key=lambda x: x[1], reverse=True)
+
+        if qualified:
+            st.markdown(f'**✅ 符合進場條件（評分 ≥{_threshold}）　共 {len(qualified)} 檔**')
+            _rows = ''
+            for w, sc in qualified:
+                if   sc >= 85: _sc_c = '#22c55e'
+                elif sc >= 70: _sc_c = '#4ade80'
+                elif sc >= 65: _sc_c = '#86efac'
+                else:          _sc_c = '#94a3b8'
+                _rows += (f'<tr>'
+                          f'<td style="padding:8px 12px;font-weight:600">{w["code"]}</td>'
+                          f'<td style="padding:8px 12px">{w["name"]}</td>'
+                          f'<td style="padding:8px 12px;text-align:center;'
+                          f'font-weight:800;color:{_sc_c}">{sc}</td>'
+                          f'<td style="padding:8px 12px;font-size:11px;color:#64748b">'
+                          f'{"、".join(w.get("tags", [])) or "—"}</td>'
+                          f'</tr>')
+            st.markdown(
+                f'<table style="width:100%;border-collapse:collapse;'
+                f'background:#0f172a;border-radius:8px;overflow:hidden">'
+                f'<thead><tr style="background:#1e293b;color:#94a3b8;font-size:12px">'
+                f'<th style="padding:8px 12px;text-align:left">代號</th>'
+                f'<th style="padding:8px 12px;text-align:left">名稱</th>'
+                f'<th style="padding:8px 12px;text-align:center">評分</th>'
+                f'<th style="padding:8px 12px;text-align:left">標籤</th>'
+                f'</tr></thead><tbody>{_rows}</tbody></table>',
+                unsafe_allow_html=True)
+            st.caption('進場時機：確認訊號後隔日買入，不追漲。停損設進場價 -8%。')
+        else:
+            st.info(f'目前無自選股達到 {_threshold} 分門檻，建議觀望。')
+
+        if others:
+            with st.expander(f'其餘自選股（{len(others)} 檔，未達門檻）'):
+                for w, sc in others:
+                    st.markdown(f'`{w["code"]}` {w["name"]} — **{sc} 分**')
+
+    st.markdown('---')
+
+    # ── 策略規則（靜態參考）──
+    st.markdown('### 📖 策略規則')
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown('''
+**進場**
+- 大盤 ≥70 → 個股 ≥65 分
+- 大盤 55–69 → 個股 ≥70 分
+- 大盤 45–54 → 個股 ≥75 分
+- 大盤 <45 → 暫停進場
+
+**資金配置**
+- 單檔上限：總資金 20%
+- 同時持股：最多 5 檔
+- 大盤偏空時縮減至 50% 以下
+''')
+    with col2:
+        st.markdown('''
+**持有管理**
+- 停損：跌 8% 立即出場（最優先）
+- 標準持有：10 個交易日
+- 到期重新評分：≥65 續抱，<65 出場
+- 不設固定停利
+
+**回測依據（策略 C）**
+- 157+ 筆歷史交易
+- 勝率 60.6%　期望值 +10.20%
+- 續抱觸發時勝率 83%、均報酬 +27%
+''')
+
+    st.caption('回測基於 2024–2026 台股多頭環境，建議每 6 個月重新驗證。')
+
+
 # ── 主程式 ──────────────────────────────
 def main():
     render_sidebar()
@@ -4587,6 +4756,11 @@ def main():
     # 排行榜頁
     if page == 'ranking':
         render_ranking()
+        return
+
+    # 投資策略頁
+    if page == 'strategy':
+        render_strategy()
         return
 
     # 程式說明頁
