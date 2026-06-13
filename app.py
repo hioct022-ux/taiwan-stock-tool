@@ -2119,6 +2119,61 @@ def render_score(result, code, name, prices=None, fund_data=None, chips_all=None
         unsafe_allow_html=True
     )
 
+    # ── 評分歷史走勢（總分正下方）──
+    if prices and fund_data is not None and chips_all is not None and ownership:
+        _cache_key = f'_score_hist_{code}'
+        if _cache_key not in st.session_state:
+            _hist = []
+            _STEP = 3
+            _WIN  = 90
+            _target_dates = prices[-_WIN::_STEP] if len(prices) > _WIN else prices[::_STEP]
+            with st.spinner(f'計算近 {_WIN} 日評分走勢...'):
+                for _bar in _target_dates:
+                    _d = _bar['date']
+                    _p_s = [p for p in prices    if p['date'] <= _d]
+                    _f_s = [f for f in fund_data if f['date'] <= _d]
+                    _c_s = [c for c in chips_all if c['date'] <= _d][-65:]
+                    if len(_p_s) < 30:
+                        continue
+                    _r = full_score(_p_s, _f_s, _c_s, ownership)
+                    if _r:
+                        _hist.append({'date': _d, 'total': _r['total_score'],
+                                      'tech': _r['tech_score'], 'fund': _r['fund_score'],
+                                      'chips': _r['chip_score']})
+            st.session_state[_cache_key] = _hist
+        else:
+            _hist = st.session_state[_cache_key]
+
+        if _hist:
+            import plotly.graph_objects as go
+            _dates  = [h['date']  for h in _hist]
+            _totals = [h['total'] for h in _hist]
+            _show_sub = st.checkbox('顯示分項走勢', key=f'score_hist_sub_{code}')
+            fig = go.Figure()
+            if _show_sub:
+                fig.add_trace(go.Scatter(x=_dates, y=[h['tech']  for h in _hist],
+                    name='技術面', line=dict(color='#a855f7', width=1, dash='dot')))
+                fig.add_trace(go.Scatter(x=_dates, y=[h['fund']  for h in _hist],
+                    name='基本面', line=dict(color='#3b82f6', width=1, dash='dot')))
+                fig.add_trace(go.Scatter(x=_dates, y=[h['chips'] for h in _hist],
+                    name='籌碼面', line=dict(color='#f59e0b', width=1, dash='dot')))
+            fig.add_trace(go.Scatter(
+                x=_dates, y=_totals, name='綜合評分',
+                line=dict(color='#22c55e', width=2.5), mode='lines+markers',
+                marker=dict(size=5,
+                    color=['#22c55e' if s >= 65 else '#ef4444' for s in _totals])))
+            fig.add_hline(y=65, line_dash='dash', line_color='#f97316',
+                          annotation_text='進場門檻 65', annotation_position='left')
+            fig.update_layout(
+                height=240, margin=dict(t=10, b=10, l=0, r=0),
+                paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                font=dict(color='#94a3b8'), yaxis=dict(range=[0, 105]),
+                legend=dict(orientation='h', y=1.15))
+            fig.update_xaxes(showgrid=False)
+            fig.update_yaxes(showgrid=True, gridcolor='#1e293b')
+            show_chart(fig, key=f'score_hist_chart_{code}')
+            st.caption(f'近90日走勢，每3日計算一次。綠點 ≥65分，紅點 <65分。')
+
     # 分項評分
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -2181,83 +2236,6 @@ def render_score(result, code, name, prices=None, fund_data=None, chips_all=None
         css = 'condition-pass' if c['status'] == 'pass' else 'condition-warn'
         st.markdown(f'<div class="{css}">{c["text"]}</div>',
                     unsafe_allow_html=True)
-
-    # ── 評分歷史走勢 ──
-    if prices and fund_data is not None and chips_all is not None and ownership:
-        st.markdown('---')
-        st.markdown('#### 📈 評分歷史走勢')
-
-        _cache_key = f'_score_hist_{code}'
-        if _cache_key not in st.session_state:
-            _hist = []
-            _STEP = 3          # 每隔 3 天算一次，加速計算
-            _WIN  = 90         # 回溯天數
-            _target_dates = prices[-_WIN::_STEP] if len(prices) > _WIN else prices[::_STEP]
-
-            with st.spinner(f'計算近 {_WIN} 日評分走勢...'):
-                for _bar in _target_dates:
-                    _d = _bar['date']
-                    _p_s = [p for p in prices    if p['date'] <= _d]
-                    _f_s = [f for f in fund_data if f['date'] <= _d]
-                    _c_s = [c for c in chips_all if c['date'] <= _d][-65:]
-                    if len(_p_s) < 30:
-                        continue
-                    _r = full_score(_p_s, _f_s, _c_s, ownership)
-                    if _r:
-                        _hist.append({
-                            'date':  _d,
-                            'total': _r['total_score'],
-                            'tech':  _r['tech_score'],
-                            'fund':  _r['fund_score'],
-                            'chips': _r['chip_score'],
-                        })
-            st.session_state[_cache_key] = _hist
-        else:
-            _hist = st.session_state[_cache_key]
-
-        if _hist:
-            import plotly.graph_objects as go
-            _dates  = [h['date']  for h in _hist]
-            _totals = [h['total'] for h in _hist]
-
-            _show_sub = st.checkbox('顯示分項走勢（技術／基本面／籌碼）',
-                                    key=f'score_hist_sub_{code}')
-
-            fig = go.Figure()
-
-            if _show_sub:
-                fig.add_trace(go.Scatter(x=_dates, y=[h['tech']  for h in _hist],
-                    name='技術面', line=dict(color='#a855f7', width=1, dash='dot')))
-                fig.add_trace(go.Scatter(x=_dates, y=[h['fund']  for h in _hist],
-                    name='基本面', line=dict(color='#3b82f6', width=1, dash='dot')))
-                fig.add_trace(go.Scatter(x=_dates, y=[h['chips'] for h in _hist],
-                    name='籌碼面', line=dict(color='#f59e0b', width=1, dash='dot')))
-
-            # 總分依高低著色
-            fig.add_trace(go.Scatter(
-                x=_dates, y=_totals, name='綜合評分',
-                line=dict(color='#22c55e', width=2.5),
-                mode='lines+markers',
-                marker=dict(size=5,
-                    color=['#22c55e' if s >= 65 else '#ef4444' for s in _totals])
-            ))
-
-            # 進場門檻線
-            fig.add_hline(y=65, line_dash='dash', line_color='#f97316',
-                          annotation_text='進場門檻 65', annotation_position='left')
-
-            fig.update_layout(
-                height=260, margin=dict(t=10, b=10, l=0, r=0),
-                paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-                font=dict(color='#94a3b8'), yaxis=dict(range=[0, 105]),
-                legend=dict(orientation='h', y=1.12)
-            )
-            fig.update_xaxes(showgrid=False)
-            fig.update_yaxes(showgrid=True, gridcolor='#1e293b')
-            show_chart(fig, key=f'score_hist_chart_{code}')
-            st.caption(f'每 {_STEP} 個交易日計算一次，共 {len(_hist)} 個資料點。綠點 ≥65 分，紅點 <65 分。')
-        else:
-            st.info('歷史資料不足，無法顯示評分走勢。')
 
 # ── 頁籤五：備註欄 ──────────────────────
 def render_notes(result, code, name):
