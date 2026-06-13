@@ -4701,9 +4701,41 @@ def render_strategy():
         else:
             st.info(f'目前無自選股達到 {_threshold} 分門檻，建議觀望。')
 
-        if others:
-            with st.expander(f'其餘自選股（{len(others)} 檔，未達門檻）'):
-                for w, sc in others:
+        # ── 退場警示 ──
+        danger  = [(w, sc) for w, sc in others if sc < 45]
+        caution = [(w, sc) for w, sc in others if 45 <= sc < 55]
+        watch   = [(w, sc) for w, sc in others if 55 <= sc < _threshold]
+
+        if danger or caution:
+            st.markdown('**⚠️ 退場警示　若持有以下股票，建議重新評估**')
+            _warn_rows = ''
+            for w, sc in danger + caution:
+                if sc < 45:
+                    _wc = '#ef4444'; _wbg = '#2d0a0a'; _wlabel = '🔴 偏空'
+                else:
+                    _wc = '#f59e0b'; _wbg = '#1a1505'; _wlabel = '🟡 轉弱'
+                _warn_rows += (
+                    f'<tr style="background:{_wbg}">'
+                    f'<td style="padding:8px 12px;font-weight:600;color:{_wc}">{w["code"]}</td>'
+                    f'<td style="padding:8px 12px;color:{_wc}">{w["name"]}</td>'
+                    f'<td style="padding:8px 12px;text-align:center;font-weight:800;color:{_wc}">{sc}</td>'
+                    f'<td style="padding:8px 12px;font-size:12px;color:{_wc}">{_wlabel}</td>'
+                    f'</tr>')
+            st.markdown(
+                f'<table style="width:100%;border-collapse:collapse;'
+                f'background:#0f172a;border-radius:8px;overflow:hidden;margin-bottom:8px">'
+                f'<thead><tr style="background:#1e293b;color:#94a3b8;font-size:12px">'
+                f'<th style="padding:8px 12px;text-align:left">代號</th>'
+                f'<th style="padding:8px 12px;text-align:left">名稱</th>'
+                f'<th style="padding:8px 12px;text-align:center">評分</th>'
+                f'<th style="padding:8px 12px;text-align:left">狀態</th>'
+                f'</tr></thead><tbody>{_warn_rows}</tbody></table>',
+                unsafe_allow_html=True)
+            st.caption('⚠️ 警示基於當前評分系統，不代表一定虧損。停損（-8%）仍是最優先出場條件。')
+
+        if watch:
+            with st.expander(f'觀察中（{len(watch)} 檔，分數偏低但尚未警示）'):
+                for w, sc in watch:
                     st.markdown(f'`{w["code"]}` {w["name"]} — **{sc} 分**')
 
     st.markdown('---')
