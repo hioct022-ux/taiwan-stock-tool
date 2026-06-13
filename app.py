@@ -2119,17 +2119,19 @@ def render_score(result, code, name, prices=None, fund_data=None, chips_all=None
         unsafe_allow_html=True
     )
 
-    # ── 評分歷史走勢（總分正下方）──
+    # ── 評分歷史走勢：個股 + 大盤同圖（總分正下方）──
     if prices and fund_data is not None and chips_all is not None and ownership:
+        import plotly.graph_objects as go
+
+        # 個股評分歷史
         _cache_key = f'_score_hist_{code}'
         if _cache_key not in st.session_state:
             _hist = []
-            _STEP = 3
-            _WIN  = 90
+            _STEP, _WIN = 3, 90
             _target_dates = prices[-_WIN::_STEP] if len(prices) > _WIN else prices[::_STEP]
             with st.spinner(f'計算近 {_WIN} 日評分走勢...'):
                 for _bar in _target_dates:
-                    _d = _bar['date']
+                    _d   = _bar['date']
                     _p_s = [p for p in prices    if p['date'] <= _d]
                     _f_s = [f for f in fund_data if f['date'] <= _d]
                     _c_s = [c for c in chips_all if c['date'] <= _d][-65:]
@@ -2144,12 +2146,26 @@ def render_score(result, code, name, prices=None, fund_data=None, chips_all=None
         else:
             _hist = st.session_state[_cache_key]
 
+        # 大盤評分歷史（重用快取，對齊個股日期區間）
+        _ms_hist     = st.session_state.get('_market_score_history', [])
+        _ms_by_date  = {h['date']: h['ms'] for h in _ms_hist}
+
         if _hist:
-            import plotly.graph_objects as go
-            _dates  = [h['date']  for h in _hist]
-            _totals = [h['total'] for h in _hist]
-            _show_sub = st.checkbox('顯示分項走勢', key=f'score_hist_sub_{code}')
+            _dates   = [h['date']  for h in _hist]
+            _totals  = [h['total'] for h in _hist]
+            # 取大盤評分中對應個股日期的值（找最近日期補齊）
+            _ms_dates_sorted = sorted(_ms_by_date.keys())
+            def _nearest_ms(d):
+                _before = [x for x in _ms_dates_sorted if x <= d]
+                return _ms_by_date[_before[-1]] if _before else None
+            _mkt_scores = [_nearest_ms(d) for d in _dates]
+            _has_mkt    = any(v is not None for v in _mkt_scores)
+
+            _show_sub = st.checkbox('顯示分項走勢（技術／基本面／籌碼）',
+                                    key=f'score_hist_sub_{code}')
             fig = go.Figure()
+
+            # 分項走勢（可選）
             if _show_sub:
                 fig.add_trace(go.Scatter(x=_dates, y=[h['tech']  for h in _hist],
                     name='技術面', line=dict(color='#a855f7', width=1, dash='dot')))
@@ -2157,22 +2173,44 @@ def render_score(result, code, name, prices=None, fund_data=None, chips_all=None
                     name='基本面', line=dict(color='#3b82f6', width=1, dash='dot')))
                 fig.add_trace(go.Scatter(x=_dates, y=[h['chips'] for h in _hist],
                     name='籌碼面', line=dict(color='#f59e0b', width=1, dash='dot')))
+
+            # 個股評分主線（綠/紅點）
             fig.add_trace(go.Scatter(
-                x=_dates, y=_totals, name='綜合評分',
+                x=_dates, y=_totals, name=f'{name} 評分',
                 line=dict(color='#22c55e', width=2.5), mode='lines+markers',
                 marker=dict(size=5,
                     color=['#22c55e' if s >= 65 else '#ef4444' for s in _totals])))
-            fig.add_hline(y=65, line_dash='dash', line_color='#f97316',
-                          annotation_text='進場門檻 65', annotation_position='left')
+
+            # 大盤評分次線（藍色）
+            if _has_mkt:
+                fig.add_trace(go.Scatter(
+                    x=_dates, y=_mkt_scores, name='大盤評分',
+                    line=dict(color='#60a5fa', width=1.5, dash='dot'),
+                    mode='lines', connectgaps=True))
+
+            # 參考線
+            fig.add_hline(y=65, line_dash='dash', line_color='#f97316', line_width=1,
+                          annotation_text='個股進場65', annotation_position='left')
+            if _has_mkt:
+                fig.add_hline(y=70, line_dash='dot', line_color='#22c55e', line_width=1,
+                              annotation_text='大盤偏多70', annotation_position='right')
+                fig.add_hline(y=45, line_dash='dot', line_color='#ef4444', line_width=1,
+                              annotation_text='大盤偏空45', annotation_position='right')
+
             fig.update_layout(
-                height=240, margin=dict(t=10, b=10, l=0, r=0),
+                height=260, margin=dict(t=10, b=10, l=0, r=60),
                 paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
                 font=dict(color='#94a3b8'), yaxis=dict(range=[0, 105]),
                 legend=dict(orientation='h', y=1.15))
             fig.update_xaxes(showgrid=False)
             fig.update_yaxes(showgrid=True, gridcolor='#1e293b')
             show_chart(fig, key=f'score_hist_chart_{code}')
-            st.caption(f'近90日走勢，每3日計算一次。綠點 ≥65分，紅點 <65分。')
+            _cap = f'近90日走勢，每3日計算一次。綠點 ≥65分，紅點 <65分。'
+            if not _has_mkt:
+                _cap += '　｜　大盤評分：請先前往「📊 大盤分析」頁面載入。'
+            st.caption(_cap)
+        else:
+            st.info('歷史資料不足，無法顯示評分走勢。')
 
     # 分項評分
     col1, col2, col3 = st.columns(3)
@@ -2651,7 +2689,8 @@ def _fetch_global_markets():
 
 def render_market():
     st.markdown('## 📊 大盤走勢分析（加權指數）')
-    _market_score_placeholder = st.empty()   # ← 大盤評分佔位符，稍後填入
+    _market_score_placeholder = st.empty()             # ← 大盤評分佔位符，稍後填入
+    _market_score_chart_placeholder = st.container()  # ← 評分歷史走勢佔位符，稍後填入
 
     # ── 外部市場警示 ─────────────────────────
     st.markdown('#### 🌐 外部市場（即時）')
@@ -3315,7 +3354,6 @@ def render_market():
 
             _fig_mh = make_subplots(rows=2, cols=1, shared_xaxes=True,
                                     row_heights=[0.6, 0.4], vertical_spacing=0.04)
-            # 上圖：大盤評分
             _fig_mh.add_trace(go.Scatter(
                 x=_mh_dates, y=_mh_scores, name='大盤評分',
                 line=dict(color='#22c55e', width=2),
@@ -3324,7 +3362,6 @@ def render_market():
                     color=['#22c55e' if s >= 55 else '#f59e0b' if s >= 45 else '#ef4444'
                            for s in _mh_scores])
             ), row=1, col=1)
-            # 區間色帶
             _fig_mh.add_hrect(y0=70, y1=100, fillcolor='rgba(34,197,94,0.08)',
                                line_width=0, row=1, col=1)
             _fig_mh.add_hrect(y0=0, y1=45, fillcolor='rgba(239,68,68,0.08)',
@@ -3335,25 +3372,23 @@ def render_market():
             _fig_mh.add_hline(y=45, line_dash='dot', line_color='#ef4444',
                                line_width=1, row=1, col=1,
                                annotation_text='偏空45', annotation_position='left')
-            # 下圖：TAIEX 收盤
             _fig_mh.add_trace(go.Scatter(
                 x=_mh_dates, y=_mh_close, name='加權指數',
                 line=dict(color='#3b82f6', width=1.5), fill='tozeroy',
                 fillcolor='rgba(59,130,246,0.08)'
             ), row=2, col=1)
-
             _fig_mh.update_layout(
                 height=300, margin=dict(t=10, b=10, l=0, r=0),
                 paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
                 font=dict(color='#94a3b8'),
-                legend=dict(orientation='h', y=1.08),
-                showlegend=True
-            )
+                legend=dict(orientation='h', y=1.08), showlegend=True)
             _fig_mh.update_xaxes(showgrid=False)
             _fig_mh.update_yaxes(showgrid=True, gridcolor='#1e293b')
             _fig_mh.update_yaxes(range=[0, 105], row=1, col=1)
-            show_chart(_fig_mh, key='market_score_history_chart')
-            st.caption('近180日大盤評分走勢（不含即時外部市場Signal9）。綠點偏多，黃點中性，紅點偏空。')
+
+            with _market_score_chart_placeholder:
+                show_chart(_fig_mh, key='market_score_history_chart')
+                st.caption('近180日大盤評分走勢（不含即時外部市場Signal9）。綠點偏多，黃點中性，紅點偏空。')
 
         # ── 綜合判斷（門檻降低，讓正常行情也能判斷方向）────
 
