@@ -3226,6 +3226,135 @@ def render_market():
             f'</div></div></div>',
             unsafe_allow_html=True)
 
+        # ── 大盤評分歷史走勢 ──────────────────────────────
+        _ms_hist_key = '_market_score_history'
+        if _ms_hist_key not in st.session_state:
+            try:
+                if IS_LOCAL:
+                    _h_tpx  = get_prices('TAIEX', days=180)
+                    _h_fut  = get_futures_institutional(days=180)
+                    _h_mm   = get_market_margin(days=180)
+                else:
+                    import json as _jh
+                    from config import JSON_DIR as _jd
+                    _h_tpx  = _jh.load(open(os.path.join(_jd, 'TAIEX.json'))).get('prices', [])[-180:]
+                    _h_fut  = _jh.load(open(os.path.join(_jd, 'futures_institutional.json'))).get('rows', [])[-180:]
+                    _h_mm   = _jh.load(open(os.path.join(_jd, 'market_margin.json'))).get('rows', [])[-180:]
+
+                _ms_hist = []
+                for _hi in range(1, len(_h_tpx)):
+                    _hd   = _h_tpx[_hi]['date']
+                    _hprev= _h_tpx[_hi-1]['date']
+                    _htpx = _h_tpx[max(0, _hi-30):_hi]
+                    _hfut = [r for r in _h_fut if r['date'] <= _hprev][-15:]
+                    _hmm  = [r for r in _h_mm  if r['date'] <= _hprev][-15:]
+                    _hb, _hbl = 0, 0
+                    # S1
+                    if len(_htpx) >= 2:
+                        _hchg = (_htpx[-1]['close'] - _htpx[-2]['close']) / _htpx[-2]['close'] * 100 if _htpx[-2]['close'] else 0
+                        if   _hchg <= -2: _hb += 3
+                        elif _hchg <= -1: _hb += 2
+                        elif _hchg <= -.3:_hb += 1
+                        elif _hchg >= 2:  _hbl+= 3
+                        elif _hchg >= 1:  _hbl+= 2
+                        elif _hchg >= .3: _hbl+= 1
+                    # S2
+                    if len(_hmm) >= 2:
+                        _mb = _hmm[-1]['margin_balance']; _mb5 = _hmm[-min(5,len(_hmm))]['margin_balance']
+                        _mp = (_mb - _mb5) / _mb5 * 100 if _mb5 else 0
+                        if   _mp >=  2: _hb += 2
+                        elif _mp >=  .5:_hb += 1
+                        elif _mp <= -2: _hbl+= 2
+                        elif _mp <= -.5:_hbl+= 1
+                    # S3
+                    if len(_hfut) >= 2:
+                        _fc = _hfut[-1]['foreign_net'] - _hfut[-2]['foreign_net']
+                        _ft = _hfut[-1]['foreign_net'] - _hfut[-min(5,len(_hfut))]['foreign_net']
+                        if   _fc >= 3000: _hbl+= 2
+                        elif _fc >= 1000: _hbl+= 1
+                        elif _fc <=-3000: _hb += 2
+                        elif _fc <=-1000: _hb += 1
+                        if   _ft >= 2000: _hbl+= 1
+                        elif _ft <=-2000: _hb += 1
+                    # S5-S8（技術指標）
+                    if len(_htpx) >= 6:
+                        _hind = calc_all(_htpx)
+                        _hb5  = _hind.get('bias5')
+                        _hb20 = _hind.get('bias20')
+                        _hp250= _hind.get('pos_250')
+                        _hmat = _hind.get('ma_trend')
+                        if _hb5 is not None:
+                            if   _hb5 >=  5: _hb += 2
+                            elif _hb5 >=  2: _hb += 1
+                            elif _hb5 <= -5: _hbl+= 2
+                            elif _hb5 <= -2: _hbl+= 1
+                        if _hb20 is not None:
+                            if   _hb20 >=  8: _hb += 1
+                            elif _hb20 <= -8: _hbl+= 1
+                        if _hp250 is not None:
+                            if   _hp250 >= 90: _hb += 1
+                            elif _hp250 <= 10: _hbl+= 2
+                            elif _hp250 <= 25: _hbl+= 1
+                        if _hmat == 'bullish': _hbl+= 1
+                        elif _hmat == 'bearish': _hb+= 1
+                    _hnet = _hb - _hbl
+                    _hms  = max(0, min(100, 50 - _hnet * 5))
+                    _ms_hist.append({'date': _hd, 'ms': _hms, 'net': _hnet,
+                                     'close': _h_tpx[_hi]['close']})
+                st.session_state[_ms_hist_key] = _ms_hist
+            except Exception:
+                st.session_state[_ms_hist_key] = []
+
+        _ms_hist = st.session_state.get(_ms_hist_key, [])
+        if len(_ms_hist) >= 5:
+            import plotly.graph_objects as go
+            from plotly.subplots import make_subplots
+            _mh_dates  = [h['date'] for h in _ms_hist]
+            _mh_scores = [h['ms']   for h in _ms_hist]
+            _mh_close  = [h['close']for h in _ms_hist]
+
+            _fig_mh = make_subplots(rows=2, cols=1, shared_xaxes=True,
+                                    row_heights=[0.6, 0.4], vertical_spacing=0.04)
+            # 上圖：大盤評分
+            _fig_mh.add_trace(go.Scatter(
+                x=_mh_dates, y=_mh_scores, name='大盤評分',
+                line=dict(color='#22c55e', width=2),
+                mode='lines+markers',
+                marker=dict(size=4,
+                    color=['#22c55e' if s >= 55 else '#f59e0b' if s >= 45 else '#ef4444'
+                           for s in _mh_scores])
+            ), row=1, col=1)
+            # 區間色帶
+            _fig_mh.add_hrect(y0=70, y1=100, fillcolor='rgba(34,197,94,0.08)',
+                               line_width=0, row=1, col=1)
+            _fig_mh.add_hrect(y0=0, y1=45, fillcolor='rgba(239,68,68,0.08)',
+                               line_width=0, row=1, col=1)
+            _fig_mh.add_hline(y=70, line_dash='dot', line_color='#22c55e',
+                               line_width=1, row=1, col=1,
+                               annotation_text='偏多70', annotation_position='left')
+            _fig_mh.add_hline(y=45, line_dash='dot', line_color='#ef4444',
+                               line_width=1, row=1, col=1,
+                               annotation_text='偏空45', annotation_position='left')
+            # 下圖：TAIEX 收盤
+            _fig_mh.add_trace(go.Scatter(
+                x=_mh_dates, y=_mh_close, name='加權指數',
+                line=dict(color='#3b82f6', width=1.5), fill='tozeroy',
+                fillcolor='rgba(59,130,246,0.08)'
+            ), row=2, col=1)
+
+            _fig_mh.update_layout(
+                height=300, margin=dict(t=10, b=10, l=0, r=0),
+                paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                font=dict(color='#94a3b8'),
+                legend=dict(orientation='h', y=1.08),
+                showlegend=True
+            )
+            _fig_mh.update_xaxes(showgrid=False)
+            _fig_mh.update_yaxes(showgrid=True, gridcolor='#1e293b')
+            _fig_mh.update_yaxes(range=[0, 105], row=1, col=1)
+            show_chart(_fig_mh, key='market_score_history_chart')
+            st.caption('近180日大盤評分走勢（不含即時外部市場Signal9）。綠點偏多，黃點中性，紅點偏空。')
+
         # ── 綜合判斷（門檻降低，讓正常行情也能判斷方向）────
 
         if _net >= 6:
