@@ -28,6 +28,7 @@
 | `indicators.py` | 技術指標計算（MA/RSI/KD/MACD/布林） | 新增指標公式 |
 | `scorer.py` | 個股評分引擎 | 調整個股評分邏輯 |
 | `backtest.py` | 開盤前預判訊號回測（本機執行） | 回測邏輯 |
+| `backtest_stocks.py` | 個股評分策略回測（A/B/C/D + 掃描） | 策略參數調整 |
 | `config.py` | 所有可調參數（閾值、係數、路徑） | 調整指標參數 |
 | `config_local.py` | **本機專屬、不上傳 Git**（Token、IS_LOCAL） | — |
 | `scheduler.py` | APScheduler 每日排程（16:30 自動抓資料） | 排程時間 |
@@ -179,6 +180,33 @@ get_futures_institutional(days: int = 90) -> list[dict]
 # 升序，key 同上加 date
 ```
 
+### 選擇權 P/C 比率（2026-06 新增）
+
+```python
+save_options_pc(date: str, call_oi: int, put_oi: int, pc_ratio: float) -> None
+# 資料來源：TAIFEX pcRatioDown，Big5 CSV
+
+get_options_pc(days: int = 60) -> list[dict]
+# 升序，key：date, call_oi, put_oi, pc_ratio
+# ⚠️ 必須用 dict(zip(cols, r))，get_conn() 無 row_factory，dict(r) 無效
+
+get_options_pc_last_date() -> str | None
+# ⚠️ 必須用 row[0]，不能用 row['date']
+```
+
+**TAIFEX pcRatioDown CSV 格式陷阱：**
+```python
+# 日期格式：'2026/06/12'（斜線分隔，非民國年）
+date = raw_date.replace('/', '-')  # → '2026-06-12'
+
+# 欄位順序（put 在 call 之前）：
+# cols[0]=日期, cols[1]=賣權成交量, cols[2]=買權成交量, cols[3]=成交量比率%,
+# cols[4]=賣權未平倉量, cols[5]=買權未平倉量, cols[6]=未平倉比率%
+put_oi  = int(cols[4].replace(',', ''))
+call_oi = int(cols[5].replace(',', ''))
+pc_ratio = round(float(cols[6].replace(',', '')) / 100, 4)  # 168.35 → 1.6835
+```
+
 ### 大盤本益比
 
 ```python
@@ -269,6 +297,7 @@ t86_ranking (date+code UNIQUE, name, foreign_buy/sell/net, trust_buy/sell/net, d
 market_margin (date PK, margin_balance/buy/sell, short_balance/buy/sell)
 futures_institutional (date PK, foreign/trust/dealer × long/short/net)
 market_pe (date PK, pe_ratio, pb_ratio, div_yield)
+options_pc_ratio (date PK, call_oi, put_oi, pc_ratio)  ← 2026-06 新增，TAIFEX 選擇權P/C
 ```
 
 ---
@@ -291,6 +320,7 @@ market_pe (date PK, pe_ratio, pb_ratio, div_yield)
 | `exdividend.json` | `{'rows': [...], 'exported_at': ...}` |
 | `t86.json` | `{'date', trust_top/bot, foreign_top/bot, total_top/bot, 'exported_at'}` |
 | `chips_market_agg.json` | `{'rows': [...], 'exported_at': ...}` |
+| `options_pc.json` | `{'rows': [...], 'exported_at': ...}` |
 | `{stock_code}.json` | `{'code', prices, fundamentals, chips, ownership, 'exported_at'}` |
 
 ### sync_via_git(code=None)
@@ -303,7 +333,7 @@ market_pe (date PK, pe_ratio, pb_ratio, div_yield)
 ```python
 if code in ('stocks', 'watchlist', 'meta', 't86', 'exdividend', 'TAIEX',
             'market_margin', 'futures_institutional', 'market_pe', 'chips_market_agg',
-            'watchlist_tags'):
+            'watchlist_tags', 'options_pc'):
     continue
 ```
 **每新增一個大盤層級的 JSON 檔，都必須加到這個 skip 名單**，否則會被誤當成股票代號解析。
@@ -332,10 +362,10 @@ RSI_PERIOD = 14, KD_PERIOD = 9
 MACD_FAST = 12, MACD_SLOW = 26, MACD_SIGNAL = 9
 BBAND_PERIOD = 20, BBAND_STD = 2
 
-# 評分權重
-WEIGHT_FUNDAMENTAL = 0.40
-WEIGHT_TECHNICAL   = 0.35
-WEIGHT_CHIPS       = 0.25
+# 評分權重（2026-06 調整：強化短線預判）
+WEIGHT_FUNDAMENTAL = 0.25   # 基本面 25%（原 40%）
+WEIGHT_TECHNICAL   = 0.40   # 技術面 40%（原 35%）
+WEIGHT_CHIPS       = 0.35   # 籌碼面 35%（原 25%）
 
 # 大盤市值校準（每 6~12 個月更新一次）
 TWSE_CAP_COEF       = 16.70   # 億元 / 指數點
@@ -483,9 +513,74 @@ ma_colors = {'MA5': '#f97316', 'MA20': '#a855f7', 'MA60': '#22c55e'}
 # 圖例 orientation='h' 水平排列
 ```
 
-### 開盤前預判訊號（Signal 1–10）
+### render_strategy() — 投資策略頁（2026-06 新增）
 
-Signal 1–8 使用昨日資料（本機 DB / 雲端 JSON），Signal 9 使用即時 yfinance，Signal 10 使用 `_mm`（market_margin）。
+路由值：`'strategy'`，側邊欄按鈕「💡 投資策略」觸發。
+
+**功能：**
+- 從 `st.session_state` 讀取 `_market_ms`、`_market_net`（需先進過大盤分析頁）
+- 依大盤評分決定個股建議門檻（≥70→65分、55–69→70分、45–54→75分、<45→停止進場）
+- 重用 `_wl_scores` 快取（自選股評分），列出符合門檻的個股（綠色表格）
+- 退場警示：持有中個股若評分 <45 顯示紅色警告、45–54 顯示橘色注意
+- 靜態策略說明：進場條件、持有管理（10日 + 到期續抱）、資金配置
+
+**雲端可行：** 是。資料來源均為 session_state 快取，無需 IS_LOCAL 分支。
+
+**注意：** `_wl_scores` 在大盤分析或自選股頁計算後會存入 session_state；若直接進投資策略頁，此快取可能不存在，需提示用戶先進自選股頁。
+
+---
+
+### render_score() 簽名（2026-06 擴充）
+
+```python
+def render_score(result, code, name, prices=None, fund_data=None, chips_all=None, ownership=None):
+```
+
+新增參數用於計算評分歷史走勢圖（總分正下方）。
+
+**評分歷史走勢圖（雙線圖）：**
+- 個股評分：回溯 90 日，每 3 日一點（~30 點），結果快取於 `st.session_state[f'_score_hist_{code}']`
+- 大盤評分：從 `st.session_state['_market_score_history']` 取對應日期（需先訪問大盤分析頁）
+- 兩條線同圖：個股（綠線）+ 大盤（藍虛線）
+- 參考線：橘色 65（個股進場門檻）、綠色 70（大盤偏多）、紅色 45（大盤偏空）
+- 可選顯示分項走勢（技術面紫、基本面藍、籌碼面橘）
+
+**call site（main() 中）：**
+```python
+chips_all = get_chips(code, days=200)   # 本機
+chips_all = _c_json                      # 雲端（完整 JSON chips）
+chips_list = chips_all[-65:] if len(chips_all) > 65 else chips_all
+
+with tabs[4]:
+    render_score(result, code, name,
+                 prices=prices, fund_data=fund_data,
+                 chips_all=chips_all, ownership=ownership)
+```
+
+---
+
+### 大盤評分歷史走勢圖（render_market() 內，2026-06 新增）
+
+**位置：** 大盤評分卡（`_market_score_placeholder`）正下方，用 `st.container()` 佔位符。
+
+**計算：** Signal 1–8 對每個歷史日期回溯評分（不含 Signal 9 yfinance 即時資料）。  
+180 日視窗，快取於 `st.session_state['_market_score_history']`，格式：`[{'date', 'ms', 'net', 'close'}, ...]`。
+
+**同時存入 session_state：**
+```python
+st.session_state['_market_ms']   = _ms    # 今日大盤評分
+st.session_state['_market_net']  = _net   # 今日 net（bear-bull）
+st.session_state['_market_bear'] = _bear_score
+st.session_state['_market_bull'] = _bull_score
+```
+
+**圖表結構：** 雙子圖（上=大盤評分折線 + 70/45 參考線，下=加權指數收盤價）。
+
+---
+
+### 開盤前預判訊號（Signal 1–11）
+
+Signal 1–8 使用昨日資料（本機 DB / 雲端 JSON），Signal 9 使用即時 yfinance，Signal 10 使用 `_mm`（market_margin），Signal 11 使用 P/C 比率。
 
 **資料變數（`render_market()` 開頭載入）：**
 - `_mm`：大盤融資融券（`market_margin.json` 或 DB）
@@ -495,7 +590,26 @@ Signal 1–8 使用昨日資料（本機 DB / 雲端 JSON），Signal 9 使用�
 
 **評分變數：** `_bear_score`（空方分）、`_bull_score`（多方分），`net = bear - bull`
 
-**訊號邏輯位置：** `render_market()` 中，搜尋 `Signal 1` 到 `Signal 10`
+**訊號邏輯位置：** `render_market()` 中，搜尋 `Signal 1` 到 `Signal 11`
+
+### 大盤評分（2026-06 新增）
+
+顯示在 `render_market()` 頁面頂部，使用 `st.empty()` 佔位符，在 `_net` 計算完成後填入。
+
+```python
+_ms = max(0, min(100, 50 - _net * 5))   # 乘數 ×5，net=-10→100，net=+10→0
+```
+
+| 分數 | 等級 | 個股建議門檻 |
+|------|------|------------|
+| ≥85 | 強烈偏多 | ≥65 分可積極進場 |
+| 70–84 | 偏多 | ≥65 分可積極進場 |
+| 55–69 | 中性偏多 | 建議提高至 70 分 |
+| 45–54 | 中性 | 建議提高至 75 分 |
+| 35–44 | 中性偏空 | 建議提高至 75 分 |
+| <35 | 偏空/強烈偏空 | 建議暫停進場 |
+
+**乘數調整原則：** 若太容易到達 100/0，調小乘數；目前 ×5 在 net=±10 時才觸及上下限。
 
 **閾值判斷：**
 ```python
@@ -527,6 +641,22 @@ else:           verdict = '⚪ 中性'
 **融資餘額萎縮**：單日 ≥1.5% 代表非主動賣出，而是被動斷頭
 
 A/B 條件（多殺多/斷頭風險）互斥取最嚴重；C（斷頭加速）與 D（融券回補）獨立疊加。
+
+**Signal 11：選擇權 P/C 比率（2026-06 新增）**
+
+資料來源：`get_options_pc(days=60)`（本機）或 `options_pc.json`（雲端）。需 `len >= 5`。
+
+| P/C 歷史百分位 | 意義 | 訊號 |
+|------|------|------|
+| >90% | 市場極度恐慌 → 反向底部 | Bull +1 |
+| >75% | 避險需求偏高 | Bear +1 |
+| <25% | 市場過度樂觀 | Bear +1 |
+| <15% | 過熱（僅提示，不加分） | — |
+
+P/C 值解讀：>1.3 偏空（紅色）、0.7–1.3 中性（藍色）、<0.7 偏多（綠色）。  
+台股 P/C 常態偏高（1.3–1.7），結構性因素，需以**歷史百分位**判斷相對位置。
+
+圖表：柱狀圖（顏色依值）+ 20日MA虛線 + 三個 metric（今日P/C / 20日均值 / 歷史百分位）。
 
 ### 三大法人現貨圖（大盤）
 
@@ -570,6 +700,7 @@ if not IS_LOCAL:
 | 台指期三大法人 | `data/json/futures_institutional.json` |
 | TAIEX 價格 | `data/json/TAIEX.json` |
 | 個股評分（prices/fundamentals/chips/ownership） | `data/json/{code}.json` via `_read_stock_json()` |
+| Signal 11（P/C 比率） | `data/json/options_pc.json` |
 
 ### _read_stock_json(code) — 雲端專用
 
@@ -639,6 +770,21 @@ r.content.decode('big5', errors='ignore')  # 不是 r.text
 **修正（2026-06）：** `export_to_json()` 的個股 JSON 加入 `ownership` 欄位；`_read_stock_json()` 回傳 4-tuple 含 ownership；評分路徑雲端/本機均使用各自的 ownership 資料。
 
 **操作提醒：** 修正後須重新按「🚀 更新並同步到雲端」，讓新版 JSON（含 ownership）推到 GitHub，雲端評分才會正確。
+
+### 12. get_options_pc() 回傳空 list
+現象：P/C 比率圖顯示「尚無資料」，但 SQLite 內有資料。
+原因：`get_conn()` 無 `row_factory = sqlite3.Row`，`fetchall()` 回傳 tuple，`dict(r)` 對 tuple 無效。
+**修正（2026-06）：** 改為 `cols = ['date', 'call_oi', 'put_oi', 'pc_ratio']; return [dict(zip(cols, r)) for r in reversed(rows)]`。`get_options_pc_last_date()` 同理，用 `row[0]` 不用 `row['date']`。
+**通則：** database.py 所有 read 函式都必須手動 zip 欄名，不能依賴 row_factory。
+
+### 13. 本機與雲端大盤評分差 ±5 分
+現象：大盤評分本機和雲端不一致，但差距在 5 分以內。
+原因：Signal 9（外部市場即時）使用 yfinance，快取 TTL=900 秒（15分鐘）。本機和雲端各自發請求，抓取時間點不同，美股指數/VIX/TSM ADR 即時值略有差異。
+**結論：** ±5 分以內屬正常，無法消除。差距 ≥15 分才需檢查 JSON 資料是否同步。
+現象：P/C 比率圖顯示「尚無資料」，但 SQLite 內有資料。  
+原因：`get_conn()` 無 `row_factory = sqlite3.Row`，`fetchall()` 回傳 tuple，`dict(r)` 對 tuple 無效。  
+**修正（2026-06）：** 改為 `cols = ['date', 'call_oi', 'put_oi', 'pc_ratio']; return [dict(zip(cols, r)) for r in reversed(rows)]`。`get_options_pc_last_date()` 同理，用 `row[0]` 不用 `row['date']`。  
+**通則：** database.py 所有 read 函式都必須手動 zip 欄名，不能依賴 row_factory。
 
 ---
 
@@ -770,3 +916,48 @@ FINMIND_TOKEN = 'your_finmind_token'  # FinMind API，用於 ETF 成分股
 **已知偏差：** 在單邊多頭市場，偏空訊號（BIAS 過高、位置偏高）系統性失準（約 42%），這是趨勢性市場的必然現象，訊號設計本身沒有問題。資料累積 6 個月以上、跨越不同市場環境後，統計意義才會提高。
 
 **使用方式：** `python3 backtest.py`，輸出整體準確率、強訊號準確率（|net|≥3）、逐日明細。
+
+---
+
+## 十五、個股量化回測（backtest_stocks.py）（2026-06 新增）
+
+**用途：** 回測自選股的買賣訊號策略，驗證評分系統的實際績效。
+
+### 核心函式
+
+```python
+_run_backtest(stocks, hold_days=10, score_threshold=65, stop_loss=0.08,
+              renew=False, market_exit=False, trailing_pct=None) -> dict
+```
+
+- `renew=True`：策略 C，到期時評分 ≥ threshold 則重置持有期（續抱）
+- `market_exit=True`：策略 D，持有期間大盤 net ≥ 2 提前出場
+- `trailing_pct`：移動停利比例（None=不啟用）
+
+### 四種策略與回測結果（2026-06 定版）
+
+| 策略 | 筆數 | 勝率 | 期望值 | 說明 |
+|------|------|------|--------|------|
+| A（無大盤過濾） | 176 | 58.0% | +7.27% | 基準 |
+| B（大盤過濾） | 157 | 63.7% | +8.11% | 大盤偏空不進場 |
+| **C（B + 到期續抱）** | **127** | **60.6%** | **+10.20%** | **採用** |
+| D（B + 大盤轉空提前出場） | 184 | 51.1% | +5.51% | 不採用 |
+
+**策略 C 續抱統計：** 再持子集 83.3% 勝率，均報酬 +27.2%
+
+### 掃描功能
+
+```bash
+python3 backtest_stocks.py        # A/B/C/D 四策略比較
+python3 backtest_stocks.py scan   # 持有天數掃描（3/5/7/10/15/20 日）
+python3 backtest_stocks.py trail  # 移動停利掃描（None/3%/5%/8%）
+```
+
+**持有天數掃描結論：** 10 日有最佳勝率；20 日 EV 最高但多頭偏差大。採用 10 日。  
+**移動停利掃描結論：** 多頭市場中移動停利均劣於無停利。不採用。
+
+### 重要陷阱
+
+- `scan_hold_days()` 的「◀ 最佳」標記需先收集所有 rows 再決定最佳，不能在 append 時即時判斷（會讓每列都被標記）
+- `market_net` 字典由 `_market_score_history`（Signal 1–8 回溯）提供，格式：`{date_str: net_int}`
+- 回測資料範圍約 2024 至今，均為台股多頭環境，偏空策略系統性低估
