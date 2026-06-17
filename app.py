@@ -404,6 +404,14 @@ def render_sidebar():
         if not IS_LOCAL:
             st.session_state.pop('_wl_scores', None)
 
+        # 本機版：若 DB 有新資料（排程器在背景更新），清除舊快取
+        if IS_LOCAL:
+            _last_upd = get_last_update()
+            _last_upd_at = _last_upd.get('updated_at', '') if _last_upd else ''
+            if _last_upd_at and _last_upd_at != st.session_state.get('_wl_scores_upd_at', ''):
+                st.session_state.pop('_wl_scores', None)
+                st.session_state['_wl_scores_upd_at'] = _last_upd_at
+
         # 先讀取自選股和標籤（搜尋區塊也會用到）
         watchlist = get_watchlist()
         TAG_LIST  = get_tags()
@@ -498,6 +506,10 @@ def render_sidebar():
                             except:
                                 _score_cache[w['code']] = 0
                     st.session_state['_wl_scores'] = _score_cache
+                    # 記錄快取建立時的 DB 更新時間，供下次進頁面時比對
+                    if IS_LOCAL:
+                        _lu = get_last_update()
+                        st.session_state['_wl_scores_upd_at'] = _lu.get('updated_at', '') if _lu else ''
 
                 filtered = sorted(
                     filtered,
