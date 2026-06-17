@@ -2,6 +2,17 @@
   "code": "2356",
   "prices": [
     {
+      "date": "2017-12-18",
+      "open": 23.35,
+      "high": 23.75,
+      "low": 23.2,
+      "close": 23.75,
+      "volume": 17981812,
+      "value": 423601015.0,
+      "change": 0.65,
+      "change_pct": 2.81
+    },
+    {
       "date": "2025-04-01",
       "open": 42.45,
       "high": 43.35,
@@ -3422,6 +3433,13 @@
       "pe": 25.51,
       "pb": 3.28,
       "dividend_yield": 2.98
+    },
+    {
+      "date": "2026-06-17",
+      "eps_ttm": 2.63,
+      "pe": 25.32,
+      "pb": 3.25,
+      "dividend_yield": 3.0
     }
   ],
   "chips": [
@@ -3984,11 +4002,25 @@
       "dealer_net": 0,
       "margin_balance": 31734,
       "short_balance": 677
+    },
+    {
+      "date": "2026-06-17",
+      "foreign_buy": 7844,
+      "foreign_sell": 5091,
+      "foreign_net": 2753,
+      "trust_buy": 71,
+      "trust_sell": 176,
+      "trust_net": 126,
+      "dealer_buy": 0,
+      "dealer_sell": 0,
+      "dealer_net": 0,
+      "margin_balance": 31792,
+      "short_balance": 708
     }
   ],
   "ownership": {
     "foreign_pct": 16.87,
     "date": "2026-06-16"
   },
-  "exported_at": "2026-06-16 21:40"
+  "exported_at": "2026-06-17 21:18"
 }
