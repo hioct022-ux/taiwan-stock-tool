@@ -13,26 +13,51 @@ from config import AUTO_FETCH_HOUR, AUTO_FETCH_MINUTE
 scheduler = BackgroundScheduler()
 _started  = False
 
+# ── 從 TWSE 動態抓取休市日 ─────────────────
+_holiday_cache = {}   # {year: set of 'YYYY-MM-DD'}
+
+def _fetch_twse_holidays(year: int) -> set:
+    """從 TWSE 官方 API 取得休市日期集合，失敗時回傳空集合。"""
+    import requests, urllib3
+    urllib3.disable_warnings()
+    url = 'https://www.twse.com.tw/rwd/zh/holidaySchedule/holidaySchedule?response=json'
+    try:
+        r = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'},
+                         timeout=10, verify=False)
+        resp = r.json()
+        if resp.get('stat') != 'ok':
+            return set()
+        holidays = set()
+        for row in resp.get('data', []):
+            date_str = row[0]  # 'YYYY-MM-DD'
+            name     = row[1]  # 名稱
+            # 「開始交易日」「最後交易日」是交易日標記，不是休市日
+            if '開始交易' in name or '最後交易' in name:
+                continue
+            if date_str.startswith(str(year)):
+                holidays.add(date_str)
+        print(f'[休市日曆] {year} 年共 {len(holidays)} 個休市日')
+        return holidays
+    except Exception as e:
+        print(f'[休市日曆] 抓取失敗：{e}')
+        return set()
+
+def _get_holidays(year: int) -> set:
+    """取得指定年份休市日（有快取則直接用，否則重新抓取）。"""
+    global _holiday_cache
+    if year not in _holiday_cache:
+        _holiday_cache[year] = _fetch_twse_holidays(year)
+    return _holiday_cache[year]
+
 # ── 判斷今天是否為交易日 ─────────────────
 def is_trading_day():
     today = datetime.now()
-    # 週六、週日休市
+    today_ymd = today.strftime('%Y-%m-%d')
+    # 週六、週日
     if today.weekday() >= 5:
         return False
-    # 台灣國定假日（簡易版，主要排除元旦）
-    # 完整假日需另外維護，這裡先處理最常見的
-    holidays = [
-        '01-01',  # 元旦
-        '02-28',  # 和平紀念日
-        '04-04',  # 兒童節
-        '04-05',  # 清明節（約略）
-        '05-01',  # 勞動節
-        '06-10',  # 端午節（約略）
-        '09-28',  # 中秋節（約略）
-        '10-10',  # 國慶日
-    ]
-    today_str = today.strftime('%m-%d')
-    if today_str in holidays:
+    # TWSE 公告休市日
+    if today_ymd in _get_holidays(today.year):
         return False
     return True
 
