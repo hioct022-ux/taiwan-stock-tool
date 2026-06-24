@@ -3512,6 +3512,13 @@
       "pe": 12.34,
       "pb": 1.46,
       "dividend_yield": 6.08
+    },
+    {
+      "date": "2026-06-24",
+      "eps_ttm": 8.0,
+      "pe": 12.16,
+      "pb": 1.44,
+      "dividend_yield": 6.17
     }
   ],
   "chips": [
@@ -4301,15 +4308,15 @@
     },
     {
       "date": "2026-06-23",
-      "foreign_buy": 221,
-      "foreign_sell": 176,
-      "foreign_net": 45,
-      "trust_buy": 2,
-      "trust_sell": 1,
-      "trust_net": 0,
-      "dealer_buy": 0,
+      "foreign_buy": 322,
+      "foreign_sell": 235,
+      "foreign_net": 87,
+      "trust_buy": -60,
+      "trust_sell": 63,
+      "trust_net": 174,
+      "dealer_buy": 254,
       "dealer_sell": 0,
-      "dealer_net": 0,
+      "dealer_net": 254,
       "margin_balance": 289,
       "short_balance": 0
     }
@@ -4318,5 +4325,5 @@
     "foreign_pct": 13.64,
     "date": "2026-06-23"
   },
-  "exported_at": "2026-06-23 21:38"
+  "exported_at": "2026-06-24 08:17"
 }
