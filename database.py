@@ -246,6 +246,21 @@ def init_db():
         )
     ''')
 
+    # ── 個股季度財報（毛利率等，market_tracker 用）──
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS stock_quarterly_financials (
+            code             TEXT NOT NULL,
+            period           TEXT NOT NULL,   -- 'YYYYQN' 例如 '2026Q1'
+            revenue          REAL,            -- 營業收入（千元）
+            gross_profit     REAL,            -- 毛利（千元）
+            gross_margin     REAL,            -- 毛利率（%，e.g. 38.5）
+            operating_income REAL,            -- 營業利益（千元）
+            net_income       REAL,            -- 稅後淨利（千元）
+            updated_at       TEXT,
+            PRIMARY KEY (code, period)
+        )
+    ''')
+
     # ── DRAM 現貨與合約價（市場追蹤用）──
     c.execute('''
         CREATE TABLE IF NOT EXISTS dram_prices (
@@ -909,6 +924,59 @@ def get_dram_price_last_date() -> str | None:
     row = conn.execute('SELECT MAX(date) FROM dram_prices').fetchone()
     conn.close()
     return row[0] if row and row[0] else None
+
+
+# ── 個股季度財報（毛利率追蹤用）──────────────
+def save_quarterly_financials(code: str, period: str, revenue: float,
+                               gross_profit: float, gross_margin: float,
+                               operating_income: float = None,
+                               net_income: float = None) -> None:
+    """
+    儲存個股季度財報資料。
+    period 格式：'2026Q1'（年＋季）
+    金額單位：千元（yfinance 原始單位）
+    gross_margin：百分比，例如 38.5
+    """
+    conn = get_conn()
+    conn.execute('''
+        INSERT OR REPLACE INTO stock_quarterly_financials
+            (code, period, revenue, gross_profit, gross_margin,
+             operating_income, net_income, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (code, period, revenue, gross_profit, round(gross_margin, 2),
+          operating_income, net_income, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+    conn.commit()
+    conn.close()
+
+
+def get_quarterly_financials(code: str, quarters: int = 12) -> list:
+    """
+    回傳個股近 quarters 季的財報資料，升序。
+    key：period, revenue, gross_profit, gross_margin, operating_income, net_income
+    """
+    conn = get_conn()
+    rows = conn.execute('''
+        SELECT period, revenue, gross_profit, gross_margin,
+               operating_income, net_income
+        FROM stock_quarterly_financials
+        WHERE code = ?
+        ORDER BY period DESC
+        LIMIT ?
+    ''', (code, quarters)).fetchall()
+    conn.close()
+    cols = ['period', 'revenue', 'gross_profit', 'gross_margin',
+            'operating_income', 'net_income']
+    return [dict(zip(cols, r)) for r in reversed(rows)]
+
+
+def get_quarterly_financials_last_period(code: str) -> str | None:
+    conn = get_conn()
+    row = conn.execute(
+        'SELECT MAX(period) FROM stock_quarterly_financials WHERE code=?', (code,)
+    ).fetchone()
+    conn.close()
+    return row[0] if row and row[0] else None
+
 
 # ── 除權息資料 ──────────────────────────
 def save_exdividend(rows):

@@ -2410,12 +2410,33 @@ def _render_hiwin_monitor():
     st.markdown('### 🤖 上銀（2049）｜機器人題材轉折監控')
     st.caption('核心邏輯：毛利率突破 40% → 機器人業務規模化 → 題材股轉獲利股，進場時機確立')
 
-    from database import get_prices, get_fundamentals, get_chips, get_conn
+    from database import (get_prices, get_fundamentals, get_chips, get_conn,
+                          get_quarterly_financials, get_quarterly_financials_last_period)
 
     code = '2049'
-    prices   = get_prices(code, days=250)
-    fund     = get_fundamentals(code, days=600)
+    prices     = get_prices(code, days=250)
+    fund       = get_fundamentals(code, days=600)
     chips_list = get_chips(code, days=65)
+
+    # ── 自動抓取季度財報（本機且距上次更新超過 7 天才重抓）──
+    if IS_LOCAL:
+        _last_qf = get_quarterly_financials_last_period(code)
+        _should_fetch = True
+        if _last_qf:
+            # 若 cache_key 存在且本次 session 已抓過，跳過
+            if st.session_state.get(f'_qf_fetched_{code}'):
+                _should_fetch = False
+        if _should_fetch:
+            try:
+                from fetcher import fetch_quarterly_financials
+                _n = fetch_quarterly_financials(code, years=4)
+                st.session_state[f'_qf_fetched_{code}'] = True
+                if _n > 0:
+                    st.toast(f'已更新 {code} 季度財報（{_n} 季）', icon='📊')
+            except Exception as _qe:
+                pass  # 靜默失敗，不影響頁面顯示
+
+    qf_data = get_quarterly_financials(code, quarters=12)
 
     # ── 即時股價面板 ────────────────────────
     if prices:
@@ -2533,51 +2554,36 @@ def _render_hiwin_monitor():
     # ── 毛利率轉折觀察區 ────────────────────
     st.markdown('#### 📊 毛利率觀察區間（題材→獲利的核心指標）')
 
-    # 嘗試從 yfinance 取季度毛利率
-    _gm_data = []
-    try:
-        import yfinance as yf
-        tk = yf.Ticker('2049.TW')
-        qf = tk.quarterly_income_stmt
-        if qf is not None and not qf.empty:
-            gross_profit_row = next((r for r in qf.index if 'Gross' in str(r) and 'Profit' in str(r)), None)
-            revenue_row      = next((r for r in qf.index if 'Total Revenue' in str(r)), None)
-            if gross_profit_row and revenue_row:
-                for col in qf.columns[:8]:
-                    gp  = qf.loc[gross_profit_row, col]
-                    rev = qf.loc[revenue_row, col]
-                    if gp and rev and rev != 0:
-                        gm = round(float(gp) / float(rev) * 100, 1)
-                        _gm_data.append({'date': str(col)[:7], 'gm': gm})
-                _gm_data = list(reversed(_gm_data))
-    except Exception:
-        pass
+    # 從 DB 讀取（已由頁面載入時 fetch_quarterly_financials 自動抓取）
+    _gm_data = [{'date': d['period'], 'gm': d['gross_margin']}
+                for d in qf_data if d.get('gross_margin') is not None]
 
-    # 手動輸入補充
-    with st.expander('✏️ 手動補充季度毛利率（法說會/財報公告後更新）'):
+    # 手動補充（財報剛公告、yfinance/FinMind 尚未更新時使用）
+    with st.expander('✏️ 手動補充或修正毛利率（新財報公告後若自動資料有誤可在此覆蓋）'):
         mc1, mc2, mc3 = st.columns([2, 2, 1])
         with mc1:
-            _gm_period = st.selectbox('季度', ['2026Q1','2025Q4','2025Q3','2025Q2','2025Q1','2024Q4'],
+            _gm_period = st.selectbox('季度', ['2026Q2','2026Q1','2025Q4','2025Q3','2025Q2','2025Q1','2024Q4'],
                                        key='hiwin_gm_period')
         with mc2:
             _gm_val = st.number_input('毛利率 (%)', min_value=0.0, max_value=100.0,
                                        step=0.1, format='%.1f', key='hiwin_gm_val')
         with mc3:
             st.markdown('<div style="margin-top:28px"></div>', unsafe_allow_html=True)
-            if st.button('加入', key='btn_hiwin_gm', use_container_width=True):
+            if st.button('儲存至DB', key='btn_hiwin_gm', use_container_width=True):
                 if _gm_val > 0:
-                    # 存到 session_state 暫存（不寫 DB，是研究用手動輸入）
-                    if 'hiwin_gm_manual' not in st.session_state:
-                        st.session_state['hiwin_gm_manual'] = {}
-                    st.session_state['hiwin_gm_manual'][_gm_period] = _gm_val
-                    st.success(f'{_gm_period} 毛利率：{_gm_val:.1f}%')
-
-    # 合併 yfinance + 手動資料
-    _gm_manual = st.session_state.get('hiwin_gm_manual', {})
-    for period, val in _gm_manual.items():
-        existing = next((d for d in _gm_data if d['date'].startswith(period[:4]) and period in d['date']), None)
-        if not existing:
-            _gm_data.append({'date': period, 'gm': val})
+                    from database import save_quarterly_financials
+                    # 若已有該季資料，只更新毛利率欄位
+                    _existing_qf = next((d for d in qf_data if d['period'] == _gm_period), None)
+                    save_quarterly_financials(
+                        code, _gm_period,
+                        _existing_qf['revenue'] if _existing_qf else 0,
+                        _existing_qf['gross_profit'] if _existing_qf else 0,
+                        _gm_val,
+                        _existing_qf.get('operating_income') if _existing_qf else None,
+                        _existing_qf.get('net_income') if _existing_qf else None,
+                    )
+                    st.success(f'{_gm_period} 毛利率 {_gm_val:.1f}% 已存入 DB')
+                    st.rerun()
 
     # 轉折閾值定義
     THRESHOLDS = [

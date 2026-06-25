@@ -1053,6 +1053,145 @@ def fetch_dram_spot():
         return None, None, None
 
 
+def fetch_quarterly_financials(code: str, years: int = 4) -> int:
+    """
+    抓取個股季度財報（毛利率、EPS 等）並存入 DB。
+    資料來源優先順序：
+      1. FinMind API（TaiwanStockFinancialStatements）— 台股最準確
+      2. yfinance quarterly_income_stmt — 備援
+
+    回傳成功存入的季數。
+    """
+    from database import save_quarterly_financials, get_quarterly_financials_last_period
+    from datetime import datetime, timedelta
+
+    start_date = (datetime.now() - timedelta(days=years * 365)).strftime('%Y-%m-%d')
+    saved = 0
+
+    # ── 方法 1：FinMind API ──────────────
+    try:
+        from config import GITHUB_TOKEN  # 取 config 路徑
+        import importlib, sys
+        # 讀取 FINMIND_TOKEN
+        _token = ''
+        try:
+            _cfg_local = importlib.import_module('config_local')
+            _token = getattr(_cfg_local, 'FINMIND_TOKEN', '')
+        except ImportError:
+            pass
+
+        if _token:
+            # TaiwanStockFinancialStatements：季度損益科目
+            url = ('https://api.finmindtrade.com/api/v4/data'
+                   f'?dataset=TaiwanStockFinancialStatements'
+                   f'&data_id={code}'
+                   f'&start_date={start_date}'
+                   f'&token={_token}')
+            r = requests.get(url, timeout=20)
+            data = r.json()
+            if data.get('status') == 200:
+                records = data.get('data', [])
+                # 整理成 {(date, season): {type: value}}
+                quarterly = {}
+                for rec in records:
+                    key  = (rec['date'][:7], rec.get('type', ''))  # '2026-03', 'GrossProfit'
+                    period = _finmind_date_to_period(rec['date'])
+                    quarterly.setdefault(period, {})[rec['type']] = float(rec.get('value', 0) or 0)
+
+                for period, fields in quarterly.items():
+                    rev  = fields.get('Revenue', 0) or fields.get('OperatingRevenue', 0)
+                    gp   = fields.get('GrossProfit', 0)
+                    oi   = fields.get('OperatingIncome', 0)
+                    ni   = fields.get('NetIncome', 0) or fields.get('EPS', 0)
+                    if rev and gp:
+                        gm = round(gp / rev * 100, 2)
+                        save_quarterly_financials(code, period, rev, gp, gm, oi, ni)
+                        saved += 1
+
+                if saved > 0:
+                    print(f'季度財報（FinMind）：{code} 存入 {saved} 季')
+                    return saved
+    except Exception as e:
+        print(f'季度財報 FinMind 失敗：{e}，改用 yfinance')
+
+    # ── 方法 2：yfinance ────────────────
+    try:
+        import yfinance as yf
+        suffix = '.TW' if _is_twse(code) else '.TWO'
+        tk = yf.Ticker(f'{code}{suffix}')
+
+        qf = tk.quarterly_income_stmt
+        if qf is None or qf.empty:
+            print(f'季度財報 yfinance：{code} 無資料')
+            return 0
+
+        # 找欄位（yfinance 版本不同欄位名不同）
+        def _find_row(df, *candidates):
+            for c in candidates:
+                for idx in df.index:
+                    if c.lower() in str(idx).lower():
+                        return idx
+            return None
+
+        rev_row = _find_row(qf, 'Total Revenue', 'Operating Revenue', 'Revenue')
+        gp_row  = _find_row(qf, 'Gross Profit', 'GrossProfit')
+        oi_row  = _find_row(qf, 'Operating Income', 'EBIT')
+        ni_row  = _find_row(qf, 'Net Income', 'Net Income Common Stockholders')
+
+        for col in qf.columns:
+            try:
+                rev = float(qf.loc[rev_row, col]) if rev_row else 0
+                gp  = float(qf.loc[gp_row,  col]) if gp_row  else 0
+                oi  = float(qf.loc[oi_row,  col]) if oi_row  else 0
+                ni  = float(qf.loc[ni_row,  col]) if ni_row  else 0
+                if rev and gp:
+                    period = _yf_date_to_period(col)
+                    gm     = round(gp / rev * 100, 2)
+                    save_quarterly_financials(code, period, rev, gp, gm, oi, ni)
+                    saved += 1
+            except Exception:
+                continue
+
+        print(f'季度財報（yfinance）：{code} 存入 {saved} 季')
+    except Exception as e:
+        print(f'季度財報 yfinance 失敗：{e}')
+
+    return saved
+
+
+def _finmind_date_to_period(date_str: str) -> str:
+    """'2026-03-31' → '2026Q1'"""
+    try:
+        y, m = int(date_str[:4]), int(date_str[5:7])
+        q = (m - 1) // 3 + 1
+        return f'{y}Q{q}'
+    except Exception:
+        return date_str[:7]
+
+
+def _yf_date_to_period(ts) -> str:
+    """pandas Timestamp / datetime → '2026Q1'"""
+    try:
+        import pandas as pd
+        dt = pd.Timestamp(ts)
+        q  = (dt.month - 1) // 3 + 1
+        return f'{dt.year}Q{q}'
+    except Exception:
+        return str(ts)[:7]
+
+
+def _is_twse(code: str) -> bool:
+    """簡單判斷上市/上櫃（不完整，主要用於拼 yfinance suffix）"""
+    from database import get_conn
+    conn = get_conn()
+    row = conn.execute('SELECT market FROM stocks WHERE code=?', (code,)).fetchone()
+    conn.close()
+    if row:
+        return row[0] == 'TWSE'
+    # 無資料時依代號長度猜測（4碼通常上市）
+    return len(code) == 4
+
+
 def seed_dram_history():
     """
     植入 DDR4 16Gb 歷史基準點（來源：TrendForce/Silicon Analysts 公開資料）。
