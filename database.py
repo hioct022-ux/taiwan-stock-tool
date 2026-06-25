@@ -246,6 +246,20 @@ def init_db():
         )
     ''')
 
+    # ── 個股業務分部營收（AI Server 占比等，手動輸入）──
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS stock_segment_revenue (
+            code        TEXT NOT NULL,
+            period      TEXT NOT NULL,   -- 'YYYYQN'
+            segment     TEXT NOT NULL,   -- e.g. 'ai_server'
+            revenue_pct REAL,            -- % 占總營收
+            revenue_abs REAL,            -- 絕對金額（千元，可 NULL）
+            note        TEXT,
+            updated_at  TEXT,
+            PRIMARY KEY (code, period, segment)
+        )
+    ''')
+
     # ── 個股季度財報（毛利率等，market_tracker 用）──
     c.execute('''
         CREATE TABLE IF NOT EXISTS stock_quarterly_financials (
@@ -976,6 +990,35 @@ def get_quarterly_financials_last_period(code: str) -> str | None:
     ).fetchone()
     conn.close()
     return row[0] if row and row[0] else None
+
+
+# ── 個股業務分部營收 ────────────────────────
+def save_segment_revenue(code: str, period: str, segment: str,
+                          revenue_pct: float, revenue_abs: float = None,
+                          note: str = '') -> None:
+    conn = get_conn()
+    conn.execute('''
+        INSERT OR REPLACE INTO stock_segment_revenue
+            (code, period, segment, revenue_pct, revenue_abs, note, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    ''', (code, period, segment, round(revenue_pct, 1), revenue_abs, note,
+          datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+    conn.commit()
+    conn.close()
+
+
+def get_segment_revenue(code: str, segment: str, quarters: int = 12) -> list:
+    """回傳指定業務分部的歷史占比，升序。key：period, revenue_pct, revenue_abs, note"""
+    conn = get_conn()
+    rows = conn.execute('''
+        SELECT period, revenue_pct, revenue_abs, note
+        FROM stock_segment_revenue
+        WHERE code=? AND segment=?
+        ORDER BY period DESC LIMIT ?
+    ''', (code, segment, quarters)).fetchall()
+    conn.close()
+    cols = ['period', 'revenue_pct', 'revenue_abs', 'note']
+    return [dict(zip(cols, r)) for r in reversed(rows)]
 
 
 # ── 除權息資料 ──────────────────────────

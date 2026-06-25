@@ -2773,6 +2773,358 @@ def _render_hiwin_monitor():
             st.markdown(content)
 
 
+# ── 鴻海（2317）AI Server 監控 ────────────
+def _render_foxconn_monitor():
+    """鴻海（2317）AI Server 三指標監控面板"""
+    import plotly.graph_objects as go
+    from database import (get_prices, get_fundamentals, get_chips,
+                          get_quarterly_financials, get_quarterly_financials_last_period,
+                          get_segment_revenue, save_segment_revenue)
+    from datetime import datetime, timedelta
+
+    st.markdown('### 🦊 鴻海（2317）｜AI Server 轉折監控')
+    st.caption('三指標同步確認：AI Server 占比上升 ＋ 毛利率回升 ＋ 外資連買 2-3 週 → 佈局訊號')
+
+    code = '2317'
+    prices     = get_prices(code, days=250)
+    fund       = get_fundamentals(code, days=600)
+    chips_list = get_chips(code, days=90)   # 需要較多天數計算週線
+
+    # 自動抓取（一）：季度財報（FinMind / yfinance）
+    if IS_LOCAL and not st.session_state.get(f'_qf_fetched_{code}'):
+        try:
+            from fetcher import fetch_quarterly_financials
+            _n = fetch_quarterly_financials(code, years=4)
+            st.session_state[f'_qf_fetched_{code}'] = True
+            if _n > 0:
+                st.toast(f'已更新 {code} 季度財報（{_n} 季）', icon='📊')
+        except Exception:
+            pass
+
+    # 自動抓取（二）：法說會摘要（BigGo）→ AI Server 占比 + 毛利率
+    _biggo_result = None
+    if IS_LOCAL and not st.session_state.get(f'_biggo_fetched_{code}'):
+        try:
+            from fetcher import fetch_foxconn_earnings
+            _biggo_result = fetch_foxconn_earnings()
+            st.session_state[f'_biggo_fetched_{code}'] = True
+            if _biggo_result and not _biggo_result.get('cached'):
+                _parts = []
+                if _biggo_result.get('ai_server_pct'):
+                    _parts.append(f'AI Server {_biggo_result["ai_server_pct"]:.1f}%')
+                if _biggo_result.get('gross_margin'):
+                    _parts.append(f'毛利率 {_biggo_result["gross_margin"]:.1f}%')
+                if _parts:
+                    st.toast(f'法說會資料更新：{" / ".join(_parts)}', icon='📋')
+        except Exception:
+            pass
+
+    qf_data  = get_quarterly_financials(code, quarters=12)
+    seg_data = get_segment_revenue(code, 'ai_server', quarters=12)
+
+    # ══ 三指標狀態列 ══════════════════════
+    # --- 計算各指標 ---
+    # 1. AI Server 占比趨勢
+    _ai_trend = '—'
+    _ai_color = '#64748b'
+    if len(seg_data) >= 2:
+        diff = seg_data[-1]['revenue_pct'] - seg_data[-2]['revenue_pct']
+        if diff >= 2:
+            _ai_trend = f'▲ {diff:+.1f}pp QoQ'; _ai_color = '#22c55e'
+        elif diff > 0:
+            _ai_trend = f'▲ {diff:+.1f}pp'; _ai_color = '#86efac'
+        elif diff < 0:
+            _ai_trend = f'▼ {diff:+.1f}pp'; _ai_color = '#ef4444'
+        else:
+            _ai_trend = '→ 持平'; _ai_color = '#94a3b8'
+    _ai_latest = f'{seg_data[-1]["revenue_pct"]:.1f}%' if seg_data else '待輸入'
+
+    # 2. 毛利率趨勢
+    _gm_trend = '—'
+    _gm_color = '#64748b'
+    _gm_vals  = [d['gross_margin'] for d in qf_data if d.get('gross_margin')]
+    if len(_gm_vals) >= 2:
+        diff = _gm_vals[-1] - _gm_vals[-2]
+        if diff >= 0.5:
+            _gm_trend = f'▲ {diff:+.1f}pp 上升'; _gm_color = '#22c55e'
+        elif diff > 0:
+            _gm_trend = f'▲ 微升 {diff:+.2f}pp'; _gm_color = '#86efac'
+        elif diff < -0.5:
+            _gm_trend = f'▼ {diff:+.1f}pp 下降'; _gm_color = '#ef4444'
+        else:
+            _gm_trend = '→ 持平'; _gm_color = '#94a3b8'
+    _gm_latest = f'{_gm_vals[-1]:.1f}%' if _gm_vals else '自動抓取中'
+
+    # 3. 外資連買週數
+    _foreign_weeks, _foreign_color, _foreign_label = _calc_foreign_consecutive_weeks(chips_list)
+
+    # --- 三欄指標卡 ---
+    c1, c2, c3 = st.columns(3)
+    for col, title, val, trend, color, desc in [
+        (c1, '🤖 AI Server 營收占比', _ai_latest, _ai_trend, _ai_color,
+         '佔總營收比例，季度法說會公佈'),
+        (c2, '📊 毛利率', _gm_latest, _gm_trend, _gm_color,
+         '高毛利 AI Server 佔比提升 → 整體毛利率回升'),
+        (c3, '🏦 外資連買', f'{_foreign_weeks} 週', _foreign_label, _foreign_color,
+         '外資連續淨買超週數（≥2 週為觀察訊號，≥3 週確認）'),
+    ]:
+        with col:
+            st.markdown(
+                f'<div style="background:#0f172a;border:1px solid #1e293b;border-radius:10px;'
+                f'padding:14px;text-align:center">'
+                f'<div style="font-size:12px;color:#64748b;margin-bottom:6px">{title}</div>'
+                f'<div style="font-size:24px;font-weight:700;color:#e2e8f0">{val}</div>'
+                f'<div style="color:{color};font-size:13px;margin-top:4px">{trend}</div>'
+                f'<div style="font-size:11px;color:#475569;margin-top:6px">{desc}</div>'
+                f'</div>', unsafe_allow_html=True
+            )
+
+    # 綜合訊號判斷
+    _signals_met = sum([
+        bool(seg_data and seg_data[-1]['revenue_pct'] >= 45),
+        bool(_gm_vals and _gm_vals[-1] > (_gm_vals[-2] if len(_gm_vals) >= 2 else 0)),
+        _foreign_weeks >= 2,
+    ])
+    _sig_msg = {0: ('⬜ 訊號尚未出現', '#64748b'),
+                1: ('🟡 一項訊號確認，持續觀察', '#f59e0b'),
+                2: ('🟠 兩項訊號同步，提高關注', '#f97316'),
+                3: ('🟢 三項訊號全部確認 — 佈局訊號成立', '#22c55e')}[_signals_met]
+    st.markdown(
+        f'<div style="background:#0f172a;border:2px solid {_sig_msg[1]};border-radius:8px;'
+        f'padding:12px;text-align:center;margin:12px 0;font-weight:700;color:{_sig_msg[1]}">'
+        f'{_sig_msg[0]}</div>', unsafe_allow_html=True
+    )
+
+    st.divider()
+
+    # ══ AI Server 營收占比 ════════════════
+    st.markdown('#### 🤖 AI Server 營收占比')
+
+    # 重新抓取按鈕（法說會資料可能剛更新）
+    if IS_LOCAL:
+        _fc1, _fc2 = st.columns([4, 1])
+        with _fc2:
+            if st.button('🔄 重新抓取法說會', key='btn_foxconn_refetch', use_container_width=True):
+                with st.spinner('抓取 BigGo 法說會摘要...'):
+                    try:
+                        from fetcher import fetch_foxconn_earnings
+                        _res = fetch_foxconn_earnings(force=True)
+                        st.session_state[f'_biggo_fetched_{code}'] = True
+                        if _res:
+                            st.success(
+                                f'{_res["period"]} | '
+                                f'AI Server {_res.get("ai_server_pct","—")}% | '
+                                f'毛利率 {_res.get("gross_margin","—")}%'
+                            )
+                        else:
+                            st.warning('無法取得資料，請手動輸入')
+                    except Exception as _e:
+                        st.error(f'失敗：{_e}')
+                st.rerun()
+        with _fc1:
+            if seg_data:
+                _last = seg_data[-1]
+                st.caption(f'最後更新：{_last["period"]}  AI Server {_last["revenue_pct"]:.1f}%'
+                           + (f'（{_last["note"]}）' if _last.get("note") else ''))
+
+    # 手動輸入（法說會資料無法自動取得時備用）
+    with st.expander('✏️ 手動輸入或修正 AI Server 占比（自動抓取有誤時使用）'):
+        ai1, ai2, ai3, ai4 = st.columns([2, 2, 2, 1])
+        with ai1:
+            _ai_period = st.selectbox('季度',
+                ['2026Q2','2026Q1','2025Q4','2025Q3','2025Q2','2025Q1','2024Q4','2024Q3'],
+                key='foxconn_ai_period')
+        with ai2:
+            _ai_pct = st.number_input('AI Server 占比 (%)', 0.0, 100.0, step=0.5,
+                                      format='%.1f', key='foxconn_ai_pct')
+        with ai3:
+            _ai_note = st.text_input('備註（法說會來源）', key='foxconn_ai_note',
+                                     placeholder='e.g. 2026Q1法說會')
+        with ai4:
+            st.markdown('<div style="margin-top:28px"></div>', unsafe_allow_html=True)
+            if st.button('儲存', key='btn_foxconn_ai', use_container_width=True):
+                if _ai_pct > 0:
+                    save_segment_revenue(code, _ai_period, 'ai_server', _ai_pct, None, _ai_note)
+                    st.success(f'{_ai_period} AI Server {_ai_pct:.1f}% 已存入')
+                    st.rerun()
+
+    if seg_data:
+        _ai_dates = [d['period'] for d in seg_data]
+        _ai_pcts  = [d['revenue_pct'] for d in seg_data]
+        _ai_colors_bar = ['#22c55e' if v >= 50 else '#3b82f6' if v >= 40
+                          else '#f59e0b' if v >= 30 else '#64748b' for v in _ai_pcts]
+
+        fig_ai = go.Figure()
+        fig_ai.add_trace(go.Bar(
+            x=_ai_dates, y=_ai_pcts, marker_color=_ai_colors_bar,
+            text=[f'{v:.1f}%' for v in _ai_pcts], textposition='outside', name='AI Server 占比'
+        ))
+        fig_ai.add_trace(go.Scatter(
+            x=_ai_dates, y=_ai_pcts, mode='lines+markers',
+            line=dict(color='#60a5fa', width=2), marker=dict(size=6), name='趨勢'
+        ))
+        for threshold, label, color in [(30,'30% 初期','#f59e0b'),(45,'45% 關鍵','#3b82f6'),(60,'60% 主力','#22c55e')]:
+            fig_ai.add_hline(y=threshold, line_dash='dash', line_color=color, opacity=0.6,
+                             annotation_text=f' {label}', annotation_position='right')
+        fig_ai.update_layout(
+            template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)', height=280,
+            margin=dict(l=10, r=80, t=20, b=10),
+            yaxis=dict(title='%', range=[0, max(max(_ai_pcts)+10, 70)], gridcolor='#1e293b'),
+            xaxis=dict(gridcolor='#1e293b')
+        )
+        show_chart(fig_ai, key='foxconn_ai_chart')
+        st.caption('30%：AI Server 崛起期｜45%：毛利率開始明顯受益｜60%：鴻海定位從代工轉 AI infrastructure')
+    else:
+        st.info('尚無資料。每季法說會後在上方「手動輸入」更新。')
+
+    st.divider()
+
+    # ══ 毛利率趨勢 ════════════════════════
+    st.markdown('#### 📊 毛利率趨勢')
+    if _gm_vals:
+        _gm_periods = [d['period'] for d in qf_data if d.get('gross_margin')]
+        _gm_bar_colors = ['#22c55e' if i > 0 and _gm_vals[i] > _gm_vals[i-1]
+                          else '#ef4444' if i > 0 and _gm_vals[i] < _gm_vals[i-1]
+                          else '#64748b' for i in range(len(_gm_vals))]
+
+        fig_gm = go.Figure()
+        fig_gm.add_trace(go.Bar(
+            x=_gm_periods, y=_gm_vals, marker_color=_gm_bar_colors,
+            text=[f'{v:.1f}%' for v in _gm_vals], textposition='outside', name='毛利率'
+        ))
+        fig_gm.add_trace(go.Scatter(
+            x=_gm_periods, y=_gm_vals, mode='lines+markers',
+            line=dict(color='#a855f7', width=2), marker=dict(size=5), name='趨勢'
+        ))
+        # 鴻海毛利率正常區間 6-8%（代工業）
+        fig_gm.add_hrect(y0=6, y1=8, fillcolor='#1e3a5f', opacity=0.3,
+                         annotation_text='正常代工區間 6-8%', annotation_position='right')
+        fig_gm.add_hline(y=8, line_dash='dot', line_color='#22c55e', opacity=0.7,
+                         annotation_text=' 8% 突破門檻', annotation_position='right')
+        fig_gm.update_layout(
+            template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)', height=260,
+            margin=dict(l=10, r=100, t=20, b=10),
+            yaxis=dict(title='毛利率 %', gridcolor='#1e293b'),
+            xaxis=dict(gridcolor='#1e293b')
+        )
+        show_chart(fig_gm, key='foxconn_gm_chart')
+        st.caption('鴻海毛利率長期偏低（代工模式），AI Server 高毛利佔比提升後應突破 8%')
+    else:
+        st.info('季度財報抓取中，請稍後重整頁面，或確認已加入 2317 自選股並手動更新資料。')
+
+    st.divider()
+
+    # ══ 外資籌碼（週線）══════════════════
+    st.markdown('#### 🏦 外資籌碼｜連買週數分析')
+    if chips_list:
+        # 將日線外資籌碼聚合成週（週一為起點）
+        from datetime import datetime as _dt
+        weekly = {}
+        for c in chips_list:
+            try:
+                d = _dt.strptime(c['date'], '%Y-%m-%d')
+                # ISO 週次作為 key
+                week_key = d.strftime('%Y-W%W')
+                weekly.setdefault(week_key, {'foreign_net': 0, 'dates': []})
+                weekly[week_key]['foreign_net'] += c.get('foreign_net', 0)
+                weekly[week_key]['dates'].append(c['date'])
+            except Exception:
+                continue
+
+        weeks_sorted = sorted(weekly.keys())
+        week_nets    = [weekly[w]['foreign_net'] for w in weeks_sorted]
+
+        # 計算連買週數（從最近往回數）
+        _consec = 0
+        for net in reversed(week_nets):
+            if net > 0:
+                _consec += 1
+            else:
+                break
+
+        # 週線柱狀圖
+        _w_colors = ['#22c55e' if v >= 0 else '#ef4444' for v in week_nets]
+        fig_chips = go.Figure()
+        fig_chips.add_trace(go.Bar(
+            x=weeks_sorted, y=[v / 1000 for v in week_nets],  # 換算為千張
+            marker_color=_w_colors, name='外資週淨買超（千張）'
+        ))
+        # 連買標記區域
+        if _consec >= 2:
+            fig_chips.add_vrect(
+                x0=weeks_sorted[-_consec], x1=weeks_sorted[-1],
+                fillcolor='#22c55e', opacity=0.1,
+                annotation_text=f' 連買 {_consec} 週', annotation_position='top left',
+                annotation_font_color='#22c55e'
+            )
+        fig_chips.update_layout(
+            template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)', height=260,
+            margin=dict(l=10, r=20, t=30, b=10),
+            yaxis=dict(title='千張', gridcolor='#1e293b', zeroline=True,
+                       zerolinecolor='#475569'),
+            xaxis=dict(gridcolor='#1e293b', title='週次')
+        )
+        show_chart(fig_chips, key='foxconn_chips_chart')
+
+        # 連買訊號說明
+        if _consec >= 3:
+            st.success(f'✅ 外資連續買超 **{_consec} 週** — 確認訊號，大資金態度明確')
+        elif _consec == 2:
+            st.info(f'📊 外資連續買超 **{_consec} 週** — 觀察訊號，下週是否延續')
+        elif _consec == 1:
+            st.warning('⚠️ 外資僅連買 1 週，尚未確認方向')
+        else:
+            _recent_sell = sum(1 for v in week_nets[-4:] if v < 0)
+            st.error(f'❌ 外資近期偏賣（近 4 週有 {_recent_sell} 週賣超）')
+    else:
+        st.info('尚無籌碼資料。請先加入 2317 自選股並手動更新資料。')
+
+
+def _calc_foreign_consecutive_weeks(chips_list: list) -> tuple:
+    """
+    計算外資連續買超週數。
+    回傳 (週數, 顏色, 標籤文字)
+    """
+    if not chips_list:
+        return 0, '#64748b', '待資料'
+
+    from datetime import datetime as _dt
+    weekly = {}
+    for c in chips_list:
+        try:
+            d = _dt.strptime(c['date'], '%Y-%m-%d')
+            wk = d.strftime('%Y-W%W')
+            weekly.setdefault(wk, 0)
+            weekly[wk] += c.get('foreign_net', 0)
+        except Exception:
+            continue
+
+    nets = [weekly[w] for w in sorted(weekly.keys())]
+    consec = 0
+    for net in reversed(nets):
+        if net > 0:
+            consec += 1
+        else:
+            break
+
+    if consec >= 3:
+        return consec, '#22c55e', f'連買 {consec} 週 ✅'
+    elif consec == 2:
+        return consec, '#3b82f6', f'連買 {consec} 週 👀'
+    elif consec == 1:
+        return consec, '#f59e0b', '連買 1 週（觀察）'
+    else:
+        # 連賣
+        sell = 0
+        for net in reversed(nets):
+            if net < 0: sell += 1
+            else: break
+        return 0, '#ef4444', f'連賣 {sell} 週'
+
+
 # ── 市場追蹤頁 ──────────────────────────
 def render_market_tracker():
     from database import get_dram_prices, save_dram_price, get_dram_price_last_date
@@ -2782,10 +3134,15 @@ def render_market_tracker():
     st.markdown('## 🌐 市場追蹤')
     st.caption('追蹤關鍵商品價格走勢，輔助個股基本面判斷')
 
-    _tab_ddr4, _tab_robot = st.tabs(['💾 DDR4 現貨走勢（南亞科）', '🤖 機器人股監控（上銀 2049）'])
+    _tab_ddr4, _tab_robot, _tab_fox = st.tabs([
+        '💾 DDR4（南亞科）', '🤖 機器人（上銀 2049）', '🦊 AI Server（鴻海 2317）'
+    ])
 
     with _tab_robot:
         _render_hiwin_monitor()
+
+    with _tab_fox:
+        _render_foxconn_monitor()
 
     with _tab_ddr4:
         # ══ DDR4 16Gb 現貨價 ══
