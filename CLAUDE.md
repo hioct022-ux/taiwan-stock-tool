@@ -388,6 +388,8 @@ GRADE = {80:'強力買進', 65:'偏多操作', 50:'中性觀望', 35:'偏空謹�
 
 | 資料 | API 端點 | 格式 | 速率限制 |
 |------|----------|------|---------|
+| 全市場收盤（帶日期，首選） | `STOCK_DAY_ALL?date=YYYYMMDD` | **CSV**（民國7碼日期） | 每日一次 |
+| 全市場收盤（無日期，備援） | `STOCK_DAY_ALL?response=json` | JSON | 偶爾回傳舊資料 |
 | 個股日線價格（上市） | `STOCK_DAY` | JSON | 每月一次，間隔 ≥ 0.4s |
 | 上市股票清單 | `BWIBBU_ALL` | JSON | 日更新 |
 | 個股三大法人（T86） | `T86` | JSON | 每日一次 |
@@ -457,6 +459,21 @@ def render_t86()        # 法人排行
 def render_exdividend() # 除權息
 def render_notes()      # 個股筆記
 ```
+
+### 側邊欄自選股清單顯示（2026-06 新增）
+
+每支自選股按鈕下方會顯示一行價格摘要，直接從 DB 讀取（`get_prices(code, days=1)`）：
+
+```
+⚪ 2330 台積電 72分
+06-24  2,390  ▼ -100 (-4.02%)
+```
+
+- 日期格式：`MM-DD`（省略年份節省空間）
+- 收盤價：白色加粗
+- 漲跌：上漲綠色 ▲，下跌紅色 ▼；使用 `:+.0f` 格式，**不要另外加 `+` 前綴否則會出現 `++100`**
+- 本機與雲端版均顯示（不受 IS_LOCAL 影響）
+- 每次頁面渲染都直接讀 DB，不走快取（N 支股票 N 次 SQLite 查詢，速度足夠）
 
 ### 個股頁籤結構（render_stock 內）
 
@@ -781,10 +798,36 @@ r.content.decode('big5', errors='ignore')  # 不是 r.text
 現象：大盤評分本機和雲端不一致，但差距在 5 分以內。
 原因：Signal 9（外部市場即時）使用 yfinance，快取 TTL=900 秒（15分鐘）。本機和雲端各自發請求，抓取時間點不同，美股指數/VIX/TSM ADR 即時值略有差異。
 **結論：** ±5 分以內屬正常，無法消除。差距 ≥15 分才需檢查 JSON 資料是否同步。
-現象：P/C 比率圖顯示「尚無資料」，但 SQLite 內有資料。  
-原因：`get_conn()` 無 `row_factory = sqlite3.Row`，`fetchall()` 回傳 tuple，`dict(r)` 對 tuple 無效。  
-**修正（2026-06）：** 改為 `cols = ['date', 'call_oi', 'put_oi', 'pc_ratio']; return [dict(zip(cols, r)) for r in reversed(rows)]`。`get_options_pc_last_date()` 同理，用 `row[0]` 不用 `row['date']`。  
-**通則：** database.py 所有 read 函式都必須手動 zip 欄名，不能依賴 row_factory。
+
+### 14. TWSE STOCK_DAY_ALL 無日期版本回傳舊資料（2026-06 發現）
+現象：手動更新顯示「全部更新成功」，但個股資料仍停在前一交易日。  
+原因：`STOCK_DAY_ALL?response=json`（不帶日期）有時回傳一個月前的舊資料（TWSE 伺服器端 bug），程式只要收到 `stat=OK` 就算成功。  
+**修正（2026-06）：**
+1. 新增 `_parse_twse_csv_all()` 解析帶日期版本的 CSV 格式
+2. `fetch_today_prices()` 改為**優先使用帶日期 CSV 端點**，無日期 JSON 版本降為備援
+3. `fetch_today_prices()` 回傳實際抓到的資料日期（`twse_actual_date`）
+4. `fetch_all()` 比對回傳日期與今天：不符則記錄 `PENDING` 狀態，不再誤報「全部更新成功」
+5. 手動更新按鈕完成後重新讀取資料狀態，顯示 `⏳ TWSE 尚未發布今日資料` 而非 `✅`
+
+**兩種端點差異：**
+
+| 端點 | 格式 | 狀況 |
+|---|---|---|
+| `STOCK_DAY_ALL?response=json` | JSON，date 在頂層 | 偶爾回傳舊日期 |
+| `STOCK_DAY_ALL?date=20260624` | CSV（`response=json` 無效），date 在每列第一欄，民國 7 碼 `1150624` | 可靠，永遠是指定日期 |
+
+**CSV 欄位順序：** 日期, 證券代號, 證券名稱, 成交股數, 成交金額, 開盤價, 最高價, 最低價, 收盤價, 漲跌價差, 成交筆數
+
+```python
+# 日期解析（twse_date_to_std 已支援）
+"1150624" → "2026-06-24"   # 7碼民國年，d[0]=='1'
+```
+
+### 15. APScheduler 排程在 Streamlit 重啟時失效（2026-06 發現）
+現象：程式每天 16:30 應自動抓資料，但 update_log 只有手動更新紀錄，沒有自動執行的記錄。  
+原因：APScheduler 跑在 Streamlit Python 程序內部，每次 Streamlit 重新載入（存檔、刷新）就會重置排程，若重啟時間點正好跨過 16:30 則整天都不會觸發。  
+**建議：** 改用 macOS cron 獨立執行 `run_daily_fetch.sh`（已在專案根目錄），完全不依賴 Streamlit 存活。  
+**目前做法：** 使用者每日手動按「🔄 手動更新資料」，TWSE 通常在 15:00~16:30 更新，建議 17:00 後再按。
 
 ---
 

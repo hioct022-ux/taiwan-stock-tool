@@ -81,77 +81,131 @@ def fetch_stock_list():
     return results
 
 # ── 抓當日全市場收盤價 ───────────────────
+def _parse_twse_csv_all(content_bytes):
+    """
+    解析 TWSE STOCK_DAY_ALL?date=YYYYMMDD 回傳的 CSV。
+    格式（utf-8）：
+      日期,證券代號,證券名稱,成交股數,成交金額,開盤價,最高價,最低價,收盤價,漲跌價差,成交筆數
+      "1150624","0050","元大台灣50","235939737",...
+    回傳 (list[dict], actual_date_str)
+    """
+    import csv, io
+    text = content_bytes.decode('utf-8', errors='ignore')
+    rows_out = []
+    actual_date = None
+    reader = csv.reader(io.StringIO(text))
+    for i, row in enumerate(reader):
+        if i == 0:   # 標題行
+            continue
+        if len(row) < 11:
+            continue
+        try:
+            raw_date = row[0].strip().strip('"')
+            date     = twse_date_to_std(raw_date)   # "1150624" → "2026-06-24"
+            code     = row[1].strip().strip('"')
+            open_    = clean_num(row[5])
+            high     = clean_num(row[6])
+            low      = clean_num(row[7])
+            close    = clean_num(row[8])
+            chg      = clean_num(row[9])
+            vol      = clean_num(row[3])
+            val      = clean_num(row[4])
+            pct      = round(chg / (close - chg) * 100, 2) if (close - chg) != 0 else 0
+            if code and close > 0:
+                if actual_date is None:
+                    actual_date = date
+                rows_out.append({'code': code, 'date': date,
+                                 'open': open_, 'high': high, 'low': low,
+                                 'close': close, 'volume': int(vol),
+                                 'value': val, 'change': chg, 'change_pct': pct})
+        except Exception:
+            pass
+    return rows_out, actual_date
+
+
 def fetch_today_prices():
+    """抓取今日全市場收盤價，回傳實際資料日期（TWSE 回傳的交易日，非今天）或 None。"""
     print('抓取今日收盤價...')
     count = 0
     twse_actual_date = None   # 記錄 TWSE API 回傳的實際交易日，供上櫃使用
+    today_str = datetime.now().strftime('%Y%m%d')
 
     # 上市
-    # 優先使用 TWSE 網頁端（盤後 30 分鐘即更新），備援 OpenAPI（有時延遲到隔天）
-    twse_urls = [
-        'https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?response=json',
-        'https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL',
+    # 優先策略：帶日期參數的 CSV 端點（最可靠，即使無日期版本返回舊資料也能取到正確日期）
+    # 備援：無日期 JSON 端點（有時返回舊資料）、OpenAPI（有時延遲）
+    twse_sources = [
+        ('csv_with_date', f'https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?date={today_str}'),
+        ('json_no_date',  'https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?response=json'),
+        ('openapi',       'https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL'),
     ]
-    for twse_url in twse_urls:
+    for src_type, twse_url in twse_sources:
         try:
-            r    = requests.get(twse_url, headers=HEADERS, timeout=15, verify=False)
-            resp = r.json()
+            r = requests.get(twse_url, headers=HEADERS, timeout=20, verify=False)
 
-            # 判斷回應格式：網頁端回傳 {stat, date, fields, data}；OpenAPI 回傳 list
-            if isinstance(resp, dict) and resp.get('stat') == 'OK':
-                # 網頁端格式
-                raw_date = resp.get('date', '')          # e.g. "20260525"
-                date     = twse_date_to_std(raw_date)    # → "2026-05-25"
-                rows     = resp.get('data', [])
-                # fields: 證券代號, 證券名稱, 成交股數, 成交金額, 開盤價, 最高價, 最低價, 收盤價, 漲跌價差, 成交筆數
-                for row in rows:
-                    try:
-                        code  = str(row[0]).strip()
-                        open_ = clean_num(row[4])
-                        high  = clean_num(row[5])
-                        low   = clean_num(row[6])
-                        close = clean_num(row[7])
-                        chg   = clean_num(row[8])
-                        vol   = clean_num(row[2])
-                        val   = clean_num(row[3])
+            if src_type == 'csv_with_date':
+                # CSV 格式（帶日期參數時 response=json 無效，一律返回 CSV）
+                parsed_rows, actual_date = _parse_twse_csv_all(r.content)
+                if not parsed_rows:
+                    raise ValueError('CSV 解析結果為空')
+                for row in parsed_rows:
+                    save_prices(row['code'], [row])
+                    count += 1
+                twse_actual_date = actual_date
+            else:
+                resp = r.json()
+                if isinstance(resp, dict) and resp.get('stat') == 'OK':
+                    # 網頁端 JSON 格式
+                    raw_date = resp.get('date', '')
+                    date     = twse_date_to_std(raw_date)
+                    rows     = resp.get('data', [])
+                    for row in rows:
+                        try:
+                            code  = str(row[0]).strip()
+                            open_ = clean_num(row[4])
+                            high  = clean_num(row[5])
+                            low   = clean_num(row[6])
+                            close = clean_num(row[7])
+                            chg   = clean_num(row[8])
+                            vol   = clean_num(row[2])
+                            val   = clean_num(row[3])
+                            pct   = round(chg / (close - chg) * 100, 2) if (close - chg) != 0 else 0
+                            if code and close > 0:
+                                if twse_actual_date is None:
+                                    twse_actual_date = date
+                                save_prices(code, [{'date':date,'open':open_,'high':high,
+                                                    'low':low,'close':close,'volume':int(vol),
+                                                    'value':val,'change':chg,'change_pct':pct}])
+                                count += 1
+                        except Exception:
+                            pass
+                elif isinstance(resp, list):
+                    # OpenAPI 格式
+                    for s in resp:
+                        code  = s.get('Code','').strip()
+                        date  = twse_date_to_std(s.get('Date',''))
+                        close = clean_num(s.get('ClosingPrice',''))
+                        open_ = clean_num(s.get('OpeningPrice',''))
+                        high  = clean_num(s.get('HighestPrice',''))
+                        low   = clean_num(s.get('LowestPrice',''))
+                        vol   = clean_num(s.get('TradeVolume',''))
+                        val   = clean_num(s.get('TradeValue',''))
+                        chg   = clean_num(s.get('Change',''))
                         pct   = round(chg / (close - chg) * 100, 2) if (close - chg) != 0 else 0
                         if code and close > 0:
-                            if twse_actual_date is None and date:
+                            if twse_actual_date is None:
                                 twse_actual_date = date
                             save_prices(code, [{'date':date,'open':open_,'high':high,
                                                 'low':low,'close':close,'volume':int(vol),
                                                 'value':val,'change':chg,'change_pct':pct}])
                             count += 1
-                    except Exception:
-                        pass
-            elif isinstance(resp, list):
-                # OpenAPI 格式
-                for s in resp:
-                    code  = s.get('Code','').strip()
-                    date  = twse_date_to_std(s.get('Date',''))
-                    close = clean_num(s.get('ClosingPrice',''))
-                    open_ = clean_num(s.get('OpeningPrice',''))
-                    high  = clean_num(s.get('HighestPrice',''))
-                    low   = clean_num(s.get('LowestPrice',''))
-                    vol   = clean_num(s.get('TradeVolume',''))
-                    val   = clean_num(s.get('TradeValue',''))
-                    chg   = clean_num(s.get('Change',''))
-                    pct   = round(chg / (close - chg) * 100, 2) if (close - chg) != 0 else 0
-                    if code and close > 0:
-                        if twse_actual_date is None and date:
-                            twse_actual_date = date
-                        save_prices(code, [{'date':date,'open':open_,'high':high,
-                                            'low':low,'close':close,'volume':int(vol),
-                                            'value':val,'change':chg,'change_pct':pct}])
-                        count += 1
-            else:
-                raise ValueError('未預期的回應格式')
+                else:
+                    raise ValueError('未預期的回應格式')
 
-            print(f'上市收盤價：{count} 筆（實際交易日：{twse_actual_date}）')
-            break   # 成功就不再嘗試備援 URL
+            print(f'上市收盤價：{count} 筆（來源：{src_type}，實際交易日：{twse_actual_date}）')
+            break   # 成功就不再嘗試備援
 
         except Exception as e:
-            print(f'上市收盤失敗（{twse_url[:50]}...）：{e}，嘗試備援...')
+            print(f'上市收盤失敗（{src_type}）：{e}，嘗試備援...')
 
     if count == 0:
         print('上市收盤價：所有來源均失敗')
@@ -192,6 +246,8 @@ def fetch_today_prices():
             print(f'上櫃收盤價：{otc_count} 筆（日期：{otc_date}）')
     except Exception as e:
         print(f'抓取上櫃收盤失敗：{e}')
+
+    return twse_actual_date  # 回傳實際資料日期，None 表示失敗
 
 # ── 抓基本面（PE / 殖利率 / PB）─────────
 def fetch_fundamentals():
@@ -922,10 +978,17 @@ def fetch_all():
     print('='*40)
     errors = []
 
+    _twse_data_date = None
     try:
-        fetch_today_prices()
+        _twse_data_date = fetch_today_prices()
     except Exception as e:
         errors.append(f'收盤價：{e}')
+
+    # 如果 TWSE 回傳的不是今天的資料，記錄警告（TWSE 有時延遲發布）
+    _today_str = datetime.now().strftime('%Y-%m-%d')
+    if _twse_data_date and _twse_data_date != _today_str:
+        print(f'⚠️  TWSE 回傳的是 {_twse_data_date} 的資料（今天是 {_today_str}），尚未發布今日資料')
+        errors.append(f'TWSE 尚未發布今日({_today_str})收盤資料，目前最新為 {_twse_data_date}')
 
     time.sleep(1)
 
@@ -1079,7 +1142,15 @@ def fetch_all():
 
     if errors:
         msg = '部分失敗：' + '、'.join(errors)
-        log_update('WARNING', msg)
+        # TWSE 未發布今日資料是可預期的情況，用 PENDING 狀態而非 WARNING
+        if any('尚未發布' in e for e in errors):
+            non_twse_errors = [e for e in errors if '尚未發布' not in e]
+            if non_twse_errors:
+                log_update('WARNING', '部分失敗：' + '、'.join(non_twse_errors) + f'（TWSE 資料日期：{_twse_data_date}）')
+            else:
+                log_update('PENDING', f'TWSE 尚未發布今日收盤資料，目前最新為 {_twse_data_date}')
+        else:
+            log_update('WARNING', msg)
         print(f'\n⚠️  {msg}')
     else:
         log_update('OK', '全部更新成功')

@@ -307,7 +307,14 @@ def render_sidebar():
                     try:
                         from fetcher import fetch_all
                         fetch_all()
-                        _status2.update(label='✅ 資料更新完成', state='complete')
+                        # 重新讀取狀態，確認是否真的拿到今日資料
+                        _new_status = get_data_status()
+                        if _new_status['status'] == 'ok':
+                            _status2.update(label='✅ 今日收盤資料更新完成', state='complete')
+                        elif _new_status['status'] == 'pending':
+                            _status2.update(label=f'⏳ TWSE 尚未發布今日資料，最新為 {_new_status["data_date"]}', state='error')
+                        else:
+                            _status2.update(label='✅ 資料更新完成', state='complete')
                     except Exception as _e:
                         _status2.update(label=f'⚠️ 部分失敗：{_e}', state='error')
                 # 清除評分快取，讓排序使用最新資料
@@ -323,7 +330,11 @@ def render_sidebar():
                     try:
                         from fetcher import fetch_all
                         fetch_all()
-                        st.write('✅ 資料更新完成')
+                        _chk = get_data_status()
+                        if _chk['status'] == 'pending':
+                            st.write(f'⏳ TWSE 尚未發布今日資料（最新：{_chk["data_date"]}），其他資料已更新')
+                        else:
+                            st.write('✅ 資料更新完成')
                     except Exception as _e:
                         st.write(f'⚠️ 抓取部分失敗：{_e}')
                         _fetch_ok = False
@@ -526,6 +537,26 @@ def render_sidebar():
                     _s = st.session_state.get('_wl_scores', {}).get(w['code'])
                     if _s is not None:
                         _score_str = f' {_s}分'
+
+                # 取最新收盤資料（用於顯示日期、收盤價、漲跌）
+                _latest_prices = get_prices(w['code'], days=1)
+                _price_caption = ''
+                if _latest_prices:
+                    _lp = _latest_prices[-1]
+                    _ldate = _lp['date'][5:]      # "2026-06-24" → "06-24"
+                    _lclose = _lp['close']
+                    _lchg   = _lp['change']
+                    _lpct   = _lp['change_pct']
+                    _color  = '#22c55e' if _lchg >= 0 else '#ef4444'
+                    _arrow  = '▲' if _lchg >= 0 else '▼'
+                    _price_caption = (
+                        f'<div style="font-size:11px;color:#888;margin:-6px 0 4px 4px;">'
+                        f'{_ldate} &nbsp;'
+                        f'<span style="color:#e2e8f0;font-weight:600">{_lclose:,.0f}</span> &nbsp;'
+                        f'<span style="color:{_color}">{_arrow} {_lchg:+.0f} ({_lpct:+.2f}%)</span>'
+                        f'</div>'
+                    )
+
                 if IS_LOCAL:
                     col1, col2 = st.columns([5, 1])
                     with col1:
@@ -536,6 +567,8 @@ def render_sidebar():
                             st.session_state['current_code'] = w['code']
                             st.session_state['page'] = 'stock'
                             st.rerun()
+                        if _price_caption:
+                            st.markdown(_price_caption, unsafe_allow_html=True)
                     with col2:
                         if st.button('⋯', key=f"edit_{w['code']}", help='修改/刪除'):
                             st.session_state[f'_wl_edit_{w["code"]}'] = not st.session_state.get(f'_wl_edit_{w["code"]}', False)
@@ -567,6 +600,8 @@ def render_sidebar():
                         st.session_state['current_code'] = w['code']
                         st.session_state['page'] = 'stock'
                         st.rerun()
+                    if _price_caption:
+                        st.markdown(_price_caption, unsafe_allow_html=True)
         else:
             st.info('尚無自選股，搜尋後加入')
 
