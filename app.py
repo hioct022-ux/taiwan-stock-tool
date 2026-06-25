@@ -409,6 +409,12 @@ def render_sidebar():
             st.session_state.pop('current_code', None)
             st.rerun()
 
+        # 市場追蹤
+        if st.button('🌐 市場追蹤', use_container_width=True):
+            st.session_state['page'] = 'market_tracker'
+            st.session_state.pop('current_code', None)
+            st.rerun()
+
         st.markdown('---')
 
         # 雲端版：每次進入自選股頁都清除評分快取，確保分數永遠從最新 JSON 計算
@@ -2394,6 +2400,204 @@ def render_notes(result, code, name):
                     st.rerun()
     else:
         st.info('尚無歷史筆記')
+
+# ── 市場追蹤頁 ──────────────────────────
+def render_market_tracker():
+    from database import get_dram_prices, save_dram_price, get_dram_price_last_date
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+
+    st.markdown('## 🌐 市場追蹤')
+    st.caption('追蹤關鍵商品價格走勢，輔助個股基本面判斷')
+
+    # ══ DDR4 16Gb 現貨價 ══
+    st.markdown('### 💾 DDR4 16Gb (2Gx8) 3200 現貨價')
+    st.caption('資料來源：DRAMeXchange（每日自動抓取），合約價需手動輸入')
+
+    data = get_dram_prices(days=120)
+    last_date = get_dram_price_last_date()
+    today_str = datetime.now().strftime('%Y-%m-%d')
+
+    col_status, col_fetch = st.columns([3, 1])
+    with col_status:
+        if last_date == today_str:
+            st.success(f'✅ 今日已更新（{last_date}）')
+        elif last_date:
+            st.warning(f'⚠️ 最後更新：{last_date}，點右側按鈕更新')
+        else:
+            st.info('尚無資料，請先抓取')
+    with col_fetch:
+        if IS_LOCAL and st.button('🔄 抓取現貨價', use_container_width=True):
+            with st.spinner('抓取中...'):
+                try:
+                    from fetcher import fetch_dram_spot
+                    spot, chg = fetch_dram_spot()
+                    if spot:
+                        st.success(f'${spot:.3f}（{chg:+.2f}%）')
+                        data = get_dram_prices(days=120)
+                    else:
+                        st.error('抓取失敗，請稍後再試')
+                except Exception as _e:
+                    st.error(f'失敗：{_e}')
+            st.rerun()
+
+    # ── 合約價手動輸入 ──
+    with st.expander('✏️ 手動輸入合約價（季度，需自行查閱 TrendForce）'):
+        ci1, ci2, ci3 = st.columns([2, 2, 1])
+        with ci1:
+            _c_date = st.date_input('日期', key='dram_contract_date')
+        with ci2:
+            _c_price = st.number_input('合約價（USD）', min_value=0.0, step=0.1,
+                                       format='%.3f', key='dram_contract_price')
+        with ci3:
+            st.markdown('<div style="margin-top:28px"></div>', unsafe_allow_html=True)
+            if st.button('儲存', key='btn_save_contract', use_container_width=True):
+                if _c_price > 0:
+                    _c_date_str = _c_date.strftime('%Y-%m-%d')
+                    # 若當天已有現貨資料，只更新合約價欄位；否則建新紀錄
+                    from database import get_conn as _gc
+                    _conn = _gc()
+                    _existing = _conn.execute(
+                        'SELECT spot_price, spot_chg_pct FROM dram_prices WHERE date=?',
+                        (_c_date_str,)
+                    ).fetchone()
+                    _conn.close()
+                    save_dram_price(
+                        _c_date_str,
+                        _existing[0] if _existing else 0.0,
+                        _existing[1] if _existing else 0.0,
+                        _c_price
+                    )
+                    st.success(f'已儲存 {_c_date_str} 合約價 ${_c_price:.3f}')
+                    data = get_dram_prices(days=120)
+                    st.rerun()
+
+    if not data:
+        st.info('尚無資料。點「🔄 抓取現貨價」開始建立記錄，每日更新資料後會自動累積走勢。')
+        return
+
+    # ── 計算 MA ──
+    spots     = [d['spot_price'] for d in data if d['spot_price']]
+    dates_all = [d['date'] for d in data if d['spot_price']]
+    contracts = [(d['date'], d['contract_price']) for d in data if d['contract_price']]
+
+    def _ma(series, n):
+        result = [None] * len(series)
+        for i in range(n - 1, len(series)):
+            result[i] = round(sum(series[i - n + 1:i + 1]) / n, 3)
+        return result
+
+    ma5  = _ma(spots, 5)
+    ma20 = _ma(spots, 20)
+
+    # ── 轉折判斷 ──
+    _verdict = ''
+    _verdict_color = '#888'
+    if len(spots) >= 5:
+        _recent = spots[-5:]
+        _trend  = _recent[-1] - _recent[0]
+        _ma5_now  = ma5[-1]
+        _ma5_prev = next((v for v in reversed(ma5[:-1]) if v is not None), None)
+        if _ma5_now and _ma5_prev:
+            _ma5_up = _ma5_now > _ma5_prev
+            if _trend > 0 and _ma5_up:
+                _verdict = '📈 MA5 向上，近期現貨回升'
+                _verdict_color = '#22c55e'
+            elif _trend < 0 and not _ma5_up:
+                _verdict = '📉 MA5 向下，近期現貨下滑'
+                _verdict_color = '#ef4444'
+            else:
+                _verdict = '➡️ 趨勢尚不明確'
+                _verdict_color = '#f59e0b'
+
+    # ── Metrics ──
+    m1, m2, m3, m4 = st.columns(4)
+    _latest = data[-1]
+    _prev   = data[-2] if len(data) >= 2 else None
+    with m1:
+        st.metric('最新現貨均價', f'${_latest["spot_price"]:.3f}',
+                  f'{_latest["spot_chg_pct"]:+.2f}%' if _latest['spot_chg_pct'] else None)
+    with m2:
+        _c_latest = next((d['contract_price'] for d in reversed(data) if d['contract_price']), None)
+        st.metric('最新合約價', f'${_c_latest:.3f}' if _c_latest else '—')
+    with m3:
+        _spread = (_latest['spot_price'] - _c_latest) if _c_latest else None
+        st.metric('現貨 vs 合約', f'${_spread:+.3f}' if _spread is not None else '—',
+                  help='正值=現貨溢價，負值=現貨折價')
+    with m4:
+        if _verdict:
+            st.markdown(
+                f'<div style="background:#1c2030;border-radius:8px;padding:10px 12px;">'
+                f'<div style="font-size:11px;color:#888">轉折判斷</div>'
+                f'<div style="color:{_verdict_color};font-size:13px;font-weight:600">{_verdict}</div>'
+                f'</div>', unsafe_allow_html=True)
+
+    # ── 走勢圖 ──
+    fig = go.Figure()
+
+    # 現貨價
+    fig.add_trace(go.Scatter(
+        x=dates_all, y=spots, name='現貨均價',
+        line=dict(color='#60a5fa', width=2), mode='lines+markers',
+        marker=dict(size=4)
+    ))
+    # MA5
+    fig.add_trace(go.Scatter(
+        x=dates_all, y=ma5, name='MA5',
+        line=dict(color='#f97316', width=1.5, dash='dot'), mode='lines'
+    ))
+    # MA20
+    fig.add_trace(go.Scatter(
+        x=dates_all, y=ma20, name='MA20',
+        line=dict(color='#a855f7', width=1.5, dash='dash'), mode='lines'
+    ))
+    # 合約價（散點）
+    if contracts:
+        fig.add_trace(go.Scatter(
+            x=[c[0] for c in contracts],
+            y=[c[1] for c in contracts],
+            name='合約價（季）',
+            mode='markers+lines',
+            line=dict(color='#22c55e', width=2, dash='longdash'),
+            marker=dict(size=8, symbol='diamond')
+        ))
+
+    fig.update_layout(
+        template='plotly_dark',
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        height=380,
+        margin=dict(l=10, r=10, t=30, b=10),
+        legend=dict(orientation='h', y=1.08),
+        yaxis=dict(title='價格（USD）', gridcolor='#1e293b'),
+        xaxis=dict(gridcolor='#1e293b'),
+        hovermode='x unified'
+    )
+    show_chart(fig, key='dram_spot_chart')
+
+    # ── 漲跌幅柱狀圖 ──
+    if len(data) >= 3:
+        _chg_dates = [d['date'] for d in data if d['spot_chg_pct'] is not None]
+        _chg_vals  = [d['spot_chg_pct'] for d in data if d['spot_chg_pct'] is not None]
+        _colors    = ['#22c55e' if v >= 0 else '#ef4444' for v in _chg_vals]
+        fig2 = go.Figure(go.Bar(
+            x=_chg_dates, y=_chg_vals,
+            marker_color=_colors, name='日漲跌幅%'
+        ))
+        fig2.update_layout(
+            template='plotly_dark',
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)',
+            height=180,
+            margin=dict(l=10, r=10, t=20, b=10),
+            yaxis=dict(title='漲跌幅 %', gridcolor='#1e293b', zeroline=True,
+                       zerolinecolor='#475569'),
+            xaxis=dict(gridcolor='#1e293b'),
+        )
+        show_chart(fig2, key='dram_chg_chart')
+
+    st.caption('💡 南亞科（2408）主要產品為 DDR4，現貨價回升通常領先合約價 1-2 季反映在營收上')
+
 
 # ── 頁籤六：程式說明 ────────────────────
 def render_doc():
@@ -5064,6 +5268,11 @@ def main():
     # 投資策略頁
     if page == 'strategy':
         render_strategy()
+        return
+
+    # 市場追蹤頁
+    if page == 'market_tracker':
+        render_market_tracker()
         return
 
     # 程式說明頁

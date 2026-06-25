@@ -973,6 +973,53 @@ def fetch_ownership():
         print(f'抓取外資持股比率失敗：{e}')
 
 
+def fetch_dram_spot():
+    """
+    從 DRAMeXchange 主頁抓取 DDR4 16Gb (2Gx8) 3200 的當日現貨均價。
+    無需登入，主頁公開顯示。每日收盤後更新一次即可。
+    回傳 (spot_price, spot_chg_pct) 或 (None, None)。
+    """
+    from database import save_dram_price, get_dram_price_last_date
+    import re
+
+    today = datetime.now().strftime('%Y-%m-%d')
+    last  = get_dram_price_last_date()
+    if last == today:
+        print(f'DRAM 現貨價：今日已更新（{today}），略過')
+        return
+
+    print('抓取 DDR4 16Gb 現貨價...')
+    try:
+        r = requests.get('https://www.dramexchange.com/',
+                         headers=HEADERS, timeout=20, verify=False)
+        text = r.text
+
+        # 在主頁 HTML 找 DDR4 16Gb (2Gx8) 3200 那列的 Session Average 和 Session Change
+        # 表格結構：Item | Daily High | Daily Low | Session High | Session Low | Session Average | Session Change
+        # 找「DDR4 16Gb (2Gx8) 3200」後找下一個數字序列
+        m = re.search(
+            r'DDR4 16Gb \(2Gx8\) 3200.*?'
+            r'[\d,\.]+.*?[\d,\.]+.*?[\d,\.]+.*?[\d,\.]+.*?'  # high, low, s_high, s_low
+            r'([\d,\.]+)\s*'                                   # Session Average
+            r'([\+\-]?[\d,\.]+)\s*%',                         # Session Change
+            text, re.DOTALL
+        )
+        if not m:
+            print('DRAM 現貨價：無法在頁面中找到 DDR4 16Gb 3200 資料')
+            return None, None
+
+        spot_price  = float(m.group(1).replace(',', ''))
+        spot_chg_pct = float(m.group(2).replace(',', ''))
+
+        save_dram_price(today, spot_price, spot_chg_pct)
+        print(f'DDR4 16Gb 現貨價：${spot_price:.3f}（{spot_chg_pct:+.2f}%）')
+        return spot_price, spot_chg_pct
+
+    except Exception as e:
+        print(f'DRAM 現貨價抓取失敗：{e}')
+        return None, None
+
+
 def fetch_all():
     print(f'\n開始更新資料 {datetime.now().strftime("%Y-%m-%d %H:%M")}')
     print('='*40)
@@ -1132,6 +1179,12 @@ def fetch_all():
         errors.append(f'P/C比率：{e}')
 
     time.sleep(1)
+
+    # ── DRAM 現貨價（市場追蹤）──────────────
+    try:
+        fetch_dram_spot()
+    except Exception as e:
+        errors.append(f'DRAM現貨價：{e}')
 
     # ── 除權息資料（最後執行，避免被 TWSE 限流）──
     time.sleep(3)

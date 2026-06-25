@@ -246,6 +246,16 @@ def init_db():
         )
     ''')
 
+    # ── DRAM 現貨與合約價（市場追蹤用）──
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS dram_prices (
+            date           TEXT PRIMARY KEY,
+            spot_price     REAL,           -- DDR4 16Gb 3200 Session Average（美元）
+            spot_chg_pct   REAL,           -- 當日漲跌幅（%）
+            contract_price REAL            -- 季度合約價，手動輸入（美元），可為 NULL
+        )
+    ''')
+
     # ── 欄位 migration（舊版 DB 相容）──
     migrations = [
         'ALTER TABLE exdividend ADD COLUMN is_confirmed INTEGER DEFAULT 0',
@@ -864,6 +874,39 @@ def get_market_pe(days=250):
 def get_market_pe_last_date():
     conn = get_conn()
     row = conn.execute('SELECT MAX(date) FROM market_pe').fetchone()
+    conn.close()
+    return row[0] if row and row[0] else None
+
+
+# ── DRAM 現貨與合約價 ──────────────────────
+def save_dram_price(date: str, spot_price: float, spot_chg_pct: float,
+                    contract_price: float = None) -> None:
+    """儲存 DDR4 16Gb 3200 現貨價（自動抓取）及合約價（手動輸入，可 None）。"""
+    conn = get_conn()
+    conn.execute('''
+        INSERT OR REPLACE INTO dram_prices (date, spot_price, spot_chg_pct, contract_price)
+        VALUES (?, ?, ?, ?)
+    ''', (date, round(spot_price, 3), round(spot_chg_pct, 2),
+          round(contract_price, 3) if contract_price is not None else None))
+    conn.commit()
+    conn.close()
+
+def get_dram_prices(days: int = 120) -> list:
+    """回傳近 days 筆，升序。key：date, spot_price, spot_chg_pct, contract_price"""
+    conn = get_conn()
+    rows = conn.execute('''
+        SELECT date, spot_price, spot_chg_pct, contract_price
+        FROM dram_prices
+        ORDER BY date DESC
+        LIMIT ?
+    ''', (days,)).fetchall()
+    conn.close()
+    cols = ['date', 'spot_price', 'spot_chg_pct', 'contract_price']
+    return [dict(zip(cols, r)) for r in reversed(rows)]
+
+def get_dram_price_last_date() -> str | None:
+    conn = get_conn()
+    row = conn.execute('SELECT MAX(date) FROM dram_prices').fetchone()
     conn.close()
     return row[0] if row and row[0] else None
 
