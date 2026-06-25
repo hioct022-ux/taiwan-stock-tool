@@ -252,6 +252,67 @@ def export_to_json(code=None):
     except Exception as e:
         print(f'匯出 P/C 比率失敗：{e}')
 
+    # ── 匯出 DRAM 現貨價格 ─────────────────────
+    try:
+        from database import get_dram_prices
+        dram_rows = get_dram_prices(days=365)
+        if dram_rows:
+            with open(os.path.join(JSON_DIR, 'dram_prices.json'), 'w', encoding='utf-8') as f:
+                json.dump({'rows': dram_rows,
+                           'exported_at': datetime.now().strftime('%Y-%m-%d %H:%M')},
+                          f, ensure_ascii=False)
+            print(f'匯出 DRAM 現貨價格：{len(dram_rows)} 筆')
+    except Exception as e:
+        print(f'匯出 DRAM 現貨價格失敗：{e}')
+
+    # ── 匯出個股季度財報（2317/2049/南亞科等監控股）──
+    try:
+        from database import get_quarterly_financials
+        import sqlite3 as _sql3, os as _os2
+        # 從 DB 抓所有有財報資料的 code
+        from database import get_conn as _gc2
+        _c2 = _gc2()
+        _qf_codes = [r[0] for r in _c2.execute(
+            'SELECT DISTINCT code FROM stock_quarterly_financials').fetchall()]
+        _c2.close()
+        qf_data = {}
+        for _qc in _qf_codes:
+            _rows = get_quarterly_financials(_qc, quarters=16)
+            if _rows:
+                qf_data[_qc] = _rows
+        if qf_data:
+            with open(os.path.join(JSON_DIR, 'quarterly_financials.json'), 'w', encoding='utf-8') as f:
+                json.dump({'data': qf_data,
+                           'exported_at': datetime.now().strftime('%Y-%m-%d %H:%M')},
+                          f, ensure_ascii=False)
+            print(f'匯出季度財報：{len(qf_data)} 支股票')
+    except Exception as e:
+        print(f'匯出季度財報失敗：{e}')
+
+    # ── 匯出個股業務分部營收（AI Server 占比等）──
+    try:
+        from database import get_conn as _gc3
+        _c3 = _gc3()
+        _sr_rows = _c3.execute(
+            'SELECT code, period, segment, revenue_pct, revenue_abs, note FROM stock_segment_revenue'
+        ).fetchall()
+        _c3.close()
+        sr_data = {}
+        for r in _sr_rows:
+            _code, _period, _segment, _pct, _abs, _note = r
+            if _code not in sr_data:
+                sr_data[_code] = []
+            sr_data[_code].append({'period': _period, 'segment': _segment,
+                                    'revenue_pct': _pct, 'revenue_abs': _abs, 'note': _note})
+        if sr_data:
+            with open(os.path.join(JSON_DIR, 'segment_revenue.json'), 'w', encoding='utf-8') as f:
+                json.dump({'data': sr_data,
+                           'exported_at': datetime.now().strftime('%Y-%m-%d %H:%M')},
+                          f, ensure_ascii=False)
+            print(f'匯出業務分部營收：{len(sr_data)} 支股票')
+    except Exception as e:
+        print(f'匯出業務分部營收失敗：{e}')
+
     print(f'JSON 匯出完成，路徑：{JSON_DIR}')
 
 # ── 使用 git CLI 推送（推薦，不需要 Token）──
@@ -606,6 +667,73 @@ def init_cloud_data():
     except Exception as e:
         print(f'  P/C 比率匯入失敗：{e}')
 
+    # ── DRAM 現貨價格（每次更新）──
+    try:
+        dram_path = os.path.join(JSON_DIR, 'dram_prices.json')
+        with open(dram_path, encoding='utf-8') as f:
+            dram_json = json.load(f)
+        rows = dram_json.get('rows', [])
+        if rows:
+            from database import save_dram_price, get_conn as _gc_dram
+            _dc = _gc_dram()
+            _dc.execute('DELETE FROM dram_prices')
+            _dc.commit()
+            _dc.close()
+            for r in rows:
+                save_dram_price(r['date'], r.get('spot_price'), r.get('spot_chg_pct'),
+                                r.get('contract_price'))
+            print(f'  DRAM 現貨價格：{len(rows)} 筆')
+    except Exception as e:
+        print(f'  DRAM 現貨價格匯入失敗：{e}')
+
+    # ── 個股季度財報（每次更新）──
+    try:
+        qf_path = os.path.join(JSON_DIR, 'quarterly_financials.json')
+        with open(qf_path, encoding='utf-8') as f:
+            qf_json = json.load(f)
+        qf_data = qf_json.get('data', {})
+        if qf_data:
+            from database import save_quarterly_financials, get_conn as _gc_qf
+            _qfc = _gc_qf()
+            _qfc.execute('DELETE FROM stock_quarterly_financials')
+            _qfc.commit()
+            _qfc.close()
+            total_q = 0
+            for _code, _rows in qf_data.items():
+                for r in _rows:
+                    save_quarterly_financials(
+                        _code, r['period'], r.get('revenue'), r.get('gross_profit'),
+                        r.get('gross_margin'), r.get('operating_income'), r.get('net_income')
+                    )
+                    total_q += 1
+            print(f'  個股季度財報：{len(qf_data)} 支股票，{total_q} 筆')
+    except Exception as e:
+        print(f'  個股季度財報匯入失敗：{e}')
+
+    # ── 個股業務分部營收（每次更新）──
+    try:
+        sr_path = os.path.join(JSON_DIR, 'segment_revenue.json')
+        with open(sr_path, encoding='utf-8') as f:
+            sr_json = json.load(f)
+        sr_data = sr_json.get('data', {})
+        if sr_data:
+            from database import save_segment_revenue, get_conn as _gc_sr
+            _src = _gc_sr()
+            _src.execute('DELETE FROM stock_segment_revenue')
+            _src.commit()
+            _src.close()
+            total_s = 0
+            for _code, _rows in sr_data.items():
+                for r in _rows:
+                    save_segment_revenue(
+                        _code, r['period'], r['segment'],
+                        r.get('revenue_pct', 0), r.get('revenue_abs'), r.get('note', '')
+                    )
+                    total_s += 1
+            print(f'  個股業務分部營收：{len(sr_data)} 支股票，{total_s} 筆')
+    except Exception as e:
+        print(f'  個股業務分部營收匯入失敗：{e}')
+
     # ── 各股票歷史資料（每次都更新）──
     imported = 0
     for fname in os.listdir(JSON_DIR):
@@ -614,7 +742,8 @@ def init_cloud_data():
         code = fname[:-5]
         if code in ('stocks', 'watchlist', 'meta', 't86', 'exdividend', 'TAIEX',
                     'market_margin', 'futures_institutional', 'market_pe', 'chips_market_agg',
-                    'watchlist_tags', 'options_pc'):
+                    'watchlist_tags', 'options_pc', 'dram_prices',
+                    'quarterly_financials', 'segment_revenue'):
             continue
         try:
             with open(os.path.join(JSON_DIR, fname), encoding='utf-8') as f:
