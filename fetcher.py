@@ -975,8 +975,9 @@ def fetch_ownership():
 
 def fetch_dram_spot():
     """
-    從 DRAMeXchange 主頁抓取 DDR4 16Gb (2Gx8) 3200 的當日現貨均價。
-    無需登入，主頁公開顯示。每日收盤後更新一次即可。
+    從 TrendForce DRAM Spot Price 頁面抓取 DDR4 16Gb (2Gx8) 3200 的當日現貨均價。
+    頁面為 SSR（server-side rendering），無需登入即可取得當日數字。
+    同時嘗試抓取合約價（最新一期，如有）。
     回傳 (spot_price, spot_chg_pct) 或 (None, None)。
     """
     from database import save_dram_price, get_dram_price_last_date
@@ -986,38 +987,106 @@ def fetch_dram_spot():
     last  = get_dram_price_last_date()
     if last == today:
         print(f'DRAM 現貨價：今日已更新（{today}），略過')
-        return
+        return today, None, None
 
-    print('抓取 DDR4 16Gb 現貨價...')
+    print('抓取 DDR4 16Gb 現貨價（TrendForce）...')
     try:
-        r = requests.get('https://www.dramexchange.com/',
-                         headers=HEADERS, timeout=20, verify=False)
+        url = 'https://www.trendforce.com/price/dram/dram_spot'
+        r = requests.get(url, headers=HEADERS, timeout=25, verify=False)
         text = r.text
 
-        # 在主頁 HTML 找 DDR4 16Gb (2Gx8) 3200 那列的 Session Average 和 Session Change
-        # 表格結構：Item | Daily High | Daily Low | Session High | Session Low | Session Average | Session Change
-        # 找「DDR4 16Gb (2Gx8) 3200」後找下一個數字序列
-        m = re.search(
-            r'DDR4 16Gb \(2Gx8\) 3200.*?'
-            r'[\d,\.]+.*?[\d,\.]+.*?[\d,\.]+.*?[\d,\.]+.*?'  # high, low, s_high, s_low
-            r'([\d,\.]+)\s*'                                   # Session Average
-            r'([\+\-]?[\d,\.]+)\s*%',                         # Session Change
-            text, re.DOTALL
+        # ── 解析現貨均價 ────────────────────
+        # 找 "DDR4 16Gb (2Gx8) 3200" 到下一個 DDR/</tr 之間的文字
+        m_row = re.search(
+            r'DDR4 16Gb \(2Gx8\) 3200(.*?)(?:DDR[345]|</tr>|</tbody)',
+            text, re.DOTALL | re.IGNORECASE
         )
-        if not m:
-            print('DRAM 現貨價：無法在頁面中找到 DDR4 16Gb 3200 資料')
-            return None, None
+        if not m_row:
+            print('DRAM 現貨價：找不到 DDR4 16Gb (2Gx8) 3200 列')
+            return None, None, None
 
-        spot_price  = float(m.group(1).replace(',', ''))
-        spot_chg_pct = float(m.group(2).replace(',', ''))
+        row_text = m_row.group(1)
 
-        save_dram_price(today, spot_price, spot_chg_pct)
-        print(f'DDR4 16Gb 現貨價：${spot_price:.3f}（{spot_chg_pct:+.2f}%）')
-        return spot_price, spot_chg_pct
+        # 提取所有帶小數的數字（欄位順序：High, Low, S_High, S_Low, S_Avg）
+        nums = re.findall(r'\b(\d+\.\d+)\b', row_text)
+        if len(nums) < 5:
+            # 若不夠 5 個，退一步：找所有 >5 的數（排除百分比的小數）
+            nums = [n for n in nums if float(n) > 5]
+        if not nums:
+            print('DRAM 現貨價：無法從列文字提取數字')
+            return None, None, None
+
+        # Session Average = 第 5 個數（index 4），若不足就取最後一個
+        spot_price = float(nums[4]) if len(nums) >= 5 else float(nums[-1])
+
+        # 漲跌幅（%）：找帶方向的 % 值
+        m_chg = re.search(r'([▲▼\+\-—])\s*([\d\.]+)\s*%', row_text)
+        if m_chg:
+            direction = m_chg.group(1)
+            val       = float(m_chg.group(2))
+            spot_chg_pct = -val if direction == '▼' else val
+        else:
+            spot_chg_pct = 0.0
+
+        # ── 合約價（同頁下方合約表格，DDR4 16Gb 2Gx8）───
+        # 合約表格的 "DDR4 16Gb 2Gx8" 與 spot 表格的 "(2Gx8)" 不同
+        m_contract_row = re.search(
+            r'DDR4 16Gb 2Gx8(.*?)(?:DDR4|DDR5|DDR3|</tr>|</tbody)',
+            text, re.DOTALL | re.IGNORECASE
+        )
+        contract_price = None
+        if m_contract_row:
+            c_nums = re.findall(r'\b(\d+\.\d+)\b', m_contract_row.group(1))
+            # 合約表格欄位：Session High, Session Low, Session Average
+            if len(c_nums) >= 3:
+                contract_price = float(c_nums[2])  # Session Average
+            elif c_nums:
+                contract_price = float(c_nums[-1])
+
+        save_dram_price(today, spot_price, spot_chg_pct, contract_price)
+        print(f'DDR4 16Gb 現貨價：${spot_price:.3f}（{spot_chg_pct:+.2f}%）'
+              + (f'  合約價：${contract_price:.2f}' if contract_price else ''))
+        return today, spot_price, spot_chg_pct
 
     except Exception as e:
         print(f'DRAM 現貨價抓取失敗：{e}')
-        return None, None
+        return None, None, None
+
+
+def seed_dram_history():
+    """
+    植入 DDR4 16Gb 歷史基準點（來源：TrendForce/Silicon Analysts 公開資料）。
+    僅在該日期尚無資料時才寫入（INSERT OR IGNORE），不覆蓋已存在的資料。
+    """
+    from database import get_conn
+    # 歷史節點：(date, spot_price, spot_chg_pct, contract_price)
+    # spot 來源：Silicon Analysts（8Gb × 2 估算），contract 來源：TrendForce press release
+    # 注意：這些是 spot 現貨均價，非 eTT 低端市場
+    HISTORY = [
+        ('2024-01-31', None, None, 6.00),   # DDR4 16Gb contract Q1 2024 估算
+        ('2024-06-30', None, None, 5.50),   # Q2-Q3 2024 contract ($2.75 × 2)
+        ('2024-09-30', None, None, 6.20),   # Q4 2024 contract ($3.10 × 2)
+        ('2025-03-31', 3.26, None,  None),  # Mar 2025 spot（8Gb $1.63 × 2，歷史低點）
+        ('2025-07-31', 10.40, None, None),  # Jul 2025 spot（8Gb $5.20 × 2）
+        ('2025-11-30', 25.52, None, None),  # Nov 2025 spot（8Gb $12.76 × 2）
+        ('2026-04-30', None, None, 33.50),  # Apr 2026 contract（TrendForce 公告）
+    ]
+    conn = get_conn()
+    inserted = 0
+    for date, spot, chg, contract in HISTORY:
+        existing = conn.execute(
+            'SELECT date FROM dram_prices WHERE date=?', (date,)
+        ).fetchone()
+        if not existing:
+            conn.execute(
+                'INSERT OR IGNORE INTO dram_prices (date, spot_price, spot_chg_pct, contract_price) VALUES (?,?,?,?)',
+                (date, spot, chg, contract)
+            )
+            inserted += 1
+    conn.commit()
+    conn.close()
+    if inserted:
+        print(f'DRAM 歷史基準點植入：{inserted} 筆')
 
 
 def fetch_all():
@@ -1182,6 +1251,7 @@ def fetch_all():
 
     # ── DRAM 現貨價（市場追蹤）──────────────
     try:
+        seed_dram_history()   # 植入歷史基準點（已存在則略過）
         fetch_dram_spot()
     except Exception as e:
         errors.append(f'DRAM現貨價：{e}')

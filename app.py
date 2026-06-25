@@ -2401,6 +2401,372 @@ def render_notes(result, code, name):
     else:
         st.info('尚無歷史筆記')
 
+# ── 上銀（2049）機器人監控 ──────────────
+def _render_hiwin_monitor():
+    """上銀（2049）機器人題材轉折監控面板"""
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+
+    st.markdown('### 🤖 上銀（2049）｜機器人題材轉折監控')
+    st.caption('核心邏輯：毛利率突破 40% → 機器人業務規模化 → 題材股轉獲利股，進場時機確立')
+
+    from database import get_prices, get_fundamentals, get_chips, get_conn
+
+    code = '2049'
+    prices   = get_prices(code, days=250)
+    fund     = get_fundamentals(code, days=600)
+    chips_list = get_chips(code, days=65)
+
+    # ── 即時股價面板 ────────────────────────
+    if prices:
+        lp  = prices[-1]
+        lp2 = prices[-2] if len(prices) >= 2 else lp
+        closes = [p['close'] for p in prices]
+        hi52 = max(p['high'] for p in prices[-250:]) if len(prices) >= 60 else max(closes)
+        lo52 = min(p['low']  for p in prices[-250:]) if len(prices) >= 60 else min(closes)
+
+        def _ma(lst, n):
+            return round(sum(lst[-n:]) / min(n, len(lst)), 1) if lst else 0
+
+        ma5  = _ma(closes, 5)
+        ma20 = _ma(closes, 20)
+        ma60 = _ma(closes, 60)
+
+        chg_color = '#22c55e' if lp['change'] >= 0 else '#ef4444'
+        chg_arrow = '▲' if lp['change'] >= 0 else '▼'
+        st.markdown(
+            f'<div style="background:#0f172a;border:1px solid #1e293b;border-radius:10px;'
+            f'padding:14px 20px;margin-bottom:12px;">'
+            f'<span style="font-size:22px;font-weight:700;color:#e2e8f0">{lp["close"]:,.0f}</span>'
+            f'&nbsp;<span style="color:{chg_color};font-size:15px">'
+            f'{chg_arrow} {lp["change"]:+.0f} ({lp["change_pct"]:+.2f}%)</span>'
+            f'&nbsp;&nbsp;<span style="color:#64748b;font-size:12px">{lp["date"]}</span>'
+            f'</div>', unsafe_allow_html=True
+        )
+
+        # 技術關鍵價位
+        st.markdown('#### 📐 技術面關鍵價位')
+        fib_range = hi52 - lo52
+        fib382 = round(hi52 - fib_range * 0.382, 0)
+        fib500 = round(hi52 - fib_range * 0.500, 0)
+        fib618 = round(hi52 - fib_range * 0.618, 0)
+
+        now = lp['close']
+        def _signal(val, is_support=True):
+            diff = round((now - val) / val * 100, 1)
+            if is_support:
+                color = '#22c55e' if now > val else '#ef4444'
+                label = '守' if now > val else '失守'
+            else:
+                color = '#ef4444' if now < val else '#22c55e'
+                label = '未到' if now < val else '突破'
+            return f'<span style="color:{color}">{label}（{diff:+.1f}%）</span>'
+
+        levels = [
+            ('MA5',    ma5,   True),
+            ('MA20',   ma20,  True),
+            ('MA60',   ma60,  True),
+            ('Fib 38.2%',  fib382, True),
+            ('Fib 50.0%',  fib500, True),
+            ('Fib 61.8%',  fib618, True),
+            ('52週高點',    hi52,  False),
+            ('52週低點',    lo52,  True),
+        ]
+        rows_html = ''
+        for label, val, is_sup in levels:
+            rows_html += (
+                f'<tr><td style="padding:5px 12px;color:#94a3b8">{label}</td>'
+                f'<td style="padding:5px 12px;color:#e2e8f0;font-weight:600">{val:,.0f}</td>'
+                f'<td style="padding:5px 12px">{_signal(val, is_sup)}</td></tr>'
+            )
+        st.markdown(
+            f'<table style="width:100%;border-collapse:collapse;background:#0f172a;'
+            f'border-radius:8px;overflow:hidden">'
+            f'<thead><tr style="background:#1e293b">'
+            f'<th style="padding:6px 12px;text-align:left;color:#64748b">指標</th>'
+            f'<th style="padding:6px 12px;text-align:left;color:#64748b">價位</th>'
+            f'<th style="padding:6px 12px;text-align:left;color:#64748b">狀態</th>'
+            f'</tr></thead><tbody>{rows_html}</tbody></table>',
+            unsafe_allow_html=True
+        )
+        st.markdown('')
+
+        # K 線圖（最近 120 天）
+        p120 = prices[-120:]
+        fig = go.Figure()
+        fig.add_trace(go.Candlestick(
+            x=[p['date'] for p in p120],
+            open=[p['open'] for p in p120],
+            high=[p['high'] for p in p120],
+            low=[p['low']  for p in p120],
+            close=[p['close'] for p in p120],
+            name='K線', increasing_line_color='#22c55e',
+            decreasing_line_color='#ef4444', showlegend=False
+        ))
+        c120 = [p['close'] for p in p120]
+        d120 = [p['date']  for p in p120]
+        def _ma_series(lst, n):
+            return [round(sum(lst[max(0,i-n+1):i+1])/min(n,i+1),1) for i in range(len(lst))]
+        for n, color, name in [(5,'#f97316','MA5'),(20,'#a855f7','MA20'),(60,'#22c55e','MA60')]:
+            fig.add_trace(go.Scatter(x=d120, y=_ma_series(c120, n),
+                                     line=dict(color=color, width=1.2), name=name, mode='lines'))
+        # 關鍵價位水平線
+        for val, lbl, color in [(ma60,'MA60','#22c55e'),(fib618,'Fib 61.8%','#f59e0b'),
+                                  (lo52,'52W Low','#ef4444')]:
+            fig.add_hline(y=val, line_dash='dot', line_color=color, opacity=0.5,
+                          annotation_text=f' {lbl} {val:,.0f}', annotation_position='right')
+        fig.update_layout(
+            template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)', height=400,
+            margin=dict(l=10, r=80, t=20, b=10),
+            legend=dict(orientation='h', y=1.05),
+            xaxis_rangeslider_visible=False,
+            yaxis=dict(gridcolor='#1e293b'),
+            xaxis=dict(gridcolor='#1e293b')
+        )
+        show_chart(fig, key='hiwin_kline')
+    else:
+        st.info('尚無 2049 股價資料。請先在自選股加入 2049，並手動更新資料。')
+
+    st.divider()
+
+    # ── 毛利率轉折觀察區 ────────────────────
+    st.markdown('#### 📊 毛利率觀察區間（題材→獲利的核心指標）')
+
+    # 嘗試從 yfinance 取季度毛利率
+    _gm_data = []
+    try:
+        import yfinance as yf
+        tk = yf.Ticker('2049.TW')
+        qf = tk.quarterly_income_stmt
+        if qf is not None and not qf.empty:
+            gross_profit_row = next((r for r in qf.index if 'Gross' in str(r) and 'Profit' in str(r)), None)
+            revenue_row      = next((r for r in qf.index if 'Total Revenue' in str(r)), None)
+            if gross_profit_row and revenue_row:
+                for col in qf.columns[:8]:
+                    gp  = qf.loc[gross_profit_row, col]
+                    rev = qf.loc[revenue_row, col]
+                    if gp and rev and rev != 0:
+                        gm = round(float(gp) / float(rev) * 100, 1)
+                        _gm_data.append({'date': str(col)[:7], 'gm': gm})
+                _gm_data = list(reversed(_gm_data))
+    except Exception:
+        pass
+
+    # 手動輸入補充
+    with st.expander('✏️ 手動補充季度毛利率（法說會/財報公告後更新）'):
+        mc1, mc2, mc3 = st.columns([2, 2, 1])
+        with mc1:
+            _gm_period = st.selectbox('季度', ['2026Q1','2025Q4','2025Q3','2025Q2','2025Q1','2024Q4'],
+                                       key='hiwin_gm_period')
+        with mc2:
+            _gm_val = st.number_input('毛利率 (%)', min_value=0.0, max_value=100.0,
+                                       step=0.1, format='%.1f', key='hiwin_gm_val')
+        with mc3:
+            st.markdown('<div style="margin-top:28px"></div>', unsafe_allow_html=True)
+            if st.button('加入', key='btn_hiwin_gm', use_container_width=True):
+                if _gm_val > 0:
+                    # 存到 session_state 暫存（不寫 DB，是研究用手動輸入）
+                    if 'hiwin_gm_manual' not in st.session_state:
+                        st.session_state['hiwin_gm_manual'] = {}
+                    st.session_state['hiwin_gm_manual'][_gm_period] = _gm_val
+                    st.success(f'{_gm_period} 毛利率：{_gm_val:.1f}%')
+
+    # 合併 yfinance + 手動資料
+    _gm_manual = st.session_state.get('hiwin_gm_manual', {})
+    for period, val in _gm_manual.items():
+        existing = next((d for d in _gm_data if d['date'].startswith(period[:4]) and period in d['date']), None)
+        if not existing:
+            _gm_data.append({'date': period, 'gm': val})
+
+    # 轉折閾值定義
+    THRESHOLDS = [
+        (32, 35, '#64748b', '32-35%', '傳統機械業水準，無機器人貢獻'),
+        (35, 38, '#f59e0b', '35-38%', '小量機器人出貨，尚屬題材期'),
+        (38, 41, '#3b82f6', '38-41%', '機器人業務規模化，轉折關鍵區'),
+        (41, 50, '#22c55e', '41%+',   '✅ 題材轉獲利：積極進場訊號'),
+    ]
+
+    # 閾值說明卡
+    tcols = st.columns(4)
+    for i, (lo, hi, color, label, desc) in enumerate(THRESHOLDS):
+        with tcols[i]:
+            st.markdown(
+                f'<div style="background:{color}22;border:1px solid {color};border-radius:8px;'
+                f'padding:10px;text-align:center">'
+                f'<div style="color:{color};font-weight:700;font-size:15px">{label}</div>'
+                f'<div style="color:#94a3b8;font-size:11px;margin-top:4px">{desc}</div>'
+                f'</div>', unsafe_allow_html=True
+            )
+    st.markdown('')
+
+    if _gm_data:
+        _gm_sorted = sorted(_gm_data, key=lambda x: x['date'])
+        gm_dates = [d['date'] for d in _gm_sorted]
+        gm_vals  = [d['gm']   for d in _gm_sorted]
+        gm_colors = []
+        for v in gm_vals:
+            if v >= 41:   gm_colors.append('#22c55e')
+            elif v >= 38: gm_colors.append('#3b82f6')
+            elif v >= 35: gm_colors.append('#f59e0b')
+            else:         gm_colors.append('#64748b')
+
+        fig_gm = go.Figure()
+        fig_gm.add_trace(go.Bar(x=gm_dates, y=gm_vals, marker_color=gm_colors,
+                                name='季度毛利率', text=[f'{v:.1f}%' for v in gm_vals],
+                                textposition='outside'))
+        for threshold, color in [(35,'#f59e0b'),(38,'#3b82f6'),(41,'#22c55e')]:
+            fig_gm.add_hline(y=threshold, line_dash='dash', line_color=color, opacity=0.7,
+                             annotation_text=f' {threshold}% 門檻', annotation_position='right')
+        fig_gm.update_layout(
+            template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)', height=300,
+            margin=dict(l=10, r=80, t=20, b=10),
+            yaxis=dict(title='毛利率 %', range=[25, max(max(gm_vals)+5, 48)],
+                       gridcolor='#1e293b'),
+            xaxis=dict(gridcolor='#1e293b')
+        )
+        show_chart(fig_gm, key='hiwin_gm_chart')
+
+        # 目前位置判斷
+        latest_gm = gm_vals[-1]
+        if latest_gm >= 41:
+            st.success(f'🚀 最新毛利率 {latest_gm:.1f}% — **已超過 41% 門檻，題材轉獲利訊號成立**')
+        elif latest_gm >= 38:
+            dist = 41 - latest_gm
+            st.info(f'📈 最新毛利率 {latest_gm:.1f}% — 轉折關鍵區，距 41% 門檻還差 {dist:.1f} 個百分點')
+        elif latest_gm >= 35:
+            dist = 41 - latest_gm
+            st.warning(f'⏳ 最新毛利率 {latest_gm:.1f}% — 題材觀察期，距轉折門檻 {dist:.1f} 個百分點')
+        else:
+            st.error(f'📉 最新毛利率 {latest_gm:.1f}% — 傳統水準，機器人業務尚未實質貢獻')
+    else:
+        st.info('暫無毛利率資料。請展開上方「手動補充」輸入最新財報數字，或等待 yfinance 自動更新。')
+
+    st.divider()
+
+    # ── EPS 轉折點 ────────────────────────
+    st.markdown('#### 💹 EPS 轉折點追蹤')
+    if fund:
+        eps_data = [(d['date'], d['eps_ttm']) for d in fund if d.get('eps_ttm') and d['eps_ttm'] != 0]
+        if eps_data:
+            eps_dates = [e[0] for e in eps_data[-12:]]
+            eps_vals  = [e[1] for e in eps_data[-12:]]
+            eps_colors = []
+            for i, v in enumerate(eps_vals):
+                prev = eps_vals[i-1] if i > 0 else v
+                eps_colors.append('#22c55e' if v > prev else '#ef4444')
+
+            fig_eps = go.Figure()
+            fig_eps.add_trace(go.Bar(x=eps_dates, y=eps_vals, marker_color=eps_colors,
+                                     name='EPS TTM', text=[f'{v:.1f}' for v in eps_vals],
+                                     textposition='outside'))
+            fig_eps.add_trace(go.Scatter(x=eps_dates, y=eps_vals, mode='lines+markers',
+                                         line=dict(color='#60a5fa', width=2),
+                                         marker=dict(size=5), name='趨勢'))
+            # 找 EPS 低點（轉折點）
+            if len(eps_vals) >= 4:
+                min_idx = eps_vals.index(min(eps_vals))
+                fig_eps.add_annotation(
+                    x=eps_dates[min_idx], y=eps_vals[min_idx],
+                    text='EPS 低點', showarrow=True, arrowhead=2,
+                    arrowcolor='#f59e0b', font=dict(color='#f59e0b', size=11),
+                    bgcolor='#1e293b', bordercolor='#f59e0b'
+                )
+            fig_eps.update_layout(
+                template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)', height=280,
+                margin=dict(l=10, r=10, t=20, b=10),
+                yaxis=dict(title='EPS TTM', gridcolor='#1e293b', zeroline=True,
+                           zerolinecolor='#475569'),
+                xaxis=dict(gridcolor='#1e293b')
+            )
+            show_chart(fig_eps, key='hiwin_eps_chart')
+
+            # EPS 趨勢訊號
+            if len(eps_vals) >= 3:
+                last3 = eps_vals[-3:]
+                if last3[-1] > last3[-2] > last3[-3]:
+                    st.success('📈 EPS 連續 3 期回升 — 獲利反轉訊號')
+                elif last3[-1] > last3[-2]:
+                    st.info('📊 EPS 單期回升 — 觀察是否持續')
+                elif last3[-1] < last3[-2]:
+                    st.warning('📉 EPS 仍在下滑 — 等待 EPS 低點確認')
+    else:
+        st.info('暫無基本面資料。')
+
+    st.divider()
+
+    # ── 轉折綜合判斷 ────────────────────────
+    st.markdown('#### 🎯 「何時從題材變獲利股」綜合判斷')
+
+    criteria = [
+        ('毛利率突破 38%', _gm_data and _gm_data[-1]['gm'] >= 38 if _gm_data else False,
+         '機器人業務開始規模化的第一個財務訊號'),
+        ('毛利率突破 41%', _gm_data and _gm_data[-1]['gm'] >= 41 if _gm_data else False,
+         '獲利股確立門檻（可積極佈局）'),
+        ('EPS 回升超過低點 30%', (fund and len([d for d in fund if d.get('eps_ttm','')]) >= 3
+                                  and max(d.get('eps_ttm',0) for d in fund[-4:]) >
+                                  min(d.get('eps_ttm',0) for d in fund) * 1.3) if fund else False,
+         'EPS 明顯脫離低點，基本面改善確認'),
+        ('股價站上 MA60', prices and prices[-1]['close'] > _ma([p['close'] for p in prices], 60) if prices else False,
+         '趨勢轉多，大資金開始佈局'),
+        ('法說會釋出機器人訂單能見度', False, '質性條件：管理層確認 2025-2026 人形機器人量產訂單'),
+    ]
+
+    score = sum(1 for _, met, _ in criteria if met)
+    total = len(criteria)
+
+    # 進度條
+    pct = int(score / total * 100)
+    bar_color = '#22c55e' if pct >= 80 else '#f59e0b' if pct >= 50 else '#64748b'
+    st.markdown(
+        f'<div style="margin-bottom:8px">'
+        f'<div style="display:flex;justify-content:space-between;margin-bottom:4px">'
+        f'<span style="color:#e2e8f0">轉折進度</span>'
+        f'<span style="color:{bar_color};font-weight:700">{score}/{total} 條件達成</span></div>'
+        f'<div style="background:#1e293b;border-radius:4px;height:10px">'
+        f'<div style="background:{bar_color};width:{pct}%;height:10px;border-radius:4px"></div>'
+        f'</div></div>', unsafe_allow_html=True
+    )
+
+    for crit, met, desc in criteria:
+        icon = '✅' if met else '⬜'
+        color = '#22c55e' if met else '#64748b'
+        st.markdown(
+            f'<div style="display:flex;align-items:flex-start;padding:6px 0;border-bottom:1px solid #1e293b">'
+            f'<span style="font-size:16px;margin-right:10px">{icon}</span>'
+            f'<div><div style="color:{color};font-weight:600">{crit}</div>'
+            f'<div style="color:#64748b;font-size:12px">{desc}</div></div></div>',
+            unsafe_allow_html=True
+        )
+
+    st.divider()
+
+    # ── 法說會必問重點 ────────────────────
+    st.markdown('#### 📋 法說會必問重點')
+    qa_items = [
+        ('機器人訂單能見度',
+         'Q：人形機器人（Tesla Optimus、Figure 等）的滾珠螺桿訂單，目前 NDA 客戶有幾家？量產時程？'
+         '\nA 觀察：若能提及「2025H2 試產」或「2026 量產」，題材轉實單；若僅說「洽談中」則仍是題材。'),
+        ('ASP 與毛利結構',
+         'Q：機器人用滾珠螺桿的 ASP 和毛利率，相較工具機傳統品有多大差異？'
+         '\nA 觀察：若 ASP 高出傳統品 3-5 倍以上，且毛利率 > 50%，則整體毛利率轉折時間大幅縮短。'),
+        ('機器人業務佔比目標',
+         'Q：目標何時機器人相關營收占總體比例超過 15%？'
+         '\nA 觀察：15% 是毛利率從 35% 拉升至 38%+ 的臨界點（高毛利品混入效果）。'),
+        ('產能擴充時程',
+         'Q：精密滾珠螺桿產能是否有瓶頸？擴廠計劃與 capex？'
+         '\nA 觀察：若 capex 大幅提升，代表訂單能見度已足夠公司承擔投資風險。'),
+        ('競爭格局',
+         'Q：NSK、THK 在機器人滾珠螺桿的份額？上銀的技術差異化在哪？'
+         '\nA 觀察：上銀要主打小型高精密規格（人形機器人關節用），若能說清楚差異化就代表護城河存在。'),
+    ]
+    for title, content in qa_items:
+        with st.expander(f'❓ {title}'):
+            st.markdown(content)
+
+
 # ── 市場追蹤頁 ──────────────────────────
 def render_market_tracker():
     from database import get_dram_prices, save_dram_price, get_dram_price_last_date
@@ -2410,193 +2776,183 @@ def render_market_tracker():
     st.markdown('## 🌐 市場追蹤')
     st.caption('追蹤關鍵商品價格走勢，輔助個股基本面判斷')
 
-    # ══ DDR4 16Gb 現貨價 ══
-    st.markdown('### 💾 DDR4 16Gb (2Gx8) 3200 現貨價')
-    st.caption('資料來源：DRAMeXchange（每日自動抓取），合約價需手動輸入')
+    _tab_ddr4, _tab_robot = st.tabs(['💾 DDR4 現貨走勢（南亞科）', '🤖 機器人股監控（上銀 2049）'])
 
-    data = get_dram_prices(days=120)
-    last_date = get_dram_price_last_date()
-    today_str = datetime.now().strftime('%Y-%m-%d')
+    with _tab_robot:
+        _render_hiwin_monitor()
 
-    col_status, col_fetch = st.columns([3, 1])
-    with col_status:
-        if last_date == today_str:
-            st.success(f'✅ 今日已更新（{last_date}）')
-        elif last_date:
-            st.warning(f'⚠️ 最後更新：{last_date}，點右側按鈕更新')
-        else:
-            st.info('尚無資料，請先抓取')
-    with col_fetch:
-        if IS_LOCAL and st.button('🔄 抓取現貨價', use_container_width=True):
-            with st.spinner('抓取中...'):
-                try:
-                    from fetcher import fetch_dram_spot
-                    spot, chg = fetch_dram_spot()
-                    if spot:
-                        st.success(f'${spot:.3f}（{chg:+.2f}%）')
-                        data = get_dram_prices(days=120)
-                    else:
-                        st.error('抓取失敗，請稍後再試')
-                except Exception as _e:
-                    st.error(f'失敗：{_e}')
-            st.rerun()
+    with _tab_ddr4:
+        # ══ DDR4 16Gb 現貨價 ══
+        st.markdown('### 💾 DDR4 16Gb (2Gx8) 3200 現貨價')
+        st.caption('資料來源：TrendForce（每日自動抓取），合約價需手動輸入')
 
-    # ── 合約價手動輸入 ──
-    with st.expander('✏️ 手動輸入合約價（季度，需自行查閱 TrendForce）'):
-        ci1, ci2, ci3 = st.columns([2, 2, 1])
-        with ci1:
-            _c_date = st.date_input('日期', key='dram_contract_date')
-        with ci2:
-            _c_price = st.number_input('合約價（USD）', min_value=0.0, step=0.1,
-                                       format='%.3f', key='dram_contract_price')
-        with ci3:
-            st.markdown('<div style="margin-top:28px"></div>', unsafe_allow_html=True)
-            if st.button('儲存', key='btn_save_contract', use_container_width=True):
-                if _c_price > 0:
-                    _c_date_str = _c_date.strftime('%Y-%m-%d')
-                    # 若當天已有現貨資料，只更新合約價欄位；否則建新紀錄
-                    from database import get_conn as _gc
-                    _conn = _gc()
-                    _existing = _conn.execute(
-                        'SELECT spot_price, spot_chg_pct FROM dram_prices WHERE date=?',
-                        (_c_date_str,)
-                    ).fetchone()
-                    _conn.close()
-                    save_dram_price(
-                        _c_date_str,
-                        _existing[0] if _existing else 0.0,
-                        _existing[1] if _existing else 0.0,
-                        _c_price
-                    )
-                    st.success(f'已儲存 {_c_date_str} 合約價 ${_c_price:.3f}')
-                    data = get_dram_prices(days=120)
-                    st.rerun()
+        data = get_dram_prices(days=120)
+        last_date = get_dram_price_last_date()
+        today_str = datetime.now().strftime('%Y-%m-%d')
 
-    if not data:
-        st.info('尚無資料。點「🔄 抓取現貨價」開始建立記錄，每日更新資料後會自動累積走勢。')
-        return
-
-    # ── 計算 MA ──
-    spots     = [d['spot_price'] for d in data if d['spot_price']]
-    dates_all = [d['date'] for d in data if d['spot_price']]
-    contracts = [(d['date'], d['contract_price']) for d in data if d['contract_price']]
-
-    def _ma(series, n):
-        result = [None] * len(series)
-        for i in range(n - 1, len(series)):
-            result[i] = round(sum(series[i - n + 1:i + 1]) / n, 3)
-        return result
-
-    ma5  = _ma(spots, 5)
-    ma20 = _ma(spots, 20)
-
-    # ── 轉折判斷 ──
-    _verdict = ''
-    _verdict_color = '#888'
-    if len(spots) >= 5:
-        _recent = spots[-5:]
-        _trend  = _recent[-1] - _recent[0]
-        _ma5_now  = ma5[-1]
-        _ma5_prev = next((v for v in reversed(ma5[:-1]) if v is not None), None)
-        if _ma5_now and _ma5_prev:
-            _ma5_up = _ma5_now > _ma5_prev
-            if _trend > 0 and _ma5_up:
-                _verdict = '📈 MA5 向上，近期現貨回升'
-                _verdict_color = '#22c55e'
-            elif _trend < 0 and not _ma5_up:
-                _verdict = '📉 MA5 向下，近期現貨下滑'
-                _verdict_color = '#ef4444'
+        col_status, col_fetch = st.columns([3, 1])
+        with col_status:
+            if last_date == today_str:
+                st.success(f'✅ 今日已更新（{last_date}）')
+            elif last_date:
+                st.warning(f'⚠️ 最後更新：{last_date}，點右側按鈕更新')
             else:
-                _verdict = '➡️ 趨勢尚不明確'
-                _verdict_color = '#f59e0b'
+                st.info('尚無資料，請先抓取')
+        with col_fetch:
+            if IS_LOCAL and st.button('🔄 抓取現貨價', use_container_width=True):
+                with st.spinner('抓取中...'):
+                    try:
+                        from fetcher import fetch_dram_spot
+                        _, spot, chg = fetch_dram_spot()
+                        if spot:
+                            st.success(f'${spot:.3f}（{chg:+.2f}%）')
+                            data = get_dram_prices(days=120)
+                        else:
+                            st.error('抓取失敗，請稍後再試')
+                    except Exception as _e:
+                        st.error(f'失敗：{_e}')
+                st.rerun()
 
-    # ── Metrics ──
-    m1, m2, m3, m4 = st.columns(4)
-    _latest = data[-1]
-    _prev   = data[-2] if len(data) >= 2 else None
-    with m1:
-        st.metric('最新現貨均價', f'${_latest["spot_price"]:.3f}',
-                  f'{_latest["spot_chg_pct"]:+.2f}%' if _latest['spot_chg_pct'] else None)
-    with m2:
-        _c_latest = next((d['contract_price'] for d in reversed(data) if d['contract_price']), None)
-        st.metric('最新合約價', f'${_c_latest:.3f}' if _c_latest else '—')
-    with m3:
-        _spread = (_latest['spot_price'] - _c_latest) if _c_latest else None
-        st.metric('現貨 vs 合約', f'${_spread:+.3f}' if _spread is not None else '—',
-                  help='正值=現貨溢價，負值=現貨折價')
-    with m4:
-        if _verdict:
-            st.markdown(
-                f'<div style="background:#1c2030;border-radius:8px;padding:10px 12px;">'
-                f'<div style="font-size:11px;color:#888">轉折判斷</div>'
-                f'<div style="color:{_verdict_color};font-size:13px;font-weight:600">{_verdict}</div>'
-                f'</div>', unsafe_allow_html=True)
+        # ── 合約價手動輸入 ──
+        with st.expander('✏️ 手動輸入合約價（季度，需自行查閱 TrendForce）'):
+            ci1, ci2, ci3 = st.columns([2, 2, 1])
+            with ci1:
+                _c_date = st.date_input('日期', key='dram_contract_date')
+            with ci2:
+                _c_price = st.number_input('合約價（USD）', min_value=0.0, step=0.1,
+                                           format='%.3f', key='dram_contract_price')
+            with ci3:
+                st.markdown('<div style="margin-top:28px"></div>', unsafe_allow_html=True)
+                if st.button('儲存', key='btn_save_contract', use_container_width=True):
+                    if _c_price > 0:
+                        _c_date_str = _c_date.strftime('%Y-%m-%d')
+                        from database import get_conn as _gc
+                        _conn = _gc()
+                        _existing = _conn.execute(
+                            'SELECT spot_price, spot_chg_pct FROM dram_prices WHERE date=?',
+                            (_c_date_str,)
+                        ).fetchone()
+                        _conn.close()
+                        save_dram_price(
+                            _c_date_str,
+                            _existing[0] if _existing else 0.0,
+                            _existing[1] if _existing else 0.0,
+                            _c_price
+                        )
+                        st.success(f'已儲存 {_c_date_str} 合約價 ${_c_price:.3f}')
+                        data = get_dram_prices(days=120)
+                        st.rerun()
 
-    # ── 走勢圖 ──
-    fig = go.Figure()
+        if not data:
+            st.info('尚無資料。點「🔄 抓取現貨價」開始建立記錄，每日更新資料後會自動累積走勢。')
+        else:
+            # ── 計算 MA ──
+            spots     = [d['spot_price'] for d in data if d['spot_price']]
+            dates_all = [d['date'] for d in data if d['spot_price']]
+            contracts = [(d['date'], d['contract_price']) for d in data if d['contract_price']]
 
-    # 現貨價
-    fig.add_trace(go.Scatter(
-        x=dates_all, y=spots, name='現貨均價',
-        line=dict(color='#60a5fa', width=2), mode='lines+markers',
-        marker=dict(size=4)
-    ))
-    # MA5
-    fig.add_trace(go.Scatter(
-        x=dates_all, y=ma5, name='MA5',
-        line=dict(color='#f97316', width=1.5, dash='dot'), mode='lines'
-    ))
-    # MA20
-    fig.add_trace(go.Scatter(
-        x=dates_all, y=ma20, name='MA20',
-        line=dict(color='#a855f7', width=1.5, dash='dash'), mode='lines'
-    ))
-    # 合約價（散點）
-    if contracts:
-        fig.add_trace(go.Scatter(
-            x=[c[0] for c in contracts],
-            y=[c[1] for c in contracts],
-            name='合約價（季）',
-            mode='markers+lines',
-            line=dict(color='#22c55e', width=2, dash='longdash'),
-            marker=dict(size=8, symbol='diamond')
-        ))
+            def _ma(series, n):
+                result = [None] * len(series)
+                for i in range(n - 1, len(series)):
+                    result[i] = round(sum(series[i - n + 1:i + 1]) / n, 3)
+                return result
 
-    fig.update_layout(
-        template='plotly_dark',
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)',
-        height=380,
-        margin=dict(l=10, r=10, t=30, b=10),
-        legend=dict(orientation='h', y=1.08),
-        yaxis=dict(title='價格（USD）', gridcolor='#1e293b'),
-        xaxis=dict(gridcolor='#1e293b'),
-        hovermode='x unified'
-    )
-    show_chart(fig, key='dram_spot_chart')
+            ma5  = _ma(spots, 5)
+            ma20 = _ma(spots, 20)
 
-    # ── 漲跌幅柱狀圖 ──
-    if len(data) >= 3:
-        _chg_dates = [d['date'] for d in data if d['spot_chg_pct'] is not None]
-        _chg_vals  = [d['spot_chg_pct'] for d in data if d['spot_chg_pct'] is not None]
-        _colors    = ['#22c55e' if v >= 0 else '#ef4444' for v in _chg_vals]
-        fig2 = go.Figure(go.Bar(
-            x=_chg_dates, y=_chg_vals,
-            marker_color=_colors, name='日漲跌幅%'
-        ))
-        fig2.update_layout(
-            template='plotly_dark',
-            paper_bgcolor='rgba(0,0,0,0)',
-            plot_bgcolor='rgba(0,0,0,0)',
-            height=180,
-            margin=dict(l=10, r=10, t=20, b=10),
-            yaxis=dict(title='漲跌幅 %', gridcolor='#1e293b', zeroline=True,
-                       zerolinecolor='#475569'),
-            xaxis=dict(gridcolor='#1e293b'),
-        )
-        show_chart(fig2, key='dram_chg_chart')
+            # ── 轉折判斷 ──
+            _verdict = ''
+            _verdict_color = '#888'
+            if len(spots) >= 5:
+                _recent = spots[-5:]
+                _trend  = _recent[-1] - _recent[0]
+                _ma5_now  = ma5[-1]
+                _ma5_prev = next((v for v in reversed(ma5[:-1]) if v is not None), None)
+                if _ma5_now and _ma5_prev:
+                    _ma5_up = _ma5_now > _ma5_prev
+                    if _trend > 0 and _ma5_up:
+                        _verdict = '📈 MA5 向上，近期現貨回升'
+                        _verdict_color = '#22c55e'
+                    elif _trend < 0 and not _ma5_up:
+                        _verdict = '📉 MA5 向下，近期現貨下滑'
+                        _verdict_color = '#ef4444'
+                    else:
+                        _verdict = '➡️ 趨勢尚不明確'
+                        _verdict_color = '#f59e0b'
 
-    st.caption('💡 南亞科（2408）主要產品為 DDR4，現貨價回升通常領先合約價 1-2 季反映在營收上')
+            # ── Metrics ──
+            m1, m2, m3, m4 = st.columns(4)
+            _latest = data[-1]
+            with m1:
+                st.metric('最新現貨均價', f'${_latest["spot_price"]:.3f}',
+                          f'{_latest["spot_chg_pct"]:+.2f}%' if _latest['spot_chg_pct'] else None)
+            with m2:
+                _c_latest = next((d['contract_price'] for d in reversed(data) if d['contract_price']), None)
+                st.metric('最新合約價', f'${_c_latest:.3f}' if _c_latest else '—')
+            with m3:
+                _spread = (_latest['spot_price'] - _c_latest) if _c_latest else None
+                st.metric('現貨 vs 合約', f'${_spread:+.3f}' if _spread is not None else '—',
+                          help='正值=現貨溢價，負值=現貨折價')
+            with m4:
+                if _verdict:
+                    st.markdown(
+                        f'<div style="background:#1c2030;border-radius:8px;padding:10px 12px;">'
+                        f'<div style="font-size:11px;color:#888">轉折判斷</div>'
+                        f'<div style="color:{_verdict_color};font-size:13px;font-weight:600">{_verdict}</div>'
+                        f'</div>', unsafe_allow_html=True)
+
+            # ── 走勢圖 ──
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=dates_all, y=spots, name='現貨均價',
+                line=dict(color='#60a5fa', width=2), mode='lines+markers',
+                marker=dict(size=4)
+            ))
+            fig.add_trace(go.Scatter(
+                x=dates_all, y=ma5, name='MA5',
+                line=dict(color='#f97316', width=1.5, dash='dot'), mode='lines'
+            ))
+            fig.add_trace(go.Scatter(
+                x=dates_all, y=ma20, name='MA20',
+                line=dict(color='#a855f7', width=1.5, dash='dash'), mode='lines'
+            ))
+            if contracts:
+                fig.add_trace(go.Scatter(
+                    x=[c[0] for c in contracts],
+                    y=[c[1] for c in contracts],
+                    name='合約價（季）',
+                    mode='markers+lines',
+                    line=dict(color='#22c55e', width=2, dash='longdash'),
+                    marker=dict(size=8, symbol='diamond')
+                ))
+            fig.update_layout(
+                template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)', height=380,
+                margin=dict(l=10, r=10, t=30, b=10),
+                legend=dict(orientation='h', y=1.08),
+                yaxis=dict(title='價格（USD）', gridcolor='#1e293b'),
+                xaxis=dict(gridcolor='#1e293b'), hovermode='x unified'
+            )
+            show_chart(fig, key='dram_spot_chart')
+
+            # ── 漲跌幅柱狀圖 ──
+            if len(data) >= 3:
+                _chg_dates = [d['date'] for d in data if d['spot_chg_pct'] is not None]
+                _chg_vals  = [d['spot_chg_pct'] for d in data if d['spot_chg_pct'] is not None]
+                _colors    = ['#22c55e' if v >= 0 else '#ef4444' for v in _chg_vals]
+                fig2 = go.Figure(go.Bar(x=_chg_dates, y=_chg_vals,
+                                        marker_color=_colors, name='日漲跌幅%'))
+                fig2.update_layout(
+                    template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)', height=180,
+                    margin=dict(l=10, r=10, t=20, b=10),
+                    yaxis=dict(title='漲跌幅 %', gridcolor='#1e293b', zeroline=True,
+                               zerolinecolor='#475569'),
+                    xaxis=dict(gridcolor='#1e293b'),
+                )
+                show_chart(fig2, key='dram_chg_chart')
+
+            st.caption('💡 南亞科（2408）主要產品為 DDR4，現貨價回升通常領先合約價 1-2 季反映在營收上')
 
 
 # ── 頁籤六：程式說明 ────────────────────
