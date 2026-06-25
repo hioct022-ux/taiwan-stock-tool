@@ -908,14 +908,16 @@ def get_market_pe_last_date():
 
 
 # ── DRAM 現貨與合約價 ──────────────────────
-def save_dram_price(date: str, spot_price: float, spot_chg_pct: float,
+def save_dram_price(date: str, spot_price: float = None, spot_chg_pct: float = None,
                     contract_price: float = None) -> None:
     """儲存 DDR4 16Gb 3200 現貨價（自動抓取）及合約價（手動輸入，可 None）。"""
     conn = get_conn()
     conn.execute('''
         INSERT OR REPLACE INTO dram_prices (date, spot_price, spot_chg_pct, contract_price)
         VALUES (?, ?, ?, ?)
-    ''', (date, round(spot_price, 3), round(spot_chg_pct, 2),
+    ''', (date,
+          round(spot_price, 3) if spot_price is not None else None,
+          round(spot_chg_pct, 2) if spot_chg_pct is not None else None,
           round(contract_price, 3) if contract_price is not None else None))
     conn.commit()
     conn.close()
