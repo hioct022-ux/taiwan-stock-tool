@@ -3125,6 +3125,360 @@ def _calc_foreign_consecutive_weeks(chips_list: list) -> tuple:
         return 0, '#ef4444', f'連賣 {sell} 週'
 
 
+# ── 台達電（2308）AI 電源監控 ───────────────
+def _render_delta_monitor():
+    """台達電（2308）三指標監控：毛利率 / AI電源訂單占比 / 外資是否止賣"""
+    import plotly.graph_objects as go
+    from database import (get_prices, get_chips,
+                          get_quarterly_financials, get_segment_revenue, save_segment_revenue)
+
+    st.markdown('### ⚡ 台達電（2308）｜AI 電源轉折監控')
+    st.caption('三指標同步確認：AI電源占比上升 ＋ 毛利率突破 32% ＋ 外資止賣轉買 → 佈局訊號')
+
+    code = '2308'
+    prices     = get_prices(code, days=250)
+    chips_list = get_chips(code, days=90)
+
+    # 自動抓取季度財報
+    if IS_LOCAL and not st.session_state.get(f'_qf_fetched_{code}'):
+        try:
+            from fetcher import fetch_quarterly_financials
+            _n = fetch_quarterly_financials(code, years=4)
+            st.session_state[f'_qf_fetched_{code}'] = True
+            if _n > 0:
+                st.toast(f'已更新 {code} 季度財報（{_n} 季）', icon='📊')
+        except Exception:
+            pass
+
+    # 自動抓取法說會（BigGo → AI電源占比）
+    if IS_LOCAL and not st.session_state.get(f'_biggo_fetched_{code}'):
+        try:
+            from fetcher import fetch_delta_earnings
+            _res = fetch_delta_earnings()
+            st.session_state[f'_biggo_fetched_{code}'] = True
+            if _res and not _res.get('cached'):
+                _parts = []
+                if _res.get('ai_power_pct') is not None:
+                    _parts.append(f'AI電源 {_res["ai_power_pct"]:.1f}%')
+                if _res.get('gross_margin') is not None:
+                    _parts.append(f'毛利率 {_res["gross_margin"]:.1f}%')
+                if _parts:
+                    st.toast(f'法說會資料更新：{" / ".join(_parts)}', icon='📋')
+        except Exception:
+            pass
+
+    qf_data  = get_quarterly_financials(code, quarters=12)
+    seg_data = get_segment_revenue(code, 'ai_power', quarters=12)
+
+    # ══ 計算三指標 ══
+    # 1. AI 電源訂單占比趨勢
+    _ai_trend = '—'
+    _ai_color = '#64748b'
+    if len(seg_data) >= 2:
+        _d = seg_data[-1]['revenue_pct'] - seg_data[-2]['revenue_pct']
+        if _d >= 2:   _ai_trend, _ai_color = f'▲ {_d:+.1f}pp QoQ', '#22c55e'
+        elif _d > 0:  _ai_trend, _ai_color = f'▲ {_d:+.1f}pp', '#86efac'
+        elif _d < 0:  _ai_trend, _ai_color = f'▼ {_d:+.1f}pp', '#ef4444'
+        else:         _ai_trend, _ai_color = '→ 持平', '#94a3b8'
+    _ai_latest = f'{seg_data[-1]["revenue_pct"]:.1f}%' if seg_data else '待輸入'
+
+    # 2. 毛利率（台達電 AI 電源帶動門檻：>32% 為訊號）
+    _gm_vals  = [d['gross_margin'] for d in qf_data if d.get('gross_margin')]
+    _gm_trend = '—'
+    _gm_color = '#64748b'
+    if len(_gm_vals) >= 2:
+        _d = _gm_vals[-1] - _gm_vals[-2]
+        if _d >= 0.5:  _gm_trend, _gm_color = f'▲ {_d:+.1f}pp 上升', '#22c55e'
+        elif _d > 0:   _gm_trend, _gm_color = f'▲ 微升 {_d:+.2f}pp', '#86efac'
+        elif _d < -0.5: _gm_trend, _gm_color = f'▼ {_d:+.1f}pp 下降', '#ef4444'
+        else:           _gm_trend, _gm_color = '→ 持平', '#94a3b8'
+    _gm_latest = f'{_gm_vals[-1]:.1f}%' if _gm_vals else '自動抓取中'
+
+    # 3. 外資方向（止賣判斷）
+    _fw, _fc, _fl = _calc_foreign_consecutive_weeks(chips_list)
+
+    # 外資止賣訊號：先看最近 4 週，若前段連賣後轉買 → 止賣成立
+    _stopped_selling = False
+    if chips_list:
+        from datetime import datetime as _dt
+        _weekly = {}
+        for _c in chips_list:
+            try:
+                _d2 = _dt.strptime(_c['date'], '%Y-%m-%d')
+                _wk = _d2.strftime('%Y-W%W')
+                _weekly.setdefault(_wk, 0)
+                _weekly[_wk] += _c.get('foreign_net', 0)
+            except Exception:
+                continue
+        _nets = [_weekly[w] for w in sorted(_weekly.keys())]
+        # 止賣定義：最近 1 週買超 + 此前至少連賣 2 週
+        if len(_nets) >= 3 and _nets[-1] > 0:
+            _prev_sell = sum(1 for n in _nets[-4:-1] if n < 0)
+            if _prev_sell >= 2:
+                _stopped_selling = True
+
+    # ── 三欄指標卡 ──
+    c1, c2, c3 = st.columns(3)
+    for col, title, val, trend, color, desc in [
+        (c1, '⚡ AI 電源訂單占比', _ai_latest, _ai_trend, _ai_color,
+         '伺服器電源占總營收比，法說會公佈'),
+        (c2, '📊 毛利率', _gm_latest, _gm_trend, _gm_color,
+         '32%+ = AI電源規模化訊號（現況約 28–30%）'),
+        (c3, '🏦 外資方向', f'{abs(_fw)} 週', _fl, _fc,
+         '止賣=先連賣後本週轉買，確認外資態度轉變'),
+    ]:
+        with col:
+            st.markdown(
+                f'<div style="background:#0f172a;border:1px solid #1e293b;border-radius:10px;'
+                f'padding:14px;text-align:center">'
+                f'<div style="font-size:12px;color:#64748b;margin-bottom:6px">{title}</div>'
+                f'<div style="font-size:24px;font-weight:700;color:#e2e8f0">{val}</div>'
+                f'<div style="color:{color};font-size:13px;margin-top:4px">{trend}</div>'
+                f'<div style="font-size:11px;color:#475569;margin-top:6px">{desc}</div>'
+                f'</div>', unsafe_allow_html=True
+            )
+
+    # 止賣特殊提示
+    if _stopped_selling:
+        st.success('🔔 **外資止賣訊號**：前幾週連賣後本週轉為買超，留意是否延續')
+
+    # 綜合訊號
+    _sig_n = sum([
+        bool(seg_data and seg_data[-1]['revenue_pct'] >= 35),      # AI電源占比 ≥35%
+        bool(_gm_vals and _gm_vals[-1] >= 32),                      # 毛利率突破 32%
+        _fw >= 2 or _stopped_selling,                               # 外資連買 2 週或剛止賣
+    ])
+    _sig_style = {
+        0: ('⬜ 訊號尚未出現，持續觀察', '#64748b'),
+        1: ('🟡 一項訊號確認，提高關注', '#f59e0b'),
+        2: ('🟠 兩項訊號同步，準備佈局', '#f97316'),
+        3: ('🟢 三項訊號全部確認 — AI電源轉折成立', '#22c55e'),
+    }[_sig_n]
+    st.markdown(
+        f'<div style="background:#0f172a;border:2px solid {_sig_style[1]};border-radius:8px;'
+        f'padding:12px;text-align:center;margin:12px 0;font-weight:700;color:{_sig_style[1]}">'
+        f'{_sig_style[0]}</div>', unsafe_allow_html=True
+    )
+
+    st.divider()
+
+    # ══ AI 電源訂單占比圖 ════════════════════
+    st.markdown('#### ⚡ AI 電源訂單占比（法說會資料）')
+
+    col_refresh, col_btn = st.columns([3, 1])
+    with col_btn:
+        if IS_LOCAL and st.button('🔄 重新抓取法說會', key='btn_delta_biggo',
+                                   use_container_width=True):
+            try:
+                from fetcher import fetch_delta_earnings
+                _r2 = fetch_delta_earnings(force=True)
+                st.session_state[f'_biggo_fetched_{code}'] = True
+                if _r2:
+                    st.success(f'已更新 {_r2.get("period","")} 法說會資料')
+                    st.rerun()
+                else:
+                    st.warning('BigGo 暫無新資料，請手動輸入')
+            except Exception as _e:
+                st.error(f'失敗：{_e}')
+
+    if seg_data:
+        fig_ai = go.Figure()
+        _periods = [d['period'] for d in seg_data]
+        _pcts    = [d['revenue_pct'] for d in seg_data]
+        _colors  = ['#22c55e' if p >= 35 else '#3b82f6' if p >= 25 else '#64748b' for p in _pcts]
+        fig_ai.add_trace(go.Bar(x=_periods, y=_pcts, marker_color=_colors, name='AI電源占比'))
+        fig_ai.add_hline(y=35, line_dash='dash', line_color='#22c55e',
+                         annotation_text='35% 目標', annotation_position='right')
+        fig_ai.add_hline(y=25, line_dash='dot', line_color='#94a3b8',
+                         annotation_text='25% 觀察線', annotation_position='right')
+        fig_ai.update_layout(
+            template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)', height=240,
+            margin=dict(l=10, r=80, t=20, b=10),
+            yaxis=dict(title='占比 %', gridcolor='#1e293b', range=[0, max(_pcts) * 1.2]),
+            xaxis=dict(gridcolor='#1e293b'),
+        )
+        show_chart(fig_ai, key='delta_ai_chart')
+    else:
+        st.info('尚無資料，BigGo 法說會摘要或手動輸入後顯示。')
+
+    with st.expander('✏️ 手動輸入 AI 電源占比（若 BigGo 未收錄）'):
+        _c1, _c2, _c3, _c4 = st.columns([2, 2, 2, 1])
+        with _c1:
+            _ai_period = st.text_input('季度（如 2026Q2）', key='delta_ai_period',
+                                        placeholder='2026Q2')
+        with _c2:
+            _ai_pct = st.number_input('AI電源占比 %', min_value=0.0, max_value=100.0,
+                                       step=0.5, format='%.1f', key='delta_ai_pct')
+        with _c3:
+            _ai_note = st.text_input('備註', key='delta_ai_note', placeholder='法說會日期或來源')
+        with _c4:
+            st.markdown('<div style="margin-top:28px"></div>', unsafe_allow_html=True)
+            if st.button('儲存', key='btn_delta_ai', use_container_width=True):
+                if _ai_pct > 0 and _ai_period:
+                    save_segment_revenue(code, _ai_period, 'ai_power', _ai_pct, None, _ai_note)
+                    st.success(f'{_ai_period} AI電源 {_ai_pct:.1f}% 已存入')
+                    st.rerun()
+
+    st.divider()
+
+    # ══ 毛利率走勢 ════════════════════════
+    st.markdown('#### 📊 毛利率觀察區間（32%+ = AI電源規模化訊號）')
+    _gm_data = [{'x': d['period'], 'y': d['gross_margin']}
+                for d in qf_data if d.get('gross_margin') is not None]
+
+    with st.expander('✏️ 手動輸入毛利率（若自動抓取失敗）'):
+        _gc1, _gc2, _gc3 = st.columns([2, 2, 1])
+        with _gc1:
+            _gm_period = st.text_input('季度', key='delta_gm_period', placeholder='2026Q2')
+        with _gc2:
+            _gm_val = st.number_input('毛利率 %', min_value=0.0, max_value=100.0,
+                                       step=0.1, format='%.1f', key='delta_gm_val')
+        with _gc3:
+            st.markdown('<div style="margin-top:28px"></div>', unsafe_allow_html=True)
+            if st.button('儲存至DB', key='btn_delta_gm', use_container_width=True):
+                if _gm_val > 0 and _gm_period:
+                    from database import save_quarterly_financials
+                    _eq = next((d for d in qf_data if d['period'] == _gm_period), None)
+                    save_quarterly_financials(
+                        code, _gm_period,
+                        _eq['revenue'] if _eq else 0,
+                        _eq['gross_profit'] if _eq else 0,
+                        _gm_val,
+                        _eq['operating_income'] if _eq else 0,
+                        _eq['net_income'] if _eq else 0,
+                    )
+                    st.success(f'{_gm_period} 毛利率 {_gm_val:.1f}% 已存入')
+                    st.rerun()
+
+    if _gm_data:
+        fig_gm = go.Figure()
+        # 四個毛利率區間
+        _gm_ys   = [d['y'] for d in _gm_data]
+        _gm_max  = max(_gm_ys) * 1.15
+        _thresh  = [28.0, 30.0, 32.0]
+        _zones   = [
+            (0,          _thresh[0], '#1e293b', '低於代工水準（<28%）'),
+            (_thresh[0], _thresh[1], '#1c2a3a', '代工正常水準（28–30%）'),
+            (_thresh[1], _thresh[2], '#1a3040', '轉型觀察（30–32%）'),
+            (_thresh[2], _gm_max,    '#183020', '🟢 AI電源規模化（>32%）'),
+        ]
+        for lo, hi, bg, lbl in _zones:
+            fig_gm.add_hrect(y0=lo, y1=min(hi, _gm_max), fillcolor=bg,
+                             opacity=1.0, line_width=0,
+                             annotation_text=lbl if hi <= _gm_max else '',
+                             annotation_position='right',
+                             annotation_font=dict(size=10, color='#64748b'))
+        _bar_colors = ['#22c55e' if y >= 32 else '#3b82f6' if y >= 30 else
+                       '#f97316' if y >= 28 else '#64748b' for y in _gm_ys]
+        fig_gm.add_trace(go.Bar(
+            x=[d['x'] for d in _gm_data], y=_gm_ys,
+            marker_color=_bar_colors, name='毛利率'
+        ))
+        for th, col, lbl in [(_thresh[2], '#22c55e', '32% 訊號線'),
+                               (_thresh[0], '#64748b', '28%')]:
+            fig_gm.add_hline(y=th, line_dash='dash', line_color=col,
+                             annotation_text=lbl, annotation_position='right')
+        fig_gm.update_layout(
+            template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)', height=280,
+            margin=dict(l=10, r=100, t=20, b=10),
+            yaxis=dict(title='毛利率 %', gridcolor='#1e293b', range=[0, _gm_max]),
+            xaxis=dict(gridcolor='#1e293b'),
+        )
+        show_chart(fig_gm, key='delta_gm_chart')
+
+        _lv = _gm_ys[-1]
+        if _lv >= 32:
+            st.success(f'🚀 最新毛利率 {_lv:.1f}% — AI電源規模化訊號成立，已突破 32%')
+        elif _lv >= 30:
+            st.info(f'📈 最新毛利率 {_lv:.1f}% — 轉型觀察區，距 32% 門檻還差 {32-_lv:.1f} pp')
+        else:
+            st.caption(f'最新毛利率 {_lv:.1f}%，仍在代工水準，AI電源占比尚未帶動毛利率')
+    else:
+        st.info('尚無財報資料，請等待自動抓取或手動輸入。')
+
+    st.divider()
+
+    # ══ 外資止賣追蹤 ═════════════════════
+    st.markdown('#### 🏦 外資動向追蹤（止賣 → 轉買訊號）')
+    if chips_list:
+        from datetime import datetime as _dt2
+        _wk2 = {}
+        for _c2 in chips_list:
+            try:
+                _dd = _dt2.strptime(_c2['date'], '%Y-%m-%d')
+                _ww = _dd.strftime('%Y-W%W')
+                _wk2.setdefault(_ww, 0)
+                _wk2[_ww] += _c2.get('foreign_net', 0)
+            except Exception:
+                continue
+        _weeks_s  = sorted(_wk2.keys())
+        _week_ns  = [_wk2[w] for w in _weeks_s]
+
+        fig_ch = go.Figure()
+        _ch_colors = ['#22c55e' if n > 0 else '#ef4444' for n in _week_ns]
+        fig_ch.add_trace(go.Bar(x=_weeks_s, y=[n / 1000 for n in _week_ns],
+                                 marker_color=_ch_colors, name='外資週淨買賣（千張）'))
+        fig_ch.add_hline(y=0, line_color='#475569', line_width=1)
+        # 連買區間標記
+        if _fw >= 2:
+            fig_ch.add_vrect(
+                x0=_weeks_s[-_fw], x1=_weeks_s[-1],
+                fillcolor='#22c55e', opacity=0.08,
+                annotation_text=f' 連買 {_fw} 週', annotation_position='top left',
+                annotation_font_color='#22c55e'
+            )
+        elif _stopped_selling and _weeks_s:
+            fig_ch.add_vrect(
+                x0=_weeks_s[-1], x1=_weeks_s[-1],
+                fillcolor='#3b82f6', opacity=0.15,
+                annotation_text=' 止賣訊號', annotation_position='top left',
+                annotation_font_color='#3b82f6'
+            )
+        fig_ch.update_layout(
+            template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)', height=260,
+            margin=dict(l=10, r=20, t=30, b=10),
+            yaxis=dict(title='千張', gridcolor='#1e293b', zeroline=True,
+                       zerolinecolor='#475569'),
+            xaxis=dict(gridcolor='#1e293b', title='週次'),
+        )
+        show_chart(fig_ch, key='delta_chips_chart')
+
+        if _stopped_selling:
+            st.success(f'🔔 **止賣訊號**：外資前幾週連賣後本週轉為淨買超，若下週延續則確認')
+        elif _fw >= 3:
+            st.success(f'✅ 外資連買 {_fw} 週，確認轉買格局')
+        elif _fw == 2:
+            st.info(f'📊 外資連買 {_fw} 週，觀察是否延續')
+        elif _fw == 1:
+            st.warning('⚠️ 外資僅連買 1 週，尚未確認方向')
+        else:
+            _ns = sum(1 for n in _week_ns[-4:] if n < 0)
+            st.error(f'❌ 外資近 4 週有 {_ns} 週賣超，尚未止賣')
+    else:
+        st.info('尚無籌碼資料。請先加入 2308 自選股並手動更新資料。')
+
+    # ══ 法說會重點 Q&A ════════════════════
+    st.divider()
+    st.markdown('#### 📋 法說會必問重點')
+    for q, a in [
+        ('AI電源（伺服器電源）占整體營收比例？',
+         '此數字最直接反映 AI 商機轉化程度，當比例超過 35% 且持續上升，代表 AI 業務已成為主要驅動力'),
+        ('毛利率為何？趨勢如何？',
+         '台達電毛利率正常約 28–30%，AI 電源因技術門檻高毛利較佳，當整體毛利率突破 32% 代表 AI 高毛利產品開始主導'),
+        ('AI 電源訂單能見度（Visibility）多少季？',
+         '客戶拉貨周期、訂單能見度愈長（>2 季）代表需求確認度高，不易受存貨週期影響'),
+        ('非 AI 業務（工業、汽車、IoT）趨勢？',
+         '台達電有多元業務，非 AI 業務若回溫可進一步提升整體業績，反之若拖累則需評估影響幅度'),
+        ('資本支出計畫？是否擴產 AI 電源產能？',
+         'Capex 增加且專門針對 AI 電源代表管理層信心，是長線佈局的正面訊號'),
+    ]:
+        with st.expander(f'❓ {q}'):
+            st.markdown(a)
+
+
 # ── 市場追蹤頁 ──────────────────────────
 def render_market_tracker():
     from database import get_dram_prices, save_dram_price, get_dram_price_last_date
@@ -3134,8 +3488,9 @@ def render_market_tracker():
     st.markdown('## 🌐 市場追蹤')
     st.caption('追蹤關鍵商品價格走勢，輔助個股基本面判斷')
 
-    _tab_ddr4, _tab_robot, _tab_fox = st.tabs([
-        '💾 DDR4（南亞科）', '🤖 機器人（上銀 2049）', '🦊 AI Server（鴻海 2317）'
+    _tab_ddr4, _tab_robot, _tab_fox, _tab_delta = st.tabs([
+        '💾 DDR4（南亞科）', '🤖 機器人（上銀 2049）',
+        '🦊 AI Server（鴻海 2317）', '⚡ AI 電源（台達電 2308）'
     ])
 
     with _tab_robot:
@@ -3143,6 +3498,9 @@ def render_market_tracker():
 
     with _tab_fox:
         _render_foxconn_monitor()
+
+    with _tab_delta:
+        _render_delta_monitor()
 
     with _tab_ddr4:
         # ══ DDR4 16Gb 現貨價 ══

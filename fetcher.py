@@ -1360,6 +1360,143 @@ def fetch_foxconn_earnings(force: bool = False) -> dict | None:
     return result
 
 
+def fetch_delta_earnings(force: bool = False) -> dict | None:
+    """
+    從 BigGo 財經爬取台達電（2308）最新法說會摘要，
+    提取 AI 電源占比與毛利率，存入 DB。
+    回傳 dict：{period, ai_power_pct, gross_margin, call_date, source_url} 或 None。
+    """
+    import re
+    from database import save_segment_revenue, save_quarterly_financials
+    from database import get_quarterly_financials, get_segment_revenue
+
+    CN_NUM = {'零':0,'一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9,'十':10}
+
+    def cn_to_pct(text: str) -> float | None:
+        m = re.search(r'([近逼接約]?)([零一二三四五六七八九十]+)成([零一二三四五六七八九]?)', text)
+        if not m:
+            return None
+        base_val = sum(CN_NUM.get(c, 0) for c in m.group(2)) * 10
+        dec_val  = CN_NUM.get(m.group(3), 0) if m.group(3) else 0
+        pct = float(base_val + dec_val)
+        if m.group(1) in ('近', '逼', '接'):
+            pct = max(pct - 1, 0)
+        return pct
+
+    def biggo_date_to_period(date_str: str) -> str:
+        try:
+            y, m, _ = date_str.split('-')
+            y, m = int(y), int(m)
+            if m <= 3:   return f'{y-1}Q4'
+            elif m <= 6: return f'{y}Q1'
+            elif m <= 9: return f'{y}Q2'
+            else:        return f'{y}Q3'
+        except Exception:
+            return ''
+
+    print('抓取台達電法說會資料（BigGo）...')
+
+    # Step 1：找最新法說會日期
+    listing_url = 'https://finance.biggo.com.tw/quote/2308.TW/earnings-call'
+    try:
+        r = requests.get(listing_url, headers={**HEADERS, 'Accept-Language': 'zh-TW'}, timeout=20)
+        call_dates = re.findall(r'TW_2308\.TW_(\d{4}-\d{2}-\d{2})', r.text)
+        if not call_dates:
+            call_dates = re.findall(r'(\d{4}-\d{2}-\d{2})', r.text)
+        call_dates = sorted(set(call_dates), reverse=True)
+        if not call_dates:
+            print('台達電法說會：找不到日期列表')
+            return None
+        latest_date = call_dates[0]
+    except Exception as e:
+        print(f'台達電法說會列表抓取失敗：{e}')
+        return None
+
+    period = biggo_date_to_period(latest_date)
+    if not period:
+        return None
+
+    # Step 2：確認是否已有此季資料
+    if not force:
+        existing_seg = get_segment_revenue('2308', 'ai_power', quarters=1)
+        if existing_seg and existing_seg[-1]['period'] == period:
+            print(f'台達電法說會：{period} 已有資料，略過')
+            return {'period': period, 'cached': True}
+
+    # Step 3：抓法說會摘要頁
+    source_url = f'https://finance.biggo.com.tw/news/TW_2308.TW_{latest_date}'
+    try:
+        r2 = requests.get(source_url, headers={**HEADERS, 'Accept-Language': 'zh-TW'}, timeout=25)
+        if r2.status_code != 200:
+            print(f'台達電法說會摘要：HTTP {r2.status_code}')
+            return None
+        html = r2.text
+    except Exception as e:
+        print(f'台達電法說會摘要抓取失敗：{e}')
+        return None
+
+    # Step 4：提取 AI 電源占比
+    # 關鍵字：AI電源、伺服器電源、AI power supply
+    ai_pct = None
+    for pattern in [
+        r'AI\s*電源[^。！\n]{0,50}?(\d+\.?\d+)\s*%',
+        r'伺服器電源[^。！\n]{0,50}?(\d+\.?\d+)\s*%',
+        r'AI\s*power\s*supply[^。！\n]{0,50}?(\d+\.?\d+)\s*%',
+        r'電源[^。！\n]{0,30}?AI[^。！\n]{0,30}?(\d+\.?\d+)\s*%',
+    ]:
+        m = re.search(pattern, html, re.IGNORECASE)
+        if m:
+            ai_pct = float(m.group(1))
+            break
+
+    # 備援：中文成數
+    if ai_pct is None:
+        for kw in ['AI電源', '伺服器電源', 'AI power']:
+            ctx_list = re.findall(rf'{kw}[^。！\n]{{0,80}}', html, re.IGNORECASE)
+            for ctx in ctx_list:
+                pct = cn_to_pct(ctx)
+                if pct is not None:
+                    ai_pct = pct
+                    break
+            if ai_pct is not None:
+                break
+
+    # Step 5：提取毛利率
+    gm_pct = None
+    m_gm = re.search(r'毛利率[^\d]{0,10}(\d+\.?\d+)\s*%', html)
+    if m_gm:
+        gm_pct = float(m_gm.group(1))
+
+    # Step 6：存入 DB
+    result = {
+        'period':       period,
+        'call_date':    latest_date,
+        'source_url':   source_url,
+        'ai_power_pct': ai_pct,
+        'gross_margin': gm_pct,
+    }
+
+    if ai_pct is not None:
+        note = f'BigGo法說會摘要 {latest_date}'
+        save_segment_revenue('2308', period, 'ai_power', ai_pct, None, note)
+        print(f'台達電 AI電源 {period}：{ai_pct:.1f}%（{note}）')
+
+    if gm_pct is not None:
+        existing_qf = get_quarterly_financials('2308', quarters=8)
+        existing = next((d for d in existing_qf if d['period'] == period), None)
+        save_quarterly_financials(
+            '2308', period,
+            existing['revenue'] if existing else 0,
+            existing['gross_profit'] if existing else 0,
+            gm_pct,
+            existing.get('operating_income') if existing else None,
+            existing.get('net_income') if existing else None,
+        )
+        print(f'台達電毛利率 {period}：{gm_pct:.1f}%')
+
+    return result
+
+
 def seed_dram_history():
     """
     植入 DDR4 16Gb 歷史基準點（來源：TrendForce/Silicon Analysts 公開資料）。
