@@ -3182,7 +3182,7 @@ def _render_delta_monitor():
         else:         _ai_trend, _ai_color = '→ 持平', '#94a3b8'
     _ai_latest = f'{seg_data[-1]["revenue_pct"]:.1f}%' if seg_data else '待輸入'
 
-    # 2. 毛利率（台達電 AI 電源帶動門檻：>32% 為訊號）
+    # 2. 毛利率（台達電現況 34–37%；38%+ = AI電源高毛利主導訊號）
     _gm_vals  = [d['gross_margin'] for d in qf_data if d.get('gross_margin')]
     _gm_trend = '—'
     _gm_color = '#64748b'
@@ -3223,7 +3223,7 @@ def _render_delta_monitor():
         (c1, '⚡ AI 電源訂單占比', _ai_latest, _ai_trend, _ai_color,
          '伺服器電源占總營收比，法說會公佈'),
         (c2, '📊 毛利率', _gm_latest, _gm_trend, _gm_color,
-         '32%+ = AI電源規模化訊號（現況約 28–30%）'),
+         '38%+ = AI電源高毛利主導（現況 34–37%，持續走高為多）'),
         (c3, '🏦 外資方向', f'{abs(_fw)} 週', _fl, _fc,
          '止賣=先連賣後本週轉買，確認外資態度轉變'),
     ]:
@@ -3245,7 +3245,7 @@ def _render_delta_monitor():
     # 綜合訊號
     _sig_n = sum([
         bool(seg_data and seg_data[-1]['revenue_pct'] >= 35),      # AI電源占比 ≥35%
-        bool(_gm_vals and _gm_vals[-1] >= 32),                      # 毛利率突破 32%
+        bool(_gm_vals and _gm_vals[-1] >= 38),                      # 毛利率突破 38%
         _fw >= 2 or _stopped_selling,                               # 外資連買 2 週或剛止賣
     ])
     _sig_style = {
@@ -3323,7 +3323,7 @@ def _render_delta_monitor():
     st.divider()
 
     # ══ 毛利率走勢 ════════════════════════
-    st.markdown('#### 📊 毛利率觀察區間（32%+ = AI電源規模化訊號）')
+    st.markdown('#### 📊 毛利率走勢（38%+ = AI電源高毛利主導訊號）')
     _gm_data = [{'x': d['period'], 'y': d['gross_margin']}
                 for d in qf_data if d.get('gross_margin') is not None]
 
@@ -3356,12 +3356,13 @@ def _render_delta_monitor():
         # 四個毛利率區間
         _gm_ys   = [d['y'] for d in _gm_data]
         _gm_max  = max(_gm_ys) * 1.15
-        _thresh  = [28.0, 30.0, 32.0]
+        # 四個區間（依台達電實際現況 2024–2026 定義）
+        _thresh  = [32.0, 35.0, 38.0]
         _zones   = [
-            (0,          _thresh[0], '#1e293b', '低於代工水準（<28%）'),
-            (_thresh[0], _thresh[1], '#1c2a3a', '代工正常水準（28–30%）'),
-            (_thresh[1], _thresh[2], '#1a3040', '轉型觀察（30–32%）'),
-            (_thresh[2], _gm_max,    '#183020', '🟢 AI電源規模化（>32%）'),
+            (0,          _thresh[0], '#1e293b', '低於正常（<32%）'),
+            (_thresh[0], _thresh[1], '#1c2a3a', '正常水準（32–35%）'),
+            (_thresh[1], _thresh[2], '#1a3040', '偏強（35–38%，AI訂單貢獻中）'),
+            (_thresh[2], _gm_max,    '#183020', '🟢 AI電源主導（>38%）'),
         ]
         for lo, hi, bg, lbl in _zones:
             fig_gm.add_hrect(y0=lo, y1=min(hi, _gm_max), fillcolor=bg,
@@ -3369,32 +3370,38 @@ def _render_delta_monitor():
                              annotation_text=lbl if hi <= _gm_max else '',
                              annotation_position='right',
                              annotation_font=dict(size=10, color='#64748b'))
-        _bar_colors = ['#22c55e' if y >= 32 else '#3b82f6' if y >= 30 else
-                       '#f97316' if y >= 28 else '#64748b' for y in _gm_ys]
+        _bar_colors = ['#22c55e' if y >= 38 else '#3b82f6' if y >= 35 else
+                       '#f97316' if y >= 32 else '#64748b' for y in _gm_ys]
         fig_gm.add_trace(go.Bar(
             x=[d['x'] for d in _gm_data], y=_gm_ys,
             marker_color=_bar_colors, name='毛利率'
         ))
-        for th, col, lbl in [(_thresh[2], '#22c55e', '32% 訊號線'),
-                               (_thresh[0], '#64748b', '28%')]:
+        for th, col, lbl in [(_thresh[2], '#22c55e', '38% 訊號線'),
+                               (_thresh[1], '#3b82f6', '35%'),
+                               (_thresh[0], '#64748b', '32%')]:
             fig_gm.add_hline(y=th, line_dash='dash', line_color=col,
                              annotation_text=lbl, annotation_position='right')
         fig_gm.update_layout(
             template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)',
             plot_bgcolor='rgba(0,0,0,0)', height=280,
             margin=dict(l=10, r=100, t=20, b=10),
-            yaxis=dict(title='毛利率 %', gridcolor='#1e293b', range=[0, _gm_max]),
+            yaxis=dict(title='毛利率 %', gridcolor='#1e293b',
+                       range=[28, max(_gm_max, 42)]),
             xaxis=dict(gridcolor='#1e293b'),
         )
         show_chart(fig_gm, key='delta_gm_chart')
 
         _lv = _gm_ys[-1]
-        if _lv >= 32:
-            st.success(f'🚀 最新毛利率 {_lv:.1f}% — AI電源規模化訊號成立，已突破 32%')
-        elif _lv >= 30:
-            st.info(f'📈 最新毛利率 {_lv:.1f}% — 轉型觀察區，距 32% 門檻還差 {32-_lv:.1f} pp')
+        if _lv >= 38:
+            st.success(f'🚀 最新毛利率 {_lv:.1f}% — 突破 38%，AI電源高毛利產品已主導營收結構')
+        elif _lv >= 35:
+            _diff = _gm_ys[-1] - _gm_ys[-2] if len(_gm_ys) >= 2 else 0
+            _arrow = f'（較上季 {_diff:+.1f}pp）' if _diff else ''
+            st.info(f'📈 最新毛利率 {_lv:.1f}%{_arrow} — 偏強區間，AI訂單持續貢獻，距 38% 門檻 {38-_lv:.1f} pp')
+        elif _lv >= 32:
+            st.caption(f'最新毛利率 {_lv:.1f}%，正常水準，AI電源業務佔比尚未拉高整體毛利')
         else:
-            st.caption(f'最新毛利率 {_lv:.1f}%，仍在代工水準，AI電源占比尚未帶動毛利率')
+            st.warning(f'⚠️ 最新毛利率 {_lv:.1f}%，低於歷史正常水準，需關注成本壓力')
     else:
         st.info('尚無財報資料，請等待自動抓取或手動輸入。')
 
