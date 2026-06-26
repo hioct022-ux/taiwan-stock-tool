@@ -3620,63 +3620,67 @@ MACD：DIF={macd_dif} / DEF={macd_def} / 柱狀={macd_hist}
         st.code(export_text)
         st.success('請從上方程式碼區塊複製（點右上角複製按鈕）')
 
-# ── 台指期夜盤行情（TAIFEX MIS API）────────
+# ── 台指期夜盤行情（FinMind API）────────────
 @st.cache_data(ttl=300, show_spinner=False)
 def _fetch_taiex_futures():
     """
-    從 TAIFEX MIS API 抓取台指期日盤 + 夜盤最新收盤。
+    從 FinMind API 抓取台指期（TX）日盤 + 夜盤最新行情。
     回傳 {'day': {...}, 'night': {...}}，失敗的 session 不含對應 key。
     每 5 分鐘快取一次。
+    spread / spread_per：夜盤相對於當日日盤結算的漲跌點 / %。
     """
-    import requests as _req, time as _t
-    _headers = {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-        'Referer': 'https://mis.taifex.com.tw/futures/',
-        'Accept': 'application/json',
-    }
-    _ts = int(_t.time() * 1000)
-    result = {}
-
-    for market_type, key in [(0, 'day'), (1, 'night')]:
+    try:
         try:
-            url = (f'https://mis.taifex.com.tw/futures/api/getQuote'
-                   f'?MarketType={market_type}&SymbolId=TXF&_={_ts}')
-            resp = _req.get(url, headers=_headers, timeout=8)
-            data = resp.json()
-            arr  = data.get('msgArray') or []
-            if not arr:
+            from config import FINMIND_TOKEN as _fmt
+        except ImportError:
+            _fmt = ''
+        if not _fmt:
+            return {}
+
+        import requests as _req
+        from datetime import datetime as _dt, timedelta as _td
+
+        start = (_dt.now() - _td(days=5)).strftime('%Y-%m-%d')
+        r = _req.get(
+            'https://api.finmindtrade.com/api/v4/data',
+            params={'dataset': 'TaiwanFuturesDaily', 'data_id': 'TX',
+                    'start_date': start, 'token': _fmt},
+            timeout=12
+        )
+        data = r.json()
+        if data.get('status') != 200:
+            return {}
+
+        rows = data.get('data', [])
+        if not rows:
+            return {}
+
+        # 取最新有資料的日期
+        latest_date = max(row['date'] for row in rows)
+        latest_rows = [row for row in rows if row['date'] == latest_date]
+
+        # 近月合約（contract_date >= 當月，取最小）
+        today_ym = _dt.now().strftime('%Y%m')
+        valid = [row for row in latest_rows if row['contract_date'] >= today_ym]
+        if not valid:
+            valid = latest_rows
+        front_month = min(valid, key=lambda x: x['contract_date'])['contract_date']
+
+        result = {}
+        for row in latest_rows:
+            if row['contract_date'] != front_month:
                 continue
-            item = arr[0]
-
-            def _num(s):
-                if not s or s in ('-', ''):
-                    return None
-                try:
-                    return float(str(s).replace(',', ''))
-                except:
-                    return None
-
-            close     = _num(item.get('Close') or item.get('LastPrice'))
-            yesterday = _num(item.get('Yesterday') or item.get('Reference'))
-            _open     = _num(item.get('Open'))
-
-            if close is None:
-                continue
-
-            chg     = round(close - yesterday, 0) if yesterday else 0
-            chg_pct = round(chg / yesterday * 100, 2) if yesterday else 0
+            key = 'night' if row['trading_session'] == 'after_market' else 'day'
             result[key] = {
-                'close':    close,
-                'open':     _open,
-                'chg':      chg,
-                'chg_pct':  chg_pct,
-                'ref':      yesterday,   # 前日結算價
-                'symbol':   item.get('SymbolName', '台指期'),
+                'close':    row['close'],
+                'chg':      row['spread'],       # 夜盤：vs 日盤差；日盤：vs 前日差
+                'chg_pct':  row['spread_per'],
+                'contract': front_month,
+                'date':     latest_date,
             }
-        except Exception:
-            pass
-
-    return result
+        return result
+    except Exception:
+        return {}
 
 
 # ── 大盤走勢分析 ────────────────────────
@@ -3787,26 +3791,27 @@ def render_market():
         # 第三列：台指期夜盤
         _txf = _fetch_taiex_futures()
         if _txf:
-            st.caption('🇹🇼 台指期（TAIFEX）')
+            _txf_contract = next(iter(_txf.values())).get('contract', '')
+            _txf_date     = next(iter(_txf.values())).get('date', '')
+            st.caption(f'🇹🇼 台指期 {_txf_contract}（{_txf_date}，資料來源：FinMind）')
             _txf_cols = st.columns(4)
             for _col_i, (_skey, _slabel) in enumerate([('day', '台指期 日盤'), ('night', '台指期 夜盤')]):
                 if _skey in _txf:
-                    _td = _txf[_skey]
-                    _tc  = _td['chg_pct']
+                    _td    = _txf[_skey]
+                    _tc    = _td['chg_pct']
                     _tcolor = '#ef4444' if _tc < -1 else '#f59e0b' if _tc < 0 else '#22c55e' if _tc > 0 else '#94a3b8'
                     _txf_cols[_col_i].markdown(
                         f'<div style="background:#141720;border:1px solid #252a38;border-radius:8px;padding:10px 14px;margin-bottom:4px">'
                         f'<div style="font-size:11px;color:#8892a4;margin-bottom:2px">{_slabel}</div>'
                         f'<div style="font-size:18px;font-weight:700;color:{_tcolor}">{_td["close"]:,.0f}</div>'
-                        f'<div style="font-size:11px;color:{_tcolor}">{_td["chg"]:+.0f}&nbsp;（{_tc:+.2f}%）</div>'
+                        f'<div style="font-size:11px;color:{_tcolor}">{_td["chg"]:+.0f}pts&nbsp;（{_tc:+.2f}%）</div>'
                         f'</div>',
                         unsafe_allow_html=True)
-            # 夜盤 vs 日盤差異提示
-            if 'day' in _txf and 'night' in _txf:
-                _day_c  = _txf['day']['close']
-                _ngt_c  = _txf['night']['close']
-                _diff   = _ngt_c - _day_c
-                _diff_p = _diff / _day_c * 100
+            # 夜盤 vs 日盤：直接用 night['chg']（FinMind spread 已是夜盤-日盤差）
+            if 'night' in _txf:
+                _ngt    = _txf['night']
+                _diff   = _ngt['chg']
+                _diff_p = _ngt['chg_pct']
                 _d_color = '#22c55e' if _diff > 0 else '#ef4444' if _diff < 0 else '#94a3b8'
                 _txf_cols[2].markdown(
                     f'<div style="background:#141720;border:1px solid #252a38;border-radius:8px;padding:10px 14px;margin-bottom:4px">'
@@ -3861,14 +3866,13 @@ def render_market():
             alerts.append(f'🟢 費半指數大漲 {sox_chg:+.1f}%，台灣半導體族群開盤偏多')
 
         # 台指期夜盤警示
-        if 'day' in _txf and 'night' in _txf:
-            _w_day = _txf['day']['close']
-            _w_ngt = _txf['night']['close']
-            _w_diff_p = (_w_ngt - _w_day) / _w_day * 100 if _w_day else 0
+        if 'night' in _txf:
+            _w_diff_p = _txf['night']['chg_pct'] or 0
+            _w_ngt_c  = _txf['night']['close']
             if _w_diff_p <= -1.5:
-                alerts.insert(0, f'🔴 台指期夜盤大跌 {_w_diff_p:.1f}%，次日開盤跳空開低機率高（收 {_w_ngt:,.0f} 點）')
+                alerts.insert(0, f'🔴 台指期夜盤大跌 {_w_diff_p:.1f}%，次日開盤跳空開低機率高（收 {_w_ngt_c:,.0f} 點）')
             elif _w_diff_p >= 1.5:
-                alerts.insert(0, f'🟢 台指期夜盤大漲 {_w_diff_p:+.1f}%，次日開盤跳空開高（收 {_w_ngt:,.0f} 點）')
+                alerts.insert(0, f'🟢 台指期夜盤大漲 {_w_diff_p:+.1f}%，次日開盤跳空開高（收 {_w_ngt_c:,.0f} 點）')
 
         if alerts:
             for a in alerts:
@@ -4114,12 +4118,12 @@ def render_market():
                 _bull_msgs.append(('🟢', f'近3日成交量放大 {_vol_trend:.0f}%，市場積極度提升'))
 
         # ══ Signal 9：外部市場（台指期夜盤 / 美股 / 費半 / TSM ADR / VIX）══
-        # 台指期夜盤（夜盤 vs 日盤 差異，最直接反映次日開盤方向）
-        _txf_score_data = _fetch_taiex_futures()
-        if 'day' in _txf_score_data and 'night' in _txf_score_data:
-            _txf_day_c  = _txf_score_data['day']['close']
-            _txf_ngt_c  = _txf_score_data['night']['close']
-            _txf_diff_p = (_txf_ngt_c - _txf_day_c) / _txf_day_c * 100 if _txf_day_c else 0
+        # 台指期夜盤（FinMind spread 已是夜盤 vs 日盤差，最直接反映次日開盤）
+        _txf_score_data = _txf   # 共用已抓的快取，不重複請求
+        if 'night' in _txf_score_data:
+            _txf_ngt   = _txf_score_data['night']
+            _txf_ngt_c = _txf_ngt['close']
+            _txf_diff_p = _txf_ngt['chg_pct'] or 0   # spread_per = 夜盤 vs 日盤 %
             if _txf_diff_p <= -1.5:
                 _bear_score += 3
                 _bear_msgs.append(('🔴', f'台指期夜盤大跌 {_txf_diff_p:.1f}%（收 {_txf_ngt_c:,.0f}），次日開盤跳空開低機率高'))
@@ -4134,16 +4138,6 @@ def render_market():
                 _bull_msgs.append(('🟢', f'台指期夜盤走強 {_txf_diff_p:+.1f}%（收 {_txf_ngt_c:,.0f}），次日開盤偏多'))
             else:
                 _bull_msgs.append(('⚪', f'台指期夜盤收平（{_txf_ngt_c:,.0f}），與日盤差距 {_txf_diff_p:+.1f}%'))
-        elif 'night' in _txf_score_data:
-            # 只有夜盤資料：用夜盤自身漲跌幅
-            _txf_ngt = _txf_score_data['night']
-            _txf_np  = _txf_ngt.get('chg_pct', 0) or 0
-            if _txf_np <= -1.5:
-                _bear_score += 2
-                _bear_msgs.append(('🔴', f'台指期夜盤跌 {_txf_np:.1f}%（收 {_txf_ngt["close"]:,.0f}）'))
-            elif _txf_np >= 1.5:
-                _bull_score += 2
-                _bull_msgs.append(('🟢', f'台指期夜盤漲 {_txf_np:+.1f}%（收 {_txf_ngt["close"]:,.0f}）'))
 
         if global_data:
             _sp_chg  = global_data.get('S&P 500',  {}).get('chg_pct', 0) or 0
