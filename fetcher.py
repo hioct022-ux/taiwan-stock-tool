@@ -1138,17 +1138,23 @@ def fetch_quarterly_financials(code: str, years: int = 4) -> int:
         oi_row  = _find_row(qf, 'Operating Income', 'EBIT')
         ni_row  = _find_row(qf, 'Net Income', 'Net Income Common Stockholders')
 
+        import math as _math
         for col in qf.columns:
             try:
                 rev = float(qf.loc[rev_row, col]) if rev_row else 0
                 gp  = float(qf.loc[gp_row,  col]) if gp_row  else 0
                 oi  = float(qf.loc[oi_row,  col]) if oi_row  else 0
                 ni  = float(qf.loc[ni_row,  col]) if ni_row  else 0
-                if rev and gp:
+                # NaN guard：yfinance 未釋出季度的欄位常為 NaN，
+                # NaN 在 Python 是 truthy 但存入 SQLite 變 NULL，會覆蓋原本正確資料
+                if (rev and gp
+                        and not _math.isnan(rev) and not _math.isnan(gp)
+                        and rev > 0 and gp > 0):
                     period = _yf_date_to_period(col)
                     gm     = round(gp / rev * 100, 2)
-                    save_quarterly_financials(code, period, rev, gp, gm, oi, ni)
-                    saved += 1
+                    if not _math.isnan(gm) and 0 < gm < 100:
+                        save_quarterly_financials(code, period, rev, gp, gm, oi, ni)
+                        saved += 1
             except Exception:
                 continue
 

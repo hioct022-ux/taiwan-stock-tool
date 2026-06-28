@@ -176,9 +176,10 @@ input::placeholder, textarea::placeholder { color: #6b7280 !important; }
 # ── 圖表顯示 helper（禁用觸控拖曳/縮放，避免 iPad 變形）──
 _CHART_CONFIG = {'scrollZoom': False, 'displayModeBar': False, 'doubleClick': False}
 
-def show_chart(fig, key=None):
+def show_chart(fig, key=None, date_xaxis=True):
     fig.update_layout(dragmode=False)
-    fig.update_xaxes(tickformat='%Y-%m-%d', hoverformat='%Y-%m-%d')
+    if date_xaxis:
+        fig.update_xaxes(tickformat='%Y-%m-%d', hoverformat='%Y-%m-%d')
     st.plotly_chart(fig, use_container_width=True, config=_CHART_CONFIG, key=key)
 
 # ── 初始化 ──────────────────────────────
@@ -3125,6 +3126,401 @@ def _calc_foreign_consecutive_weeks(chips_list: list) -> tuple:
         return 0, '#ef4444', f'連賣 {sell} 週'
 
 
+# ── 鴻勁（7769）AI/HPC 精密零件監控 ──────────
+def _render_hongjing_monitor():
+    """鴻勁（7769）五指標監控：AI/HPC占比 / 毛利率 / EPS / 產能利用率 / 法說展望"""
+    import plotly.graph_objects as go
+    from database import (get_chips, get_quarterly_financials,
+                          get_segment_revenue, save_segment_revenue)
+
+    code = '7769'
+    st.markdown('### 🎯 鴻勁（7769）｜AI/HPC 精密零件成長監控')
+    st.caption('五大訊號全確認：AI/HPC占比↑ ＋ 毛利率維持 ＋ EPS超預期 ＋ 產能接近滿載 ＋ 展望上修 → 持續佈局')
+
+    # 自動抓取季度財報（DB 無資料才觸發）
+    if IS_LOCAL and not st.session_state.get(f'_qf_fetched_{code}'):
+        from database import get_quarterly_financials_last_period
+        _has_qf = get_quarterly_financials_last_period(code) is not None
+        st.session_state[f'_qf_fetched_{code}'] = True
+        if not _has_qf:
+            try:
+                from fetcher import fetch_quarterly_financials
+                _n = fetch_quarterly_financials(code, years=3)
+                if _n > 0:
+                    st.toast(f'已取得 {code} 季度財報（{_n} 季）', icon='📊')
+            except Exception:
+                pass
+
+    chips_list   = get_chips(code, days=90)
+    qf_data      = get_quarterly_financials(code, quarters=8)
+    ai_hpc_data  = get_segment_revenue(code, 'ai_hpc',        quarters=8)
+    eps_data     = get_segment_revenue(code, 'quarterly_eps',  quarters=8)
+    cap_data     = get_segment_revenue(code, 'capacity_util',  quarters=4)
+    guide_data   = get_segment_revenue(code, 'guidance_update', quarters=4)
+
+    # ── 計算五項指標 ──
+    # 1. AI/HPC 訂單占比
+    _ai_v = ai_hpc_data[-1]['revenue_pct'] if ai_hpc_data else None
+    _ai_latest = f'{_ai_v:.1f}%' if _ai_v is not None else '待輸入'
+    _ai_trend, _ai_color = '—', '#64748b'
+    if len(ai_hpc_data) >= 2:
+        _dd = ai_hpc_data[-1]['revenue_pct'] - ai_hpc_data[-2]['revenue_pct']
+        if _dd >= 2:   _ai_trend, _ai_color = f'▲ {_dd:+.1f}pp', '#22c55e'
+        elif _dd > 0:  _ai_trend, _ai_color = f'▲ {_dd:+.1f}pp', '#86efac'
+        elif _dd < 0:  _ai_trend, _ai_color = f'▼ {_dd:+.1f}pp', '#ef4444'
+        else:          _ai_trend, _ai_color = '→ 持平', '#94a3b8'
+
+    # 2. 毛利率
+    _gm_vals = [d['gross_margin'] for d in qf_data if d.get('gross_margin')]
+    _gm_latest = f'{_gm_vals[-1]:.1f}%' if _gm_vals else '待抓取'
+    _gm_trend, _gm_color = '—', '#64748b'
+    if len(_gm_vals) >= 2:
+        _dd = _gm_vals[-1] - _gm_vals[-2]
+        if _dd >= 0.5:  _gm_trend, _gm_color = f'▲ {_dd:+.1f}pp', '#22c55e'
+        elif _dd > 0:   _gm_trend, _gm_color = f'▲ 微升 {_dd:+.2f}pp', '#86efac'
+        elif _dd < -0.5: _gm_trend, _gm_color = f'▼ {_dd:+.1f}pp', '#ef4444'
+        else:            _gm_trend, _gm_color = '→ 持平', '#94a3b8'
+
+    # 3. 季度 EPS（直接從 qf_data.net_income 讀，eps_data 只存市場預期 consensus）
+    _qf_eps = [{'period': d['period'], 'eps': d['net_income']}
+               for d in qf_data if d.get('net_income') is not None]
+    # 建立 consensus dict：period → revenue_abs
+    _eps_consensus = {d['period']: d.get('revenue_abs') for d in eps_data} if eps_data else {}
+    _eps_v = _qf_eps[-1]['eps'] if _qf_eps else None
+    _eps_period = _qf_eps[-1]['period'] if _qf_eps else None
+    _eps_con = _eps_consensus.get(_eps_period) if _eps_period else None
+    _eps_latest = f'NT${_eps_v:.2f}' if _eps_v is not None else '待抓取'
+    _eps_trend, _eps_color = '—', '#64748b'
+    if _eps_v is not None and _eps_con:
+        _beat = _eps_v - _eps_con
+        if _beat > 0:   _eps_trend, _eps_color = f'超預期 +{_beat:.2f}', '#22c55e'
+        elif _beat < 0: _eps_trend, _eps_color = f'未達預期 {_beat:.2f}', '#ef4444'
+        else:           _eps_trend, _eps_color = '符合預期', '#94a3b8'
+    elif len(_qf_eps) >= 2:
+        _dd = _qf_eps[-1]['eps'] - _qf_eps[-2]['eps']
+        if _dd > 0:   _eps_trend, _eps_color = f'QoQ ▲ {_dd:+.2f}', '#22c55e'
+        elif _dd < 0: _eps_trend, _eps_color = f'QoQ ▼ {_dd:+.2f}', '#ef4444'
+
+    # 4. 產能利用率
+    _cap_v = cap_data[-1]['revenue_pct'] if cap_data else None
+    _cap_latest = f'{_cap_v:.0f}%' if _cap_v is not None else '待輸入'
+    _cap_color = '#22c55e' if _cap_v and _cap_v >= 90 else '#f59e0b' if _cap_v and _cap_v >= 75 else '#ef4444' if _cap_v else '#64748b'
+    _cap_label  = ('🟢 接近滿載' if _cap_v >= 90 else '🟡 正常運行' if _cap_v >= 75 else '🔴 產能偏低') if _cap_v else '—'
+
+    # 5. 法說展望（revenue_pct：1=上修, 0=維持, -1=下修）
+    _gv = guide_data[-1]['revenue_pct'] if guide_data else None
+    if _gv is None:
+        _guide_label, _guide_color = '待確認', '#64748b'
+    elif _gv >= 0.5:
+        _guide_label, _guide_color = '🟢 上修展望', '#22c55e'
+    elif _gv <= -0.5:
+        _guide_label, _guide_color = '🔴 下修展望', '#ef4444'
+    else:
+        _guide_label, _guide_color = '⚪ 維持展望', '#94a3b8'
+
+    # ── 五欄指標卡 ──
+    _hj_cols = st.columns(5)
+    for _col, _title, _val, _trend, _color in [
+        (_hj_cols[0], '⚡ AI/HPC訂單占比', _ai_latest,   _ai_trend,   _ai_color),
+        (_hj_cols[1], '📊 毛利率',          _gm_latest,   _gm_trend,   _gm_color),
+        (_hj_cols[2], '💰 季度EPS',          _eps_latest,  _eps_trend,  _eps_color),
+        (_hj_cols[3], '🏭 產能利用率',       _cap_latest,  _cap_label,  _cap_color),
+        (_hj_cols[4], '📢 法說展望',
+         _guide_label.split(' ', 1)[-1] if _gv is not None else '待確認',
+         guide_data[-1]['period'] if guide_data else '—', _guide_color),
+    ]:
+        with _col:
+            st.markdown(
+                f'<div style="background:#0f172a;border:1px solid #1e293b;border-radius:10px;'
+                f'padding:12px;text-align:center">'
+                f'<div style="font-size:11px;color:#64748b;margin-bottom:4px">{_title}</div>'
+                f'<div style="font-size:18px;font-weight:700;color:#e2e8f0">{_val}</div>'
+                f'<div style="color:{_color};font-size:11px;margin-top:4px">{_trend}</div>'
+                f'</div>', unsafe_allow_html=True
+            )
+
+    # ── 綜合訊號（5 分制）──
+    _sig_n = sum([
+        bool(_ai_v and _ai_v >= 50),
+        bool(_gm_vals and _gm_vals[-1] >= 55),
+        bool(_eps_v and _eps_con and _eps_v >= _eps_con),
+        bool(_cap_v and _cap_v >= 90),
+        bool(_gv and _gv >= 0.5),
+    ])
+    _sig_map = {
+        0: ('⬜ 尚無訊號確認，持續觀察', '#64748b'),
+        1: ('🟡 一項訊號確認', '#f59e0b'),
+        2: ('🟡 兩項訊號同步', '#f59e0b'),
+        3: ('🟠 三項訊號，可考慮小部位', '#f97316'),
+        4: ('🟢 四項訊號確認，積極追蹤', '#22c55e'),
+        5: ('🟢 五項全確認 — AI/HPC 成長邏輯完整', '#22c55e'),
+    }[_sig_n]
+    st.markdown(
+        f'<div style="background:#0f172a;border:2px solid {_sig_map[1]};border-radius:8px;'
+        f'padding:10px;text-align:center;margin:12px 0;font-weight:700;color:{_sig_map[1]}">'
+        f'{_sig_map[0]}</div>', unsafe_allow_html=True
+    )
+
+    st.divider()
+
+    # ══ Section 1：AI/HPC 訂單占比 ═══════════════
+    st.markdown('#### ⚡ AI/HPC 訂單占比（法說會揭露）')
+    with st.expander('✏️ 手動輸入 AI/HPC 訂單占比'):
+        _hci1, _hci2, _hci3, _hci4 = st.columns([2, 2, 2, 1])
+        with _hci1: _hj_ai_period = st.text_input('季度（如 2026Q2）', key='hj_ai_period', placeholder='2026Q2')
+        with _hci2: _hj_ai_pct = st.number_input('AI/HPC 占比 %', 0.0, 100.0, step=0.5, format='%.1f', key='hj_ai_pct')
+        with _hci3: _hj_ai_note = st.text_input('備註（法說日期）', key='hj_ai_note')
+        with _hci4:
+            st.markdown('<div style="margin-top:28px"></div>', unsafe_allow_html=True)
+            if st.button('儲存', key='btn_hj_ai', use_container_width=True):
+                if _hj_ai_pct > 0 and _hj_ai_period:
+                    save_segment_revenue(code, _hj_ai_period, 'ai_hpc', _hj_ai_pct, None, _hj_ai_note)
+                    st.success(f'{_hj_ai_period} AI/HPC {_hj_ai_pct:.1f}% 已存入')
+                    st.rerun()
+
+    if ai_hpc_data:
+        try:
+            fig_ai = go.Figure()
+            _hp = [d['period'] for d in ai_hpc_data]
+            _hv = [d['revenue_pct'] for d in ai_hpc_data]
+            _hc = ['#22c55e' if v >= 60 else '#3b82f6' if v >= 50 else '#f97316' if v >= 40 else '#64748b' for v in _hv]
+            fig_ai.add_trace(go.Bar(x=_hp, y=_hv, marker_color=_hc,
+                                     marker_line_color='rgba(255,255,255,0.3)', marker_line_width=1,
+                                     name='AI/HPC占比'))
+            for th, col, lbl in [(60,'#22c55e','60% 強勢'),(50,'#3b82f6','50% 主力')]:
+                fig_ai.add_hline(y=th, line_dash='dash', line_color=col, annotation_text=lbl, annotation_position='right')
+            fig_ai.update_layout(
+                template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                height=220, margin=dict(l=10, r=80, t=20, b=10),
+                yaxis=dict(title='占比 %', gridcolor='#1e293b', range=[0, max(_hv)*1.2]),
+                xaxis=dict(gridcolor='#1e293b', type='category'),
+            )
+            show_chart(fig_ai, key='hj_ai_chart', date_xaxis=False)
+        except Exception as _e:
+            st.error(f'AI/HPC圖表錯誤：{_e}')
+    else:
+        st.info('尚無資料，請展開上方手動輸入法說會揭露的 AI/HPC 占比。')
+
+    st.divider()
+
+    # ══ Section 2：毛利率走勢 ═════════════════════
+    st.markdown('#### 📊 毛利率走勢（55%+ = 高附加價值維持訊號）')
+    _hj_gm_data = [{'x': d['period'], 'y': d['gross_margin']}
+                   for d in qf_data if d.get('gross_margin') is not None]
+
+    with st.expander('✏️ 手動輸入毛利率'):
+        _hgc1, _hgc2, _hgc3 = st.columns([2, 2, 1])
+        with _hgc1: _hj_gm_period = st.text_input('季度', key='hj_gm_period', placeholder='2026Q2')
+        with _hgc2: _hj_gm_val = st.number_input('毛利率 %', 0.0, 100.0, step=0.1, format='%.1f', key='hj_gm_val')
+        with _hgc3:
+            st.markdown('<div style="margin-top:28px"></div>', unsafe_allow_html=True)
+            if st.button('儲存', key='btn_hj_gm', use_container_width=True):
+                if _hj_gm_val > 0 and _hj_gm_period:
+                    from database import save_quarterly_financials
+                    _eq = next((d for d in qf_data if d['period'] == _hj_gm_period), None)
+                    save_quarterly_financials(code, _hj_gm_period,
+                        _eq['revenue'] if _eq else 0, _eq['gross_profit'] if _eq else 0,
+                        _hj_gm_val, _eq['operating_income'] if _eq else 0, _eq['net_income'] if _eq else 0)
+                    st.success(f'{_hj_gm_period} 毛利率 {_hj_gm_val:.1f}% 已存入')
+                    st.rerun()
+
+    if _hj_gm_data:
+        try:
+            fig_gm = go.Figure()
+            _hgm_ys = [d['y'] for d in _hj_gm_data]
+            _hgm_max = max(_hgm_ys) * 1.15
+            _hthresh = [50.0, 55.0, 58.0]
+            _hzones = [
+                (0, _hthresh[0], 'rgba(100,116,139,0.15)', '<50% 偏低'),
+                (_hthresh[0], _hthresh[1], 'rgba(249,115,22,0.10)', '50–55% 正常'),
+                (_hthresh[1], _hthresh[2], 'rgba(59,130,246,0.10)', '55–58% 偏強'),
+                (_hthresh[2], max(_hgm_max, _hthresh[2]+0.1), 'rgba(34,197,94,0.12)', '🟢 58%+ 高附加價值'),
+            ]
+            for lo, hi, bg, lbl in _hzones:
+                fig_gm.add_hrect(y0=lo, y1=hi, fillcolor=bg, opacity=1.0, line_width=0,
+                                  annotation_text=lbl, annotation_position='right',
+                                  annotation_font=dict(size=10, color='#94a3b8'))
+            _hbc = ['#22c55e' if y >= 58 else '#3b82f6' if y >= 55 else '#f97316' if y >= 50 else '#64748b' for y in _hgm_ys]
+            fig_gm.add_trace(go.Bar(
+                x=[d['x'] for d in _hj_gm_data], y=_hgm_ys, marker_color=_hbc,
+                marker_line_color='rgba(255,255,255,0.3)', marker_line_width=1, name='毛利率'
+            ))
+            for th, col, lbl in [(_hthresh[2],'#22c55e','58%'),(_hthresh[1],'#3b82f6','55%'),(_hthresh[0],'#64748b','50%')]:
+                fig_gm.add_hline(y=th, line_dash='dash', line_color=col, annotation_text=lbl, annotation_position='right')
+            fig_gm.update_layout(
+                template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                height=260, margin=dict(l=10, r=90, t=20, b=10),
+                yaxis=dict(title='毛利率 %', gridcolor='#1e293b',
+                           range=[max(0, min(_hgm_ys)-3), max(_hgm_max, 65)]),
+                xaxis=dict(gridcolor='#1e293b', type='category'),
+            )
+            show_chart(fig_gm, key='hj_gm_chart', date_xaxis=False)
+            _hlv = _hgm_ys[-1]
+            if _hlv >= 58:   st.success(f'🚀 最新毛利率 {_hlv:.1f}% — 高附加價值維持，AI/HPC 定價能力強')
+            elif _hlv >= 55: st.info(f'📈 最新毛利率 {_hlv:.1f}% — 偏強，持續觀察是否能突破 58%')
+            elif _hlv >= 50: st.caption(f'最新毛利率 {_hlv:.1f}% — 正常水準')
+            else:            st.warning(f'⚠️ 最新毛利率 {_hlv:.1f}% — 低於正常，需留意競爭壓力')
+        except Exception as _e:
+            st.error(f'毛利率圖表錯誤：{_e}')
+    else:
+        st.info('尚無財報資料，請等待自動抓取或手動輸入。')
+
+    st.divider()
+
+    # ══ Section 3：EPS 追蹤（DB net_income + 手動輸入市場預期）════
+    st.markdown('#### 💰 季度 EPS 追蹤（是否超越市場預期）')
+    with st.expander('✏️ 輸入市場預期 EPS（Consensus）— 實際值由財報自動讀取'):
+        _hec1, _hec2, _hec3 = st.columns([2, 2, 1])
+        with _hec1: _hj_eps_period = st.text_input('季度', key='hj_eps_period', placeholder='2026Q2')
+        with _hec2: _hj_eps_con_in = st.number_input('市場預期 EPS (NT$)', -50.0, 500.0, step=0.01, format='%.2f',
+                                                       key='hj_eps_con', help='法說前分析師共識預期')
+        with _hec3:
+            st.markdown('<div style="margin-top:28px"></div>', unsafe_allow_html=True)
+            if st.button('儲存', key='btn_hj_eps', use_container_width=True):
+                if _hj_eps_period and _hj_eps_con_in != 0:
+                    save_segment_revenue(code, _hj_eps_period, 'quarterly_eps',
+                                          0.0, _hj_eps_con_in, '市場預期')
+                    st.success(f'{_hj_eps_period} 市場預期 EPS NT${_hj_eps_con_in:.2f} 已存入')
+                    st.rerun()
+
+    if _qf_eps:
+        try:
+            fig_eps = go.Figure()
+            _ep = [d['period'] for d in _qf_eps]
+            _ev = [d['eps'] for d in _qf_eps]
+            _ec_map = {d['period']: d.get('revenue_abs') for d in eps_data} if eps_data else {}
+            _ecolors = ['#22c55e' if v >= 0 else '#ef4444' for v in _ev]
+            fig_eps.add_trace(go.Bar(x=_ep, y=_ev, marker_color=_ecolors,
+                                      marker_line_color='rgba(255,255,255,0.3)', marker_line_width=1,
+                                      name='季度EPS（實際）'))
+            _con_pts = [(p, _ec_map[p]) for p in _ep if _ec_map.get(p)]
+            if _con_pts:
+                fig_eps.add_trace(go.Scatter(
+                    x=[p for p, c in _con_pts], y=[c for p, c in _con_pts],
+                    mode='markers', marker_symbol='diamond', marker_size=12,
+                    marker_color='#f59e0b', name='市場預期',
+                ))
+            fig_eps.add_hline(y=0, line_color='#475569', line_width=1)
+            fig_eps.update_layout(
+                template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                height=230, margin=dict(l=10, r=20, t=30, b=10),
+                yaxis=dict(title='EPS (NT$)', gridcolor='#1e293b'),
+                xaxis=dict(gridcolor='#1e293b', type='category'),
+                legend=dict(orientation='h', y=1.12, x=0),
+            )
+            show_chart(fig_eps, key='hj_eps_chart', date_xaxis=False)
+            _el = _qf_eps[-1]
+            _con_v = _ec_map.get(_el['period'])
+            if _con_v:
+                _beat = _el['eps'] - _con_v
+                if _beat > 0: st.success(f'✅ {_el["period"]} EPS NT${_el["eps"]:.2f}，超越市場預期 +{_beat:.2f}')
+                elif _beat < 0: st.warning(f'⚠️ {_el["period"]} EPS NT${_el["eps"]:.2f}，未達市場預期 {_beat:.2f}')
+                else: st.info(f'{_el["period"]} EPS NT${_el["eps"]:.2f}，符合市場預期')
+            else:
+                st.caption(f'最新 {_el["period"]} EPS NT${_el["eps"]:.2f}（尚未輸入市場預期）')
+        except Exception as _e:
+            st.error(f'EPS圖表錯誤：{_e}')
+    else:
+        st.info('尚無財報資料，等待自動抓取。')
+
+    st.divider()
+
+    # ══ Section 4：產能利用率 ＋ 法說展望 ════════════
+    _hcol_a, _hcol_b = st.columns(2)
+
+    with _hcol_a:
+        st.markdown('#### 🏭 產能利用率追蹤')
+        with st.expander('✏️ 更新利用率'):
+            _hcc1, _hcc2, _hcc3 = st.columns([2, 2, 1])
+            with _hcc1: _hj_cap_period = st.text_input('季度', key='hj_cap_period', placeholder='2026Q2')
+            with _hcc2: _hj_cap_val = st.number_input('利用率 %', 0.0, 100.0, step=0.5, format='%.1f', key='hj_cap_val')
+            with _hcc3:
+                st.markdown('<div style="margin-top:28px"></div>', unsafe_allow_html=True)
+                if st.button('儲存', key='btn_hj_cap', use_container_width=True):
+                    if _hj_cap_val > 0 and _hj_cap_period:
+                        save_segment_revenue(code, _hj_cap_period, 'capacity_util', _hj_cap_val, None, '')
+                        st.success(f'{_hj_cap_period} 利用率 {_hj_cap_val:.0f}% 已存入')
+                        st.rerun()
+
+        if cap_data:
+            _cr = cap_data[-1]['revenue_pct']
+            _cap_bg  = '#1a3020' if _cr >= 90 else '#2a2a10' if _cr >= 75 else '#2a1010'
+            _cap_fc2 = '#22c55e' if _cr >= 90 else '#f59e0b' if _cr >= 75 else '#ef4444'
+            st.markdown(
+                f'<div style="background:{_cap_bg};border-radius:10px;padding:24px;text-align:center">'
+                f'<div style="font-size:12px;color:#64748b">{cap_data[-1]["period"]} 產能利用率</div>'
+                f'<div style="font-size:40px;font-weight:700;color:{_cap_fc2};margin:8px 0">{_cr:.0f}%</div>'
+                f'<div style="color:{_cap_fc2};font-size:14px">'
+                f'{"🟢 接近滿載（AI需求強勁）" if _cr >= 90 else "🟡 正常運行" if _cr >= 75 else "🔴 產能偏低，需關注訂單"}'
+                f'</div></div>', unsafe_allow_html=True
+            )
+            # 利用率趨勢（如有多筆）
+            if len(cap_data) >= 2:
+                _cap_trend_txt = ' → '.join(f'{d["period"]} {d["revenue_pct"]:.0f}%' for d in cap_data)
+                st.caption(f'趨勢：{_cap_trend_txt}')
+        else:
+            st.info('尚無資料，請展開上方輸入。')
+
+    with _hcol_b:
+        st.markdown('#### 📢 法說展望追蹤')
+        with st.expander('✏️ 更新展望'):
+            _hgd1, _hgd2, _hgd3 = st.columns([2, 2, 1])
+            with _hgd1: _hj_guide_period = st.text_input('季度', key='hj_guide_period', placeholder='2026Q2')
+            with _hgd2:
+                _hj_guide_sel = st.selectbox('展望動作', ['上修', '維持', '下修'], key='hj_guide_sel')
+            with _hgd3:
+                st.markdown('<div style="margin-top:28px"></div>', unsafe_allow_html=True)
+                if st.button('儲存', key='btn_hj_guide', use_container_width=True):
+                    if _hj_guide_period:
+                        _gval = {'上修': 1.0, '維持': 0.0, '下修': -1.0}[_hj_guide_sel]
+                        save_segment_revenue(code, _hj_guide_period, 'guidance_update',
+                                              _gval, None, _hj_guide_sel)
+                        st.success(f'{_hj_guide_period} 展望已記錄為「{_hj_guide_sel}」')
+                        st.rerun()
+
+        if guide_data:
+            _gl = guide_data[-1]
+            _gv2 = round(_gl['revenue_pct'])
+            _g_icon, _g_text, _g_fc, _g_bg = {
+                1:  ('🟢', '上修全年展望', '#22c55e', '#1a3020'),
+                0:  ('⚪', '維持展望', '#94a3b8', '#1e293b'),
+                -1: ('🔴', '下修全年展望', '#ef4444', '#2a1010'),
+            }.get(_gv2, ('❓', f'值={_gv2}', '#64748b', '#0f172a'))
+            st.markdown(
+                f'<div style="background:{_g_bg};border-radius:10px;padding:24px;text-align:center">'
+                f'<div style="font-size:12px;color:#64748b">{_gl["period"]} 法說展望</div>'
+                f'<div style="font-size:36px;margin:8px 0">{_g_icon}</div>'
+                f'<div style="font-size:18px;font-weight:700;color:{_g_fc}">{_g_text}</div>'
+                f'</div>', unsafe_allow_html=True
+            )
+            if len(guide_data) > 1:
+                _icons = {1: '↑', 0: '→', -1: '↓'}
+                st.caption('展望歷史：' + ' → '.join(
+                    f'{d["period"]}{_icons.get(round(d["revenue_pct"]), "?")}' for d in guide_data
+                ))
+        else:
+            st.info('尚無資料，請展開上方記錄最新法說展望。')
+
+    st.divider()
+
+    # ── 法說必問清單 ──
+    st.markdown('#### 📋 法說會必問清單')
+    for _q, _a in [
+        ('AI/HPC 訂單目前占整體營收比例？',
+         '核心指標。若仍為主要成長來源（50%+且上升）代表 AI 商機持續兌現，是最直接的持股依據。'),
+        ('毛利率維持高水準的原因？未來趨勢？',
+         '精密零件技術門檻 ＋ 客戶黏著度決定毛利率。若毛利率穩在 30%+ 且逐季上升，代表定價能力強。'),
+        ('本季 EPS 是否達到或超越市場預期？',
+         '連續超預期是股價強勢的關鍵驅動，確認法說前市場共識，與實際公告比較。'),
+        ('目前產能利用率為何？是否有新產能擴充計畫？',
+         '接近 90%+ 代表需求強勁且無殺價壓力；若宣布擴產，說明管理層對訂單能見度有信心。'),
+        ('全年展望是否再次上修？修正幅度？',
+         '同一年度內多次上修是最強的持股訊號，代表 AI 需求持續優於預期且公司無法見頂。'),
+    ]:
+        with st.expander(f'❓ {_q}'):
+            st.markdown(_a)
+
+
 # ── 台達電（2308）AI 電源監控 ───────────────
 def _render_delta_monitor():
     """台達電（2308）三指標監控：毛利率 / AI電源訂單占比 / 外資是否止賣"""
@@ -3139,16 +3535,19 @@ def _render_delta_monitor():
     prices     = get_prices(code, days=250)
     chips_list = get_chips(code, days=90)
 
-    # 自動抓取季度財報
+    # 自動抓取季度財報（只在 DB 沒有資料時才觸發，避免重複抓取覆蓋正確資料）
     if IS_LOCAL and not st.session_state.get(f'_qf_fetched_{code}'):
-        try:
-            from fetcher import fetch_quarterly_financials
-            _n = fetch_quarterly_financials(code, years=4)
-            st.session_state[f'_qf_fetched_{code}'] = True
-            if _n > 0:
-                st.toast(f'已更新 {code} 季度財報（{_n} 季）', icon='📊')
-        except Exception:
-            pass
+        from database import get_quarterly_financials_last_period
+        _has_qf = get_quarterly_financials_last_period(code) is not None
+        st.session_state[f'_qf_fetched_{code}'] = True  # 每 session 只檢查一次
+        if not _has_qf:
+            try:
+                from fetcher import fetch_quarterly_financials
+                _n = fetch_quarterly_financials(code, years=4)
+                if _n > 0:
+                    st.toast(f'已自動取得 {code} 季度財報（{_n} 季）', icon='📊')
+            except Exception:
+                pass
 
     # 自動抓取法說會（BigGo → AI電源占比）
     if IS_LOCAL and not st.session_state.get(f'_biggo_fetched_{code}'):
@@ -3352,56 +3751,62 @@ def _render_delta_monitor():
                     st.rerun()
 
     if _gm_data:
-        fig_gm = go.Figure()
-        # 四個毛利率區間
-        _gm_ys   = [d['y'] for d in _gm_data]
-        _gm_max  = max(_gm_ys) * 1.15
-        # 四個區間（依台達電實際現況 2024–2026 定義）
-        _thresh  = [32.0, 35.0, 38.0]
-        _zones   = [
-            (0,          _thresh[0], '#1e293b', '低於正常（<32%）'),
-            (_thresh[0], _thresh[1], '#1c2a3a', '正常水準（32–35%）'),
-            (_thresh[1], _thresh[2], '#1a3040', '偏強（35–38%，AI訂單貢獻中）'),
-            (_thresh[2], _gm_max,    '#183020', '🟢 AI電源主導（>38%）'),
-        ]
-        for lo, hi, bg, lbl in _zones:
-            fig_gm.add_hrect(y0=lo, y1=min(hi, _gm_max), fillcolor=bg,
-                             opacity=1.0, line_width=0,
-                             annotation_text=lbl if hi <= _gm_max else '',
-                             annotation_position='right',
-                             annotation_font=dict(size=10, color='#64748b'))
-        _bar_colors = ['#22c55e' if y >= 38 else '#3b82f6' if y >= 35 else
-                       '#f97316' if y >= 32 else '#64748b' for y in _gm_ys]
-        fig_gm.add_trace(go.Bar(
-            x=[d['x'] for d in _gm_data], y=_gm_ys,
-            marker_color=_bar_colors, name='毛利率'
-        ))
-        for th, col, lbl in [(_thresh[2], '#22c55e', '38% 訊號線'),
-                               (_thresh[1], '#3b82f6', '35%'),
-                               (_thresh[0], '#64748b', '32%')]:
-            fig_gm.add_hline(y=th, line_dash='dash', line_color=col,
-                             annotation_text=lbl, annotation_position='right')
-        fig_gm.update_layout(
-            template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)',
-            plot_bgcolor='rgba(0,0,0,0)', height=280,
-            margin=dict(l=10, r=100, t=20, b=10),
-            yaxis=dict(title='毛利率 %', gridcolor='#1e293b',
-                       range=[28, max(_gm_max, 42)]),
-            xaxis=dict(gridcolor='#1e293b'),
-        )
-        show_chart(fig_gm, key='delta_gm_chart')
+        try:
+            fig_gm = go.Figure()
+            # 四個毛利率區間
+            _gm_ys   = [d['y'] for d in _gm_data]
+            _gm_max  = max(_gm_ys) * 1.15
+            # 四個區間（依台達電實際現況 2024–2026 定義）
+            _thresh  = [32.0, 35.0, 38.0]
+            _zones   = [
+                (0,          _thresh[0], 'rgba(100,116,139,0.15)', '低於正常（<32%）'),
+                (_thresh[0], _thresh[1], 'rgba(249,115,22,0.10)', '正常水準（32–35%）'),
+                (_thresh[1], _thresh[2], 'rgba(59,130,246,0.10)', '偏強（35–38%，AI訂單貢獻中）'),
+                (_thresh[2], max(_gm_max, _thresh[2] + 0.1), 'rgba(34,197,94,0.12)', '🟢 AI電源主導（>38%）'),
+            ]
+            for lo, hi, bg, lbl in _zones:
+                fig_gm.add_hrect(y0=lo, y1=hi, fillcolor=bg,
+                                 opacity=1.0, line_width=0,
+                                 annotation_text=lbl,
+                                 annotation_position='right',
+                                 annotation_font=dict(size=10, color='#94a3b8'))
+            _bar_colors = ['#22c55e' if y >= 38 else '#3b82f6' if y >= 35 else
+                           '#f97316' if y >= 32 else '#64748b' for y in _gm_ys]
+            fig_gm.add_trace(go.Bar(
+                x=[d['x'] for d in _gm_data], y=_gm_ys,
+                marker_color=_bar_colors,
+                marker_line_color='rgba(255,255,255,0.3)',
+                marker_line_width=1,
+                name='毛利率'
+            ))
+            for th, col, lbl in [(_thresh[2], '#22c55e', '38% 訊號線'),
+                                   (_thresh[1], '#3b82f6', '35%'),
+                                   (_thresh[0], '#64748b', '32%')]:
+                fig_gm.add_hline(y=th, line_dash='dash', line_color=col,
+                                 annotation_text=lbl, annotation_position='right')
+            fig_gm.update_layout(
+                template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)', height=280,
+                margin=dict(l=10, r=100, t=20, b=10),
+                yaxis=dict(title='毛利率 %', gridcolor='#1e293b',
+                           range=[28, max(_gm_max, 42)]),
+                xaxis=dict(gridcolor='#1e293b', type='category'),
+            )
+            show_chart(fig_gm, key='delta_gm_chart', date_xaxis=False)
 
-        _lv = _gm_ys[-1]
-        if _lv >= 38:
-            st.success(f'🚀 最新毛利率 {_lv:.1f}% — 突破 38%，AI電源高毛利產品已主導營收結構')
-        elif _lv >= 35:
-            _diff = _gm_ys[-1] - _gm_ys[-2] if len(_gm_ys) >= 2 else 0
-            _arrow = f'（較上季 {_diff:+.1f}pp）' if _diff else ''
-            st.info(f'📈 最新毛利率 {_lv:.1f}%{_arrow} — 偏強區間，AI訂單持續貢獻，距 38% 門檻 {38-_lv:.1f} pp')
-        elif _lv >= 32:
-            st.caption(f'最新毛利率 {_lv:.1f}%，正常水準，AI電源業務佔比尚未拉高整體毛利')
-        else:
-            st.warning(f'⚠️ 最新毛利率 {_lv:.1f}%，低於歷史正常水準，需關注成本壓力')
+            _lv = _gm_ys[-1]
+            if _lv >= 38:
+                st.success(f'🚀 最新毛利率 {_lv:.1f}% — 突破 38%，AI電源高毛利產品已主導營收結構')
+            elif _lv >= 35:
+                _diff = _gm_ys[-1] - _gm_ys[-2] if len(_gm_ys) >= 2 else 0
+                _arrow = f'（較上季 {_diff:+.1f}pp）' if _diff else ''
+                st.info(f'📈 最新毛利率 {_lv:.1f}%{_arrow} — 偏強區間，AI訂單持續貢獻，距 38% 門檻 {38-_lv:.1f} pp')
+            elif _lv >= 32:
+                st.caption(f'最新毛利率 {_lv:.1f}%，正常水準，AI電源業務佔比尚未拉高整體毛利')
+            else:
+                st.warning(f'⚠️ 最新毛利率 {_lv:.1f}%，低於歷史正常水準，需關注成本壓力')
+        except Exception as _e:
+            st.error(f'毛利率圖表錯誤：{_e}')
     else:
         st.info('尚無財報資料，請等待自動抓取或手動輸入。')
 
@@ -3423,35 +3828,39 @@ def _render_delta_monitor():
         _weeks_s  = sorted(_wk2.keys())
         _week_ns  = [_wk2[w] for w in _weeks_s]
 
-        fig_ch = go.Figure()
-        _ch_colors = ['#22c55e' if n > 0 else '#ef4444' for n in _week_ns]
-        fig_ch.add_trace(go.Bar(x=_weeks_s, y=[n / 1000 for n in _week_ns],
-                                 marker_color=_ch_colors, name='外資週淨買賣（千張）'))
-        fig_ch.add_hline(y=0, line_color='#475569', line_width=1)
-        # 連買區間標記
-        if _fw >= 2:
-            fig_ch.add_vrect(
-                x0=_weeks_s[-_fw], x1=_weeks_s[-1],
-                fillcolor='#22c55e', opacity=0.08,
-                annotation_text=f' 連買 {_fw} 週', annotation_position='top left',
-                annotation_font_color='#22c55e'
+        try:
+            fig_ch = go.Figure()
+            _ch_colors = ['#22c55e' if n > 0 else '#ef4444' for n in _week_ns]
+            fig_ch.add_trace(go.Bar(x=_weeks_s, y=[n / 1000 for n in _week_ns],
+                                     marker_color=_ch_colors, name='外資週淨買賣（千張）'))
+            fig_ch.add_hline(y=0, line_color='#475569', line_width=1)
+            # 連買區間標記
+            if _fw >= 2 and len(_weeks_s) >= _fw:
+                fig_ch.add_vrect(
+                    x0=_weeks_s[-_fw], x1=_weeks_s[-1],
+                    fillcolor='#22c55e', opacity=0.08,
+                    annotation_text=f' 連買 {_fw} 週', annotation_position='top left',
+                    annotation_font_color='#22c55e'
+                )
+            elif _stopped_selling and len(_weeks_s) >= 1:
+                fig_ch.add_vrect(
+                    x0=_weeks_s[-2] if len(_weeks_s) >= 2 else _weeks_s[-1],
+                    x1=_weeks_s[-1],
+                    fillcolor='#3b82f6', opacity=0.15,
+                    annotation_text=' 止賣訊號', annotation_position='top left',
+                    annotation_font_color='#3b82f6'
+                )
+            fig_ch.update_layout(
+                template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)', height=260,
+                margin=dict(l=10, r=20, t=30, b=10),
+                yaxis=dict(title='千張', gridcolor='#1e293b', zeroline=True,
+                           zerolinecolor='#475569'),
+                xaxis=dict(gridcolor='#1e293b', title='週次', type='category'),
             )
-        elif _stopped_selling and _weeks_s:
-            fig_ch.add_vrect(
-                x0=_weeks_s[-1], x1=_weeks_s[-1],
-                fillcolor='#3b82f6', opacity=0.15,
-                annotation_text=' 止賣訊號', annotation_position='top left',
-                annotation_font_color='#3b82f6'
-            )
-        fig_ch.update_layout(
-            template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)',
-            plot_bgcolor='rgba(0,0,0,0)', height=260,
-            margin=dict(l=10, r=20, t=30, b=10),
-            yaxis=dict(title='千張', gridcolor='#1e293b', zeroline=True,
-                       zerolinecolor='#475569'),
-            xaxis=dict(gridcolor='#1e293b', title='週次'),
-        )
-        show_chart(fig_ch, key='delta_chips_chart')
+            show_chart(fig_ch, key='delta_chips_chart', date_xaxis=False)
+        except Exception as _e:
+            st.error(f'外資動向圖表錯誤：{_e}')
 
         if _stopped_selling:
             st.success(f'🔔 **止賣訊號**：外資前幾週連賣後本週轉為淨買超，若下週延續則確認')
@@ -3495,9 +3904,10 @@ def render_market_tracker():
     st.markdown('## 🌐 市場追蹤')
     st.caption('追蹤關鍵商品價格走勢，輔助個股基本面判斷')
 
-    _tab_ddr4, _tab_robot, _tab_fox, _tab_delta = st.tabs([
+    _tab_ddr4, _tab_robot, _tab_fox, _tab_delta, _tab_hj = st.tabs([
         '💾 DDR4（南亞科）', '🤖 機器人（上銀 2049）',
-        '🦊 AI Server（鴻海 2317）', '⚡ AI 電源（台達電 2308）'
+        '🦊 AI Server（鴻海 2317）', '⚡ AI 電源（台達電 2308）',
+        '🎯 AI 精密（鴻勁 7769）'
     ])
 
     with _tab_robot:
@@ -3508,6 +3918,9 @@ def render_market_tracker():
 
     with _tab_delta:
         _render_delta_monitor()
+
+    with _tab_hj:
+        _render_hongjing_monitor()
 
     with _tab_ddr4:
         # ══ DDR4 16Gb 現貨價 ══

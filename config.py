@@ -108,7 +108,7 @@ MARGIN_RATIO_WARNING  = 1.0   # 超過此值偏警戒（%）
 MARGIN_RATIO_DANGER   = 1.2   # 超過此值高度警戒（%）
 
 # ── 版本資訊 ────────────────────────────
-VERSION = 'v2.1'
-VERSION_DATE = '2026/05/21'
-VERSION_NOTE = '初始版本'
+VERSION = 'v3.0'
+VERSION_DATE = '2026/06/13'
+VERSION_NOTE = '大盤評分、估值分析、投資策略、P/C比率、評分歷史走勢'
 
