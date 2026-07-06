@@ -1253,43 +1253,65 @@ def render_fundamental(result, code, name):
     st.markdown('---')
     st.markdown('#### 📊 季度 EPS 趨勢')
 
-    @st.cache_data(ttl=3600, show_spinner=False)
-    def _get_quarterly_eps(code, market):
+    # 優先從 DB quarterly_financials 讀取（速度快，資料較新）
+    # 本機版：若 DB 無資料，自動補抓後再顯示
+    from database import get_quarterly_financials as _get_qf
+    _qf_rows = _get_qf(code, quarters=12)
+
+    # 本機版懶加載：無資料時自動抓一次
+    if IS_LOCAL and not _qf_rows and not st.session_state.get(f'_qf_fetched_{code}'):
+        st.session_state[f'_qf_fetched_{code}'] = True
         try:
-            import yfinance as yf
-            suffix = '.TWO' if market == 'TPEx' else '.TW'
-            ticker = yf.Ticker(f'{code}{suffix}')
-
-            # 用 quarterly_income_stmt 的 Net Income 計算季度 EPS
-            qi = ticker.quarterly_income_stmt
-            if qi is None or qi.empty or 'Net Income' not in qi.index:
-                return [], []
-
-            net_income = qi.loc['Net Income'].dropna()
-            if net_income.empty:
-                return [], []
-
-            info   = ticker.info
-            shares = info.get('sharesOutstanding', 0)
-            if not shares:
-                return [], []
-
-            # 由舊到新排序
-            net_income = net_income.sort_index()
-            quarters = [str(d)[:7] for d in net_income.index]  # 例：2025-06
-            eps_vals  = [round(float(v) / shares, 2) for v in net_income.values]
-            return quarters, eps_vals
+            from fetcher import fetch_quarterly_financials as _fetch_qf
+            _n = _fetch_qf(code, years=4)
+            if _n > 0:
+                _qf_rows = _get_qf(code, quarters=12)
+                st.toast(f'已取得 {code} 季度財報（{_n} 季）', icon='📊')
         except Exception:
             pass
-        return [], []
 
-    # 取得市場別
-    from database import get_conn as _gc_eps
-    _conn_eps = _gc_eps()
-    _mkt_eps = (_conn_eps.execute('SELECT market FROM stocks WHERE code=?', (code,)).fetchone() or [None])[0]
-    _conn_eps.close()
+    # 從 DB 資料建立 q_dates / q_eps
+    q_dates, q_eps, _db_source = [], [], False
+    if _qf_rows:
+        _valid = [(d['period'], d['net_income']) for d in _qf_rows
+                  if d.get('net_income') is not None and d['net_income'] != 0]
+        if _valid:
+            q_dates = [p for p, _ in _valid]
+            q_eps   = [e for _, e in _valid]
+            _db_source = True
 
-    q_dates, q_eps = _get_quarterly_eps(code, _mkt_eps or 'TWSE')
+    # Fallback：DB 無資料 → 即時呼叫 yfinance
+    if not _db_source:
+        @st.cache_data(ttl=3600, show_spinner=False)
+        def _get_quarterly_eps(code, market):
+            try:
+                import yfinance as yf
+                suffix = '.TWO' if market == 'TPEx' else '.TW'
+                ticker = yf.Ticker(f'{code}{suffix}')
+                qi = ticker.quarterly_income_stmt
+                if qi is None or qi.empty or 'Net Income' not in qi.index:
+                    return [], []
+                net_income = qi.loc['Net Income'].dropna()
+                if net_income.empty:
+                    return [], []
+                info   = ticker.info
+                shares = info.get('sharesOutstanding', 0)
+                if not shares:
+                    return [], []
+                net_income = net_income.sort_index()
+                quarters = [str(d)[:7] for d in net_income.index]
+                eps_vals  = [round(float(v) / shares, 2) for v in net_income.values]
+                return quarters, eps_vals
+            except Exception:
+                pass
+            return [], []
+
+        from database import get_conn as _gc_eps
+        _conn_eps = _gc_eps()
+        _mkt_eps = (_conn_eps.execute(
+            'SELECT market FROM stocks WHERE code=?', (code,)).fetchone() or [None])[0]
+        _conn_eps.close()
+        q_dates, q_eps = _get_quarterly_eps(code, _mkt_eps or 'TWSE')
 
     if q_dates and q_eps:
         # 顏色：比上季成長→綠，衰退→紅
@@ -1326,7 +1348,8 @@ def render_fundamental(result, code, name):
                 st.caption(f'✅ 最近一季 EPS {q_eps[-1]:.2f} 元，較上季成長 {trend:+.2f} 元')
             else:
                 st.caption(f'⚠️ 最近一季 EPS {q_eps[-1]:.2f} 元，較上季衰退 {trend:+.2f} 元')
-        st.caption('資料來源：yfinance　｜　綠色＝季增，紅色＝季減　｜　此圖僅供參考，不影響評分')
+        _src_label = 'DB（quarterly_financials）' if _db_source else 'yfinance'
+        st.caption(f'資料來源：{_src_label}　｜　綠色＝季增，紅色＝季減　｜　此圖僅供參考，不影響評分')
     else:
         st.info('季度 EPS 資料暫無（yfinance 尚未提供此股資料）')
 
