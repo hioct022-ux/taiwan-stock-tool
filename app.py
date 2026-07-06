@@ -1137,6 +1137,32 @@ def render_fundamental(result, code, name):
     pb  = fund.get('pb')
     div = fund.get('dividend_yield')
     eps = fund.get('eps_ttm')
+    _eps_source = 'TWSE'
+
+    # EPS TTM fallback：TWSE 無法計算（虧損股 PE=0）時，改用其他來源
+    if not eps:
+        # 優先：quarterly_financials 最近 4 季加總
+        from database import get_quarterly_financials as _get_qf_eps
+        _qf_eps_rows = _get_qf_eps(code, quarters=4)
+        _qf_eps_vals = [d['net_income'] for d in _qf_eps_rows
+                        if d.get('net_income') is not None and d['net_income'] != 0]
+        if len(_qf_eps_vals) == 4:
+            eps = round(sum(_qf_eps_vals), 2)
+            _eps_source = 'quarterly_financials'
+        # 備援：yfinance trailingEps（快取 24 小時）
+        if not eps:
+            @st.cache_data(ttl=86400, show_spinner=False)
+            def _yf_trailing_eps(code, market):
+                try:
+                    import yfinance as yf
+                    suffix = '.TWO' if market == 'TPEx' else '.TW'
+                    return yf.Ticker(f'{code}{suffix}').info.get('trailingEps')
+                except Exception:
+                    return None
+            _yf_eps = _yf_trailing_eps(code, market)
+            if _yf_eps:
+                eps = round(float(_yf_eps), 2)
+                _eps_source = 'yfinance'
 
     # 除權息提示（只顯示未來的）
     ex_records = [r for r in get_exdividend_by_code(code) if r['ex_date'] >= datetime.now().strftime('%Y-%m-%d')]
@@ -1165,9 +1191,10 @@ def render_fundamental(result, code, name):
 
         if eps is not None:
             eps_color = '#22c55e' if eps > 10 else '#ef4444' if eps < 0 else '#38bdf8'
+            _eps_src_badge = '' if _eps_source == 'TWSE' else f' <span style="font-size:10px;color:#64748b">({_eps_source})</span>'
             st.markdown(f'EPS（近四季TTM）：'
                         f'<span style="color:{eps_color};font-size:22px;font-weight:700">'
-                        f'{eps:.2f}元</span>', unsafe_allow_html=True)
+                        f'{eps:.2f}元</span>{_eps_src_badge}', unsafe_allow_html=True)
             if eps < 0:
                 st.error(f'EPS為負（{eps:.2f}元），公司目前處於虧損狀態，'
                          f'投資需特別謹慎，需確認虧損是否為短期或長期結構性問題。')
