@@ -458,6 +458,7 @@ def render_stock(code)  # 個股查詢
 def render_t86()        # 法人排行
 def render_exdividend() # 除權息
 def render_notes()      # 個股筆記
+def render_market_tracker()  # 市場追蹤（個股監控面板集合）
 ```
 
 ### 側邊欄自選股清單顯示（2026-06 新增）
@@ -529,6 +530,34 @@ ma_colors = {'MA5': '#f97316', 'MA20': '#a855f7', 'MA60': '#22c55e'}
 # 同時顯示大盤圖和個股圖，顯示最近 20 天
 # 圖例 orientation='h' 水平排列
 ```
+
+### render_market_tracker() — 市場追蹤頁（2026-06 新增，2026-07 擴充）
+
+路由值：`'market_tracker'`，側邊欄按鈕「🌐 市場追蹤」觸發。雲端本機均可使用。
+
+**分頁結構（5 tabs）：**
+
+| 分頁 | 函式 | 股票 | 指標 |
+|------|------|------|------|
+| 💾 DDR4（南亞科） | DDR4 現貨走勢（TrendForce 手動輸入） | — | DRAM 現貨價 |
+| 🤖 機器人（上銀 2049） | `_render_hiwin_monitor()` | 2049 | 法人連買週數、毛利率 |
+| 🦊 AI Server（鴻海 2317） | `_render_foxconn_monitor()` | 2317 | AI Server 占比、毛利率 |
+| ⚡ AI 電源（台達電 2308） | `_render_delta_monitor()` | 2308 | AI/Server 占比、毛利率、籌碼 |
+| 🎯 AI 精密（鴻勁 7769） | `_render_hongjing_monitor()` | 7769 | AI/HPC占比、毛利率、EPS、產能利用率、法說展望 |
+
+**`_render_hongjing_monitor()` 重點（2026-07 新增）：**
+- 毛利率門檻：50/55/58%（鴻勁實際水位 49–59%，與台達電 32/35/38% 不同）
+- EPS 資料來源：`quarterly_financials.net_income`（季度 EPS），非手動輸入
+- `net_income` 欄位在 yfinance 台股中直接存儲 EPS（非實際淨利金額）
+- 手動輸入欄：AI/HPC 占比、市場預期 EPS（consensus）、產能利用率、法說展望（上修/維持/下修 → 1.0/0.0/-1.0）
+- 段落資料存入 `stock_segment_revenue`：segment key = `'ai_hpc'`、`'quarterly_eps'`、`'capacity_util'`、`'guidance_update'`
+
+**quarterly_financials 的 net_income 欄注意事項：**
+yfinance 台股季報的 `Net Income` 欄有時回傳每股 EPS（小數），有時回傳實際淨利（數十億）。目前已知：
+- 7769（鴻勁）：net_income = EPS（~15–25 元）✓
+- 2317（鴻海）：net_income = EPS（~3–4 元）✓  
+- 2049（上銀）：net_income = EPS（~1–2 元）✓
+- 2308（台達電）：2023Q2 後 net_income 遭 NaN 污染歸零，需重新補抓
 
 ### render_strategy() — 投資策略頁（2026-06 新增）
 
@@ -822,6 +851,48 @@ r.content.decode('big5', errors='ignore')  # 不是 r.text
 # 日期解析（twse_date_to_std 已支援）
 "1150624" → "2026-06-24"   # 7碼民國年，d[0]=='1'
 ```
+
+### 16. GitHub Token 被自動撤銷（2026-07 發現）
+現象：`git push` 報 `Invalid username or token`，即使 Token 設定為無限期。  
+原因：GitHub Secret Scanning 偵測到 Token 出現在曾 commit 的檔案中（如 `config_local.py` 意外推送），會自動撤銷，無視有效期限設定。  
+**修正（2026-07）：** 移除 remote URL 中的 Token，改用 macOS Keychain 儲存：
+```bash
+git remote set-url origin https://github.com/hioct022-ux/taiwan-stock-tool.git
+git config --global credential.helper osxkeychain
+git push origin main  # 首次輸入帳號 + Token，之後自動記住
+```
+**通則：** Token 不應放在 remote URL 或任何可能被 commit 的檔案。`config_local.py` 中的 `GITHUB_TOKEN` 欄位可留空，push 靠 Keychain 認證。
+
+### 17. 雲端新增分頁後仍顯示舊版（2026-07 發現）
+現象：本機 push 後 Streamlit Cloud Reboot，仍只看到舊的分頁數量。  
+原因：git push 實際上失敗（Token 已撤銷），remote 停在舊 commit，Reboot 只是重啟同一份舊程式碼。  
+**診斷：** `git ls-remote origin HEAD` 的 commit hash 必須和 `git log --oneline -1` 相同，不同代表 push 沒成功。  
+**修正：** 先修復 Token（見陷阱 16），再重新 push，Streamlit Cloud 才會自動重新部署。
+
+### 18. quarterly_financials EPS 欄位遭 NaN 污染歸零（2026-07 發現）
+現象：台達電（2308）季度 EPS 圖只顯示到 2023Q1，之後全部為 0。  
+原因：yfinance 對未來/未釋出季度回傳 NaN，`float('nan')` 在 Python 是 truthy → 通過 `if rev and gp` 檢查 → 寫入 SQLite 變 NULL（net_income=0.0）→ 覆蓋原本正確資料。  
+**已修正（fetcher.py）：** 加入 `math.isnan()` 守衛 + `rev > 0 and gp > 0` 條件，NaN 不再寫入。  
+**但既有 0 值不會自動修復**，需手動重新抓取：
+```bash
+python3 -c "from fetcher import fetch_quarterly_financials; print(fetch_quarterly_financials('2308', years=4))"
+```
+
+### 19. 季度 EPS 圖資料永遠停在 114年（2026-07 發現）
+現象：自選股個股頁「季度 EPS 趨勢」圖，最新資料停在 2025 年底（114年Q4）。  
+原因：圖表直接即時呼叫 yfinance `quarterly_income_stmt`，yfinance 台股季報更新比實際公告慢 1–2 個月，Q1 2026 結果要到 5–6 月才會進 yfinance。  
+**修正（2026-07）：** 改為優先讀取 `quarterly_financials` DB（`net_income` 欄即季度 EPS），DB 無資料才 fallback 到 yfinance。懶加載：IS_LOCAL 下首次讀取無資料的股票自動補抓並存入 DB。  
+**呼叫位置：** `render_fundamental()` 內，`#### 📊 季度 EPS 趨勢` 區塊。
+
+### 20. EPS TTM 顯示 0（虧損股或新上市股）（2026-07 發現）
+現象：部分自選股的「EPS（近四季TTM）」顯示 0 元。  
+原因：EPS TTM 由 `close ÷ PE` 反推，虧損股或新上市股的 PE 欄位為 0 或 None，導致 eps=0。  
+**修正（2026-07）：** 加入三層 fallback：
+1. TWSE `close ÷ PE`（正常）
+2. `quarterly_financials` 最近 4 季 `net_income` 加總（虧損股備援）
+3. yfinance `trailingEps`（快取 24 小時，最後手段）
+
+數字旁附來源小字標注（TWSE 不顯示，其他來源顯示 `(quarterly_financials)` 或 `(yfinance)`）。
 
 ### 15. APScheduler 排程在 Streamlit 重啟時失效（2026-06 發現）
 現象：程式每天 16:30 應自動抓資料，但 update_log 只有手動更新紀錄，沒有自動執行的記錄。  
