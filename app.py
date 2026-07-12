@@ -176,6 +176,28 @@ input::placeholder, textarea::placeholder { color: #6b7280 !important; }
 # ── 圖表顯示 helper（禁用觸控拖曳/縮放，避免 iPad 變形）──
 _CHART_CONFIG = {'scrollZoom': False, 'displayModeBar': False, 'doubleClick': False}
 
+def _check_consolidation_pattern(prices):
+    """
+    量縮整理型態掃描（三條件同時成立才回傳 True）：
+    1. 今日收盤 > MA20（月線之上）
+    2. 近3日成交量均低於20日均量（量縮）
+    3. 近3日低點不破底（低點不遞減）
+    """
+    if len(prices) < 22:
+        return False
+    recent = prices[-22:]
+    ma20 = sum(r['close'] for r in recent[-20:]) / 20
+    if recent[-1]['close'] <= ma20:
+        return False
+    vol_ma20 = sum(r['volume'] for r in recent[-20:]) / 20
+    last3 = recent[-3:]
+    if not all(r['volume'] < vol_ma20 for r in last3):
+        return False
+    lows = [r['low'] for r in last3]
+    if lows[1] < lows[0] or lows[2] < lows[1]:
+        return False
+    return True
+
 def show_chart(fig, key=None, date_xaxis=True):
     fig.update_layout(dragmode=False)
     if date_xaxis:
@@ -440,7 +462,7 @@ def render_sidebar():
         st.markdown('#### 🔍 搜尋股票')
         if not IS_LOCAL:
             st.caption('☁️ 雲端版僅可查詢已同步的股票')
-        keyword = st.text_input('輸入代碼或名稱', placeholder='例如：2330 或 台積電')
+        keyword = st.text_input('輸入代碼或名稱', placeholder='例如：2330 或 台積電', key='stock_search_kw')
         if keyword:
             results = search_stock(keyword)
             if results:
@@ -455,6 +477,7 @@ def render_sidebar():
                     if st.button('📊 查看', use_container_width=True):
                         st.session_state['current_code'] = selected_stock['code']
                         st.session_state['page'] = 'stock'
+                        st.session_state['stock_search_kw'] = ''
                         st.rerun()
                 with b2:
                     if IS_LOCAL:
@@ -471,6 +494,7 @@ def render_sidebar():
                         s = st.session_state.pop('_add_wl_stock')
                         add_watchlist(s['code'], s['name'], add_tags_sel)
                         st.success(f'已加入 {s["code"]} {s["name"]}')
+                        st.session_state['stock_search_kw'] = ''
                         st.rerun()
             else:
                 st.warning('找不到符合的股票，請確認代碼是否正確')
@@ -482,13 +506,21 @@ def render_sidebar():
 
         if watchlist:
             # 標籤篩選
-            filter_opts = ['全部'] + TAG_LIST
+            filter_opts = ['全部', '🎯 型態'] + TAG_LIST
             sel_filter  = st.radio(
                 '篩選', filter_opts, horizontal=True,
                 key='watchlist_tag_filter', label_visibility='collapsed'
             )
-            filtered = (watchlist if sel_filter == '全部'
-                        else [w for w in watchlist if sel_filter in w.get('tags', [])])
+            if sel_filter == '全部':
+                filtered = watchlist
+            elif sel_filter == '🎯 型態':
+                _pattern_codes = {
+                    w['code'] for w in watchlist
+                    if _check_consolidation_pattern(get_prices(w['code'], days=25))
+                }
+                filtered = [w for w in watchlist if w['code'] in _pattern_codes]
+            else:
+                filtered = [w for w in watchlist if sel_filter in w.get('tags', [])]
 
             # 排序方式
             sort_mode = st.radio(
@@ -545,8 +577,9 @@ def render_sidebar():
                     if _s is not None:
                         _score_str = f' {_s}分'
 
-                # 取最新收盤資料（用於顯示日期、收盤價、漲跌）
-                _latest_prices = get_prices(w['code'], days=1)
+                # 取最新收盤資料（25天，同時用於價格顯示和型態掃描）
+                _latest_prices = get_prices(w['code'], days=25)
+                _pattern_flag  = '🎯 ' if _check_consolidation_pattern(_latest_prices) else ''
                 _price_caption = ''
                 if _latest_prices:
                     _lp = _latest_prices[-1]
@@ -568,7 +601,7 @@ def render_sidebar():
                     col1, col2 = st.columns([5, 1])
                     with col1:
                         if st.button(
-                            f"{tag_icons} {w['code']} {w['name']}{_score_str}",
+                            f"{_pattern_flag}{tag_icons} {w['code']} {w['name']}{_score_str}",
                             key=f"watch_{w['code']}", use_container_width=True
                         ):
                             st.session_state['current_code'] = w['code']
@@ -757,7 +790,7 @@ def render_price_chart(ind, name):
         ), row=2, col=1)
 
     fig.update_layout(
-        title=None,
+        title=dict(text=''),
         paper_bgcolor='#0d0f12',
         plot_bgcolor='#141720',
         font=dict(color='#e2e8f0', size=11),
@@ -1784,7 +1817,7 @@ def render_chips(result, code, name, chips_list, market=None, ownership_override
             ))
         fig_chips.add_hline(y=0, line_color='#475569', line_width=1)
         fig_chips.update_layout(
-            title=None,
+            title=dict(text=''),
             paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
             font=dict(color='#e2e8f0'), height=300,
             margin=dict(l=0, r=0, t=40, b=0),
@@ -1941,7 +1974,7 @@ def render_chips(result, code, name, chips_list, market=None, ownership_override
             fillcolor='rgba(56,189,248,0.15)'
         ), secondary_y=True)
         fig_margin.update_layout(
-            title=None,
+            title=dict(text=''),
             paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
             font=dict(color='#e2e8f0'), height=280,
             margin=dict(l=0, r=0, t=40, b=0),
@@ -4531,6 +4564,7 @@ def _fetch_global_markets():
             '黃金':        'GC=F',
             '美元指數':    'DX-Y.NYB',
             '美債10年':    '^TNX',   # 10年期公債殖利率（值為 % 數，如 4.25 = 4.25%）
+            'USD/TWD':     'TWD=X',  # 美元兌台幣（值愈高 = 台幣愈弱）
         }
         result = {}
         for name, sym in {**equity_symbols, **macro_symbols}.items():
@@ -4608,7 +4642,7 @@ def render_market():
                 _market_card(eq_cols[i], name, d)
 
         # 第二列：總經指標
-        macro_keys = ['WTI 原油', '黃金', '美元指數', '美債10年']
+        macro_keys = ['WTI 原油', '黃金', '美元指數', '美債10年', 'USD/TWD']
         mc_data = [(k, global_data[k]) for k in macro_keys if k in global_data]
         if mc_data:
             st.caption('🌐 總經指標（參考用，不計入評分）')
@@ -4822,26 +4856,26 @@ def render_market():
         _f_day_chg  = _f_net_now - _f_net_prev   # 昨日單日變化
         _f_trend    = _f_net_now - _f_net_5       # 5日趨勢
 
-        if _f_day_chg >= 3000:
+        if _f_day_chg >= 5000:
             _bull_score += 2
-            _bull_msgs.append(('🟢', f'外資台指期回補 **+{_f_day_chg:,} 口**（{_tpx_date}，淨 {_f_net_now:+,} 口），期貨轉多'))
-        elif _f_day_chg >= 1000:
+            _bull_msgs.append(('🟢', f'外資台指期大幅回補 **+{_f_day_chg:,} 口**（{_tpx_date}，淨 {_f_net_now:+,} 口），期貨轉多'))
+        elif _f_day_chg >= 3000:
             _bull_score += 1
-            _bull_msgs.append(('🟢', f'外資台指期小幅回補 +{_f_day_chg:,} 口（{_tpx_date}，淨 {_f_net_now:+,} 口），偏多'))
-        elif _f_day_chg <= -3000:
+            _bull_msgs.append(('🟢', f'外資台指期回補 +{_f_day_chg:,} 口（{_tpx_date}，淨 {_f_net_now:+,} 口），偏多'))
+        elif _f_day_chg <= -5000:
             _bear_score += 2
-            _bear_msgs.append(('🔴', f'外資台指期擴空 **{_f_day_chg:,} 口**（{_tpx_date}，淨 {_f_net_now:+,} 口），期貨轉空'))
-        elif _f_day_chg <= -1000:
+            _bear_msgs.append(('🔴', f'外資台指期大幅擴空 **{_f_day_chg:,} 口**（{_tpx_date}，淨 {_f_net_now:+,} 口），期貨轉空'))
+        elif _f_day_chg <= -3000:
             _bear_score += 1
-            _bear_msgs.append(('🟡', f'外資台指期小幅擴空 {_f_day_chg:,} 口（{_tpx_date}，淨 {_f_net_now:+,} 口），偏空'))
+            _bear_msgs.append(('🟡', f'外資台指期擴空 {_f_day_chg:,} 口（{_tpx_date}，淨 {_f_net_now:+,} 口），偏空'))
         else:
             _bull_msgs.append(('⚪', f'外資台指期變化 {_f_day_chg:+,} 口（{_tpx_date}），部位平穩（淨 {_f_net_now:+,} 口）'))
 
         # 5日趨勢（方向動能）
-        if _f_trend <= -2000:
+        if _f_trend <= -8000:
             _bear_score += 1
             _bear_msgs.append(('🟡', f'外資期貨5日持續擴空 {_f_trend:+,} 口，空方方向動能明顯'))
-        elif _f_trend >= 2000:
+        elif _f_trend >= 8000:
             _bull_score += 1
             _bull_msgs.append(('🟢', f'外資期貨5日持續回補 +{_f_trend:,} 口，多方方向動能明顯'))
 

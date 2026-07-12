@@ -1652,7 +1652,8 @@ def fetch_all():
 
     # ── 三大法人買賣超排行（T86）──────────────
     try:
-        fetch_t86()
+        if fetch_t86() is False:
+            errors.append('T86排行：TWSE 無回應，資料停留在上一交易日')
     except Exception as e:
         errors.append(f'T86排行：{e}')
 
@@ -2212,11 +2213,19 @@ def fetch_t86():
         url = (f'https://www.twse.com.tw/rwd/zh/fund/T86'
                f'?response=json&date={date_str}&selectType=ALL')
         print(f'抓取 T86 三大法人排行（{target_date}）...')
-        try:
-            resp = requests.get(url, headers=HEADERS, timeout=20, verify=False)
-            data = resp.json()
-        except Exception as e:
-            print(f'T86 請求失敗（{target_date}）：{e}')
+        data = None
+        for _attempt in range(3):
+            try:
+                resp = requests.get(url, headers=HEADERS, timeout=20, verify=False)
+                data = resp.json()
+                break
+            except Exception as e:
+                if _attempt < 2:
+                    print(f'  第{_attempt+1}次失敗，5秒後重試：{e}')
+                    time.sleep(5)
+                else:
+                    print(f'T86 請求失敗（{target_date}）：{e}')
+        if data is None:
             continue
 
         if data.get('stat') != 'OK':
@@ -2263,6 +2272,8 @@ def fetch_t86():
 
     if not any_saved:
         print('T86：所有日期均無資料或請求失敗')
+        return False
+    return True
 
 # ── 抓個股歷史籌碼資料 ───────────────────
 def fetch_chips_history(code, months=3):
