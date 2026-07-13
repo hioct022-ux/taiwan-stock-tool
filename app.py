@@ -4680,7 +4680,7 @@ def render_market():
                 _market_card(eq_cols[i], name, d)
 
         # 第二列：總經指標
-        macro_keys = ['WTI 原油', '黃金', '美元指數', '美債10年']
+        macro_keys = ['WTI 原油', '黃金', '美元指數', '美債10年', 'USD/TWD']
         mc_data = [(k, global_data[k]) for k in macro_keys if k in global_data]
         if mc_data:
             st.caption('🌐 總經指標（參考用，不計入評分）')
