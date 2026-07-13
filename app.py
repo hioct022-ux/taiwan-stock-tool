@@ -4690,6 +4690,8 @@ def render_market():
 
         # 第三列：台指期夜盤
         _txf = _fetch_taiex_futures()
+        if not _txf and not IS_LOCAL:
+            st.caption('🇹🇼 台指期夜盤資料需 FinMind Token，僅本機版可用')
         if _txf:
             _txf_contract = next(iter(_txf.values())).get('contract', '')
             _txf_date     = next(iter(_txf.values())).get('date', '')
