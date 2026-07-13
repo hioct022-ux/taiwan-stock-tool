@@ -531,6 +531,9 @@ def render_sidebar():
         if watchlist:
             # 標籤篩選
             filter_opts = ['全部', '🔥 放量', '🎯 整理'] + TAG_LIST
+            # 舊 session_state 可能存著已改名的選項（如 '🎯 型態'），清掉避免 DOM 錯誤
+            if st.session_state.get('watchlist_tag_filter') not in filter_opts:
+                st.session_state.pop('watchlist_tag_filter', None)
             sel_filter  = st.radio(
                 '篩選', filter_opts, horizontal=True,
                 key='watchlist_tag_filter', label_visibility='collapsed'
@@ -4677,7 +4680,7 @@ def render_market():
                 _market_card(eq_cols[i], name, d)
 
         # 第二列：總經指標
-        macro_keys = ['WTI 原油', '黃金', '美元指數', '美債10年', 'USD/TWD']
+        macro_keys = ['WTI 原油', '黃金', '美元指數', '美債10年']
         mc_data = [(k, global_data[k]) for k in macro_keys if k in global_data]
         if mc_data:
             st.caption('🌐 總經指標（參考用，不計入評分）')
@@ -4996,10 +4999,10 @@ def render_market():
         # ══ Signal 7：均線排列（MA趨勢）════
         if _ma_trend == 'bullish':
             _bull_score += 1
-            _bull_msgs.append(('🟢', f'大盤均線多頭排列（MA5>MA20>MA60），中線趨勢向上'))
+            _bull_msgs.append(('🟢', f'大盤均線多頭排列（MA5＞MA20＞MA60），中線趨勢向上'))
         elif _ma_trend == 'bearish':
             _bear_score += 1
-            _bear_msgs.append(('🟡', f'大盤均線空頭排列（MA5<MA20<MA60），中線趨勢向下'))
+            _bear_msgs.append(('🟡', f'大盤均線空頭排列（MA5＜MA20＜MA60），中線趨勢向下'))
 
         # ══ Signal 8：成交量趨勢 ═════════
         _vols = [p['value'] for p in _tpx[-5:] if p.get('value', 0) > 0]
@@ -5119,7 +5122,7 @@ def render_market():
             if _tpx_chg <= -3.0 and _ms_ratio >= 5.0:
                 _bear_score += 3
                 _bear_msgs.append(('🔴', f'⚡ **多殺多啟動**：{_tpx_date} 跌幅 {_tpx_chg:.2f}%，'
-                                   f'融資賣出比例 **{_ms_ratio:.1f}%**（正常 <2.5%），'
+                                   f'融資賣出比例 **{_ms_ratio:.1f}%**（正常 ＜2.5%），'
                                    f'強制斷頭引發恐慌拋售，今日開盤續跌風險高'))
             elif _tpx_chg <= -3.0 and _ms_ratio >= 3.5:
                 _bear_score += 2
@@ -5129,7 +5132,7 @@ def render_market():
             elif _tpx_chg <= -2.0 and _ms_ratio >= 3.5:
                 _bear_score += 2
                 _bear_msgs.append(('🔴', f'🔻 **斷頭風險**：{_tpx_date} 跌幅 {_tpx_chg:.2f}%，'
-                                   f'融資賣出比例 {_ms_ratio:.1f}%（>3.5% 警戒），'
+                                   f'融資賣出比例 {_ms_ratio:.1f}%（＞3.5% 警戒），'
                                    f'槓桿戶面臨維持率壓力，今日若再跌易觸發連鎖斷頭'))
             elif _tpx_chg <= -2.0 and _ms_ratio >= 2.5:
                 _bear_score += 1
@@ -5150,7 +5153,7 @@ def render_market():
             # 條件 D：融券大量回補（空頭獲利了結 = 短線反彈支撐，獨立評估）
             if _tpx_chg <= -2.0 and _ss_ratio >= 3.0:
                 _bull_score += 1
-                _bull_msgs.append(('🟢', f'💡 **融券回補**：{_tpx_date} 融券回補比例 {_ss_ratio:.1f}%（>3% 偏高），'
+                _bull_msgs.append(('🟢', f'💡 **融券回補**：{_tpx_date} 融券回補比例 {_ss_ratio:.1f}%（＞3% 偏高），'
                                    f'空頭獲利了結，可能提供短線技術性反彈支撐'))
 
         # ══ Signal 11：選擇權 P/C 比率 ══
