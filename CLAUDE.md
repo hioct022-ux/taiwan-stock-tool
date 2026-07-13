@@ -446,6 +446,7 @@ if label == '融券(交易單位)': ...
 | WTI 原油 | `CL=F` | 期貨（不計入評分，僅顯示） |
 | 黃金 | `GC=F` | 期貨（不計入評分，僅顯示） |
 | 美元指數 | `DX-Y.NYB` | 指數（不計入評分，僅顯示） |
+| USD/TWD | `TWD=X` | 匯率（不計入評分，僅顯示；值愈高 = 台幣愈弱） |
 
 ---
 
@@ -516,6 +517,47 @@ tabs = st.tabs(['📊 技術面', '💰 基本面', '📈 估值分析',
 - EPS ≤ 0 時不顯示估值區間（PE 法不適用）
 
 **注意：** widget key 為 `f'pe_bear_{code}'` 等，帶入股票代號避免多股同時渲染衝突。
+
+### _check_consolidation_pattern(prices) — 量縮整理型態掃描（2026-07 新增）
+
+定義在模組頂層（`_CHART_CONFIG` 上方）。自選股側邊欄每支股票渲染時呼叫，符合條件者在按鈕標籤前顯示 🎯。
+
+**三個條件同時成立才回傳 True：**
+1. 今日收盤 > MA20（月線之上）
+2. 近 3 日成交量均低於 20 日均量（量縮）
+3. 近 3 日低點不破底（`low[1] >= low[0]` 且 `low[2] >= low[1]`）
+
+**資料來源：** `get_prices(code, days=25)`（側邊欄渲染時已取 25 天，共用同一份資料）
+
+**篩選入口：** 自選股清單篩選列「🎯 整理」選項，點選後只顯示符合的股票。
+
+**注意：** 第四個條件（主力券商買超）刻意不實作，因資料來源（券商分點）不在現有系統內。
+
+### _check_volume_breakout(prices) — 量縮後放量突破掃描（2026-07 新增）
+
+定義在模組頂層（`_check_consolidation_pattern` 正下方）。與 🎯 互斥，🔥 優先顯示。
+
+**四個條件同時成立才回傳 True：**
+1. 今日收盤 > MA20（月線之上）
+2. 今日成交量 > 20 日均量 × 1.5（量明顯放大）
+3. 前 3 日成交量均低於 20 日均量（之前有量縮，確保從 🎯 狀態轉換而來）
+4. 今日收盤 ≥ 昨日收盤（價格不破底）
+
+**顯示邏輯：**
+```python
+if _check_volume_breakout(_latest_prices):
+    _pattern_flag = '🔥 '
+elif _check_consolidation_pattern(_latest_prices):
+    _pattern_flag = '🎯 '
+else:
+    _pattern_flag = ''
+```
+
+兩者互斥的原因：🎯 要求近 3 日（含今日）量縮，🔥 要求今日量放大，不可能同時成立。
+
+**篩選入口：** 自選股清單篩選列「🔥 放量」選項，點選後只顯示今日量縮後放量的股票。
+
+**解讀：** 🎯 = 整理蓄勢中，🔥 = 量能啟動（可能是整理結束的訊號，需搭配其他條件判斷）。
 
 ### 圖表統一函式（必須用這個，不能直接 st.plotly_chart）
 
@@ -898,6 +940,15 @@ python3 -c "from fetcher import fetch_quarterly_financials; print(fetch_quarterl
 3. yfinance `trailingEps`（快取 24 小時，最後手段）
 
 數字旁附來源小字標注（TWSE 不顯示，其他來源顯示 `(quarterly_financials)` 或 `(yfinance)`）。
+
+### 21. T86 更新按鈕後仍顯示舊日期（2026-07 發現）
+現象：按「🚀 更新並同步到雲端」後，T86 排行顯示日期仍是前一交易日。  
+原因：TWSE T86 API 在特定時間點回傳空 body（HTTP 200 但無 JSON），`resp.json()` 拋出 `JSONDecodeError: Expecting value: line 1 column 1 (char 0)`，錯誤被靜默吞掉，T86 資料未更新。同時 `fetch_all()` 的 T86 區塊只 catch exception、不檢查回傳值，導致 `✅ 全部更新成功` 誤報。  
+**修正（2026-07）：**
+1. `fetch_t86()` 的請求改為最多 3 次重試（間隔 5 秒）
+2. 全部重試失敗時 `return False`
+3. `fetch_all()` 改為 `if fetch_t86() is False: errors.append(...)`，失敗會反映在 UI 上
+4. 手動補救：`python3 -c "from fetcher import fetch_t86; fetch_t86()"`
 
 ### 15. APScheduler 排程在 Streamlit 重啟時失效（2026-06 發現）
 現象：程式每天 16:30 應自動抓資料，但 update_log 只有手動更新紀錄，沒有自動執行的記錄。  

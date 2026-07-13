@@ -198,6 +198,30 @@ def _check_consolidation_pattern(prices):
         return False
     return True
 
+
+def _check_volume_breakout(prices):
+    """
+    量縮後放量突破掃描（四條件同時成立才回傳 True）：
+    1. 今日收盤 > MA20（月線之上）
+    2. 今日成交量 > 20日均量 × 1.5（量明顯放大）
+    3. 前2日成交量均低於20日均量（之前有量縮）
+    4. 今日收盤 >= 昨日收盤（價格不破底）
+    """
+    if len(prices) < 22:
+        return False
+    recent = prices[-22:]
+    ma20 = sum(r['close'] for r in recent[-20:]) / 20
+    if recent[-1]['close'] <= ma20:
+        return False
+    vol_ma20 = sum(r['volume'] for r in recent[-20:]) / 20
+    if recent[-1]['volume'] <= vol_ma20 * 1.5:
+        return False
+    if not all(r['volume'] < vol_ma20 for r in recent[-4:-1]):
+        return False
+    if recent[-1]['close'] < recent[-2]['close']:
+        return False
+    return True
+
 def show_chart(fig, key=None, date_xaxis=True):
     fig.update_layout(dragmode=False)
     if date_xaxis:
@@ -506,14 +530,20 @@ def render_sidebar():
 
         if watchlist:
             # 標籤篩選
-            filter_opts = ['全部', '🎯 型態'] + TAG_LIST
+            filter_opts = ['全部', '🔥 放量', '🎯 整理'] + TAG_LIST
             sel_filter  = st.radio(
                 '篩選', filter_opts, horizontal=True,
                 key='watchlist_tag_filter', label_visibility='collapsed'
             )
             if sel_filter == '全部':
                 filtered = watchlist
-            elif sel_filter == '🎯 型態':
+            elif sel_filter == '🔥 放量':
+                _breakout_codes = {
+                    w['code'] for w in watchlist
+                    if _check_volume_breakout(get_prices(w['code'], days=25))
+                }
+                filtered = [w for w in watchlist if w['code'] in _breakout_codes]
+            elif sel_filter == '🎯 整理':
                 _pattern_codes = {
                     w['code'] for w in watchlist
                     if _check_consolidation_pattern(get_prices(w['code'], days=25))
@@ -579,7 +609,12 @@ def render_sidebar():
 
                 # 取最新收盤資料（25天，同時用於價格顯示和型態掃描）
                 _latest_prices = get_prices(w['code'], days=25)
-                _pattern_flag  = '🎯 ' if _check_consolidation_pattern(_latest_prices) else ''
+                if _check_volume_breakout(_latest_prices):
+                    _pattern_flag = '🔥 '
+                elif _check_consolidation_pattern(_latest_prices):
+                    _pattern_flag = '🎯 '
+                else:
+                    _pattern_flag = ''
                 _price_caption = ''
                 if _latest_prices:
                     _lp = _latest_prices[-1]
@@ -634,7 +669,7 @@ def render_sidebar():
                 else:
                     tag_icons = ''.join(TAG_COLOR.get(t, '⚪') for t in w_tags) or '⚪'
                     if st.button(
-                        f"{tag_icons} {w['code']} {w['name']}{_score_str}",
+                        f"{_pattern_flag}{tag_icons} {w['code']} {w['name']}{_score_str}",
                         key=f"watch_{w['code']}", use_container_width=True
                     ):
                         st.session_state['current_code'] = w['code']
