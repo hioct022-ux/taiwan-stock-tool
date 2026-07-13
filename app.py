@@ -6579,7 +6579,7 @@ def render_market():
         if short_ratio < 2.5:
             sig3_score = -1
             sig3_color = '#f59e0b'
-            sig3_label = f'⚠️ 券資比僅 {short_ratio:.1f}%（< 2.5%），軋空力道弱，多頭保護墊薄'
+            sig3_label = f'⚠️ 券資比僅 {short_ratio:.1f}%（＜ 2.5%），軋空力道弱，多頭保護墊薄'
         elif short_ratio >= 10:
             sig3_score = 1
             sig3_color = '#22c55e'
