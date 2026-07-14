@@ -625,7 +625,7 @@ def render_sidebar():
                     _lclose = _lp['close']
                     _lchg   = _lp['change']
                     _lpct   = _lp['change_pct']
-                    _color  = '#22c55e' if _lchg >= 0 else '#ef4444'
+                    _color  = '#ef4444' if _lchg >= 0 else '#22c55e'
                     _arrow  = '▲' if _lchg >= 0 else '▼'
                     _price_caption = (
                         f'<div style="font-size:11px;color:#888;margin:-6px 0 4px 4px;">'
@@ -810,7 +810,7 @@ def render_price_chart(ind, name):
 
     # 成交量
     avg_vol = ind.get('avg_vol_20', 0)
-    colors  = ['#22c55e' if c >= (closes[i-1] if i > 0 else c) else '#ef4444'
+    colors  = ['#ef4444' if c >= (closes[i-1] if i > 0 else c) else '#22c55e'
                for i, c in enumerate(closes)]
     fig.add_trace(go.Bar(
         x=dates, y=volumes, name='成交量',
@@ -1041,7 +1041,7 @@ def render_technical(result, name):
 
     if cons_days and cons_dir:
             dir_str = '上漲' if cons_dir == 'up' else '下跌'
-            dir_color = '#22c55e' if cons_dir == 'up' else '#ef4444'
+            dir_color = '#ef4444' if cons_dir == 'up' else '#22c55e'
             st.markdown(f'連續<span style="color:{dir_color};font-weight:700">'
                         f'{cons_days}個交易日{dir_str}</span>',
                         unsafe_allow_html=True)
@@ -1791,7 +1791,7 @@ def render_chips(result, code, name, chips_list, market=None, ownership_override
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        color = '#22c55e' if foreign_net5 > 0 else '#ef4444'
+        color = '#ef4444' if foreign_net5 > 0 else '#22c55e'
         st.markdown(f'**外資近5個交易日**')
         st.markdown(f'<span style="color:{color};font-size:20px;font-weight:700">'
                     f'{foreign_net5:+,}張</span>', unsafe_allow_html=True)
@@ -1809,7 +1809,7 @@ def render_chips(result, code, name, chips_list, market=None, ownership_override
             st.error('外資大量賣超，法人積極出脫，需特別注意。')
 
     with col2:
-        color = '#22c55e' if trust_net5 > 0 else '#ef4444'
+        color = '#ef4444' if trust_net5 > 0 else '#22c55e'
         st.markdown('**投信近5個交易日**')
         st.markdown(f'<span style="color:{color};font-size:20px;font-weight:700">'
                     f'{trust_net5:+,}張</span>', unsafe_allow_html=True)
@@ -1823,7 +1823,7 @@ def render_chips(result, code, name, chips_list, market=None, ownership_override
             st.error('投信積極賣超，國內法人看空。')
 
     with col3:
-        color = '#22c55e' if dealer_net5 > 0 else '#ef4444'
+        color = '#ef4444' if dealer_net5 > 0 else '#22c55e'
         st.markdown('**自營商近5個交易日**')
         st.markdown(f'<span style="color:{color};font-size:20px;font-weight:700">'
                     f'{dealer_net5:+,}張</span>', unsafe_allow_html=True)
@@ -2575,7 +2575,7 @@ def _render_hiwin_monitor():
         ma20 = _ma(closes, 20)
         ma60 = _ma(closes, 60)
 
-        chg_color = '#22c55e' if lp['change'] >= 0 else '#ef4444'
+        chg_color = '#ef4444' if lp['change'] >= 0 else '#22c55e'
         chg_arrow = '▲' if lp['change'] >= 0 else '▼'
         st.markdown(
             f'<div style="background:#0f172a;border:1px solid #1e293b;border-radius:10px;'
@@ -3167,7 +3167,7 @@ def _render_foxconn_monitor():
                 break
 
         # 週線柱狀圖
-        _w_colors = ['#22c55e' if v >= 0 else '#ef4444' for v in week_nets]
+        _w_colors = ['#ef4444' if v >= 0 else '#22c55e' for v in week_nets]
         fig_chips = go.Figure()
         fig_chips.add_trace(go.Bar(
             x=weeks_sorted, y=[v / 1000 for v in week_nets],  # 換算為千張
@@ -3510,7 +3510,7 @@ def _render_hongjing_monitor():
             _ep = [d['period'] for d in _qf_eps]
             _ev = [d['eps'] for d in _qf_eps]
             _ec_map = {d['period']: d.get('revenue_abs') for d in eps_data} if eps_data else {}
-            _ecolors = ['#22c55e' if v >= 0 else '#ef4444' for v in _ev]
+            _ecolors = ['#ef4444' if v >= 0 else '#22c55e' for v in _ev]
             fig_eps.add_trace(go.Bar(x=_ep, y=_ev, marker_color=_ecolors,
                                       marker_line_color='rgba(255,255,255,0.3)', marker_line_width=1,
                                       name='季度EPS（實際）'))
@@ -3951,7 +3951,7 @@ def _render_delta_monitor():
 
         try:
             fig_ch = go.Figure()
-            _ch_colors = ['#22c55e' if n > 0 else '#ef4444' for n in _week_ns]
+            _ch_colors = ['#ef4444' if n > 0 else '#22c55e' for n in _week_ns]
             fig_ch.add_trace(go.Bar(x=_weeks_s, y=[n / 1000 for n in _week_ns],
                                      marker_color=_ch_colors, name='外資週淨買賣（千張）'))
             fig_ch.add_hline(y=0, line_color='#475569', line_width=1)
@@ -4201,7 +4201,7 @@ def render_market_tracker():
             if len(data) >= 3:
                 _chg_dates = [d['date'] for d in data if d['spot_chg_pct'] is not None]
                 _chg_vals  = [d['spot_chg_pct'] for d in data if d['spot_chg_pct'] is not None]
-                _colors    = ['#22c55e' if v >= 0 else '#ef4444' for v in _chg_vals]
+                _colors    = ['#ef4444' if v >= 0 else '#22c55e' for v in _chg_vals]
                 fig2 = go.Figure(go.Bar(x=_chg_dates, y=_chg_vals,
                                         marker_color=_colors, name='日漲跌幅%'))
                 fig2.update_layout(
@@ -4653,7 +4653,7 @@ def render_market():
                 color = '#ef4444' if _tnx >= 4.5 else '#f97316' if _tnx >= 4.0 else '#22c55e' if _tnx < 3.5 else '#94a3b8'
                 delta_label = f'今日變動 {_tnx_abs_chg:+.3f}%　{"殖利率偏高⚠️" if _tnx >= 4.5 else "升息疑慮" if _tnx >= 4.0 else "利率溫和"}'
             else:
-                color = '#ef4444' if chg < -2 else '#f59e0b' if chg < 0 else '#22c55e'
+                color = '#22c55e' if chg < -2 else '#f59e0b' if chg < 0 else '#ef4444'
                 delta_label = f'{chg:+.2f}%'
             if name == '美債10年':
                 close_str = f'{d["close"]:.2f}%'
@@ -4701,7 +4701,7 @@ def render_market():
                 if _skey in _txf:
                     _td    = _txf[_skey]
                     _tc    = _td['chg_pct']
-                    _tcolor = '#ef4444' if _tc < -1 else '#f59e0b' if _tc < 0 else '#22c55e' if _tc > 0 else '#94a3b8'
+                    _tcolor = '#22c55e' if _tc < -1 else '#f59e0b' if _tc < 0 else '#ef4444' if _tc > 0 else '#94a3b8'
                     _txf_cols[_col_i].markdown(
                         f'<div style="background:#141720;border:1px solid #252a38;border-radius:8px;padding:10px 14px;margin-bottom:4px">'
                         f'<div style="font-size:11px;color:#8892a4;margin-bottom:2px">{_slabel}</div>'
@@ -4714,7 +4714,7 @@ def render_market():
                 _ngt    = _txf['night']
                 _diff   = _ngt['chg']
                 _diff_p = _ngt['chg_pct']
-                _d_color = '#22c55e' if _diff > 0 else '#ef4444' if _diff < 0 else '#94a3b8'
+                _d_color = '#ef4444' if _diff > 0 else '#22c55e' if _diff < 0 else '#94a3b8'
                 _txf_cols[2].markdown(
                     f'<div style="background:#141720;border:1px solid #252a38;border-radius:8px;padding:10px 14px;margin-bottom:4px">'
                     f'<div style="font-size:11px;color:#8892a4;margin-bottom:2px">夜盤 vs 日盤</div>'
@@ -6004,7 +6004,7 @@ def render_market():
         # 最新一日指標列
         _ca_latest = _chips_agg[-1]
         _cac1, _cac2, _cac3, _cac4 = st.columns(4)
-        def _cc(v): return '#22c55e' if v > 0 else '#ef4444' if v < 0 else '#94a3b8'
+        def _cc(v): return '#ef4444' if v > 0 else '#22c55e' if v < 0 else '#94a3b8'
         def _cl(v): return f'+{v:,}' if v > 0 else f'{v:,}'
         _cac1.markdown(f'**外資現貨**<br><span style="font-size:20px;font-weight:700;color:{_cc(_ca_latest["foreign_net"])}">{_cl(_ca_latest["foreign_net"])}</span><br><span style="font-size:11px;color:#64748b">張　{_ca_latest["date"]}</span>', unsafe_allow_html=True)
         _cac2.markdown(f'**投信現貨**<br><span style="font-size:20px;font-weight:700;color:{_cc(_ca_latest["trust_net"])}">{_cl(_ca_latest["trust_net"])}</span><br><span style="font-size:11px;color:#64748b">張　{_ca_latest["date"]}</span>', unsafe_allow_html=True)
@@ -6038,7 +6038,7 @@ def render_market():
         # 三大合計柱狀
         _fig_chips.add_trace(go.Bar(
             x=_ca_dates, y=_ca_total, name='三大合計',
-            marker_color=['#22c55e' if v >= 0 else '#ef4444' for v in _ca_total],
+            marker_color=['#ef4444' if v >= 0 else '#22c55e' for v in _ca_total],
             opacity=0.9
         ), row=2, col=1)
         # 7日移動平均線
@@ -6182,7 +6182,7 @@ def render_market():
 
         # ── 最新數值指標 ──
         c1, c2, c3, c4 = st.columns(4)
-        def net_color(v): return '#22c55e' if v > 0 else '#ef4444' if v < 0 else '#94a3b8'
+        def net_color(v): return '#ef4444' if v > 0 else '#22c55e' if v < 0 else '#94a3b8'
         def net_label(v): return f'+{v:,}' if v > 0 else f'{v:,}'
 
         c1.markdown(f'**外資**<br><span style="font-size:22px;font-weight:700;color:{net_color(f_net)}">{net_label(f_net)} 口</span><br><span style="font-size:11px;color:#64748b">多{latest["foreign_long"]:,} / 空{latest["foreign_short"]:,}</span>', unsafe_allow_html=True)
@@ -6648,7 +6648,7 @@ def render_market():
     for i, row in enumerate(recent5):
         chg_d = row['change']
         pct_d = row['change_pct']
-        color = '#22c55e' if chg_d >= 0 else '#ef4444'
+        color = '#ef4444' if chg_d >= 0 else '#22c55e'
         with cols[i]:
             st.markdown(
                 f'<div style="text-align:center;background:#141720;border-radius:8px;'
