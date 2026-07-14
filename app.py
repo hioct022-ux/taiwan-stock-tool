@@ -5348,12 +5348,19 @@ def render_market():
                 st.session_state[_ms_hist_key] = []
 
         _ms_hist = st.session_state.get(_ms_hist_key, [])
-        if len(_ms_hist) >= 5:
+        # 動態補入今日即時評分（不存快取，每次更新）
+        _ms_hist_display = list(_ms_hist)
+        if _ms_hist_display and _tpx_date > _ms_hist_display[-1]['date']:
+            _ms_hist_display.append({'date': _tpx_date, 'ms': _ms, 'net': _net, 'close': _tpx_now})
+        elif _ms_hist_display and _tpx_date == _ms_hist_display[-1]['date']:
+            # 同一天：用即時評分（含S9–S11）覆蓋回溯評分（僅S1–S8）
+            _ms_hist_display[-1] = {'date': _tpx_date, 'ms': _ms, 'net': _net, 'close': _tpx_now}
+        if len(_ms_hist_display) >= 5:
             import plotly.graph_objects as go
             from plotly.subplots import make_subplots
-            _mh_dates  = [h['date'] for h in _ms_hist]
-            _mh_scores = [h['ms']   for h in _ms_hist]
-            _mh_close  = [h['close']for h in _ms_hist]
+            _mh_dates  = [h['date'] for h in _ms_hist_display]
+            _mh_scores = [h['ms']   for h in _ms_hist_display]
+            _mh_close  = [h['close']for h in _ms_hist_display]
 
             _fig_mh = make_subplots(rows=2, cols=1, shared_xaxes=True,
                                     row_heights=[0.6, 0.4], vertical_spacing=0.04)
@@ -5391,7 +5398,7 @@ def render_market():
 
             with _market_score_chart_placeholder:
                 show_chart(_fig_mh, key='market_score_history_chart')
-                st.caption('近180日大盤評分走勢（不含即時外部市場Signal9）。綠點偏多，黃點中性，紅點偏空。')
+                st.caption('近180日大盤評分走勢。歷史點僅含S1–S8；最後一點為今日即時評分（含S9–S11）。綠點偏多，黃點中性，紅點偏空。')
 
         # ── 綜合判斷（門檻降低，讓正常行情也能判斷方向）────
 
