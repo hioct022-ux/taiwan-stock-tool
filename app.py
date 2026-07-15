@@ -2296,8 +2296,9 @@ def render_score(result, code, name, prices=None, fund_data=None, chips_all=None
     }
     gc = grade_colors.get(grade, '#6b7280')
 
-    # 總分顯示
-    st.markdown(
+    # 總分顯示（先佔位，評分歷史計算完後更新趨勢箭頭）
+    _grade_ph = st.empty()
+    _grade_ph.markdown(
         f'<div class="grade-box" style="border-color:{gc}">'
         f'<div style="font-size:64px;font-weight:700;color:{gc}">{total}</div>'
         f'<div style="font-size:18px;font-weight:600;color:{gc}">{grade}</div>'
@@ -2348,6 +2349,21 @@ def render_score(result, code, name, prices=None, fund_data=None, chips_all=None
         # 大盤評分歷史（重用快取，對齊個股日期區間）
         _ms_hist     = st.session_state.get('_market_score_history', [])
         _ms_by_date  = {h['date']: h['ms'] for h in _ms_hist}
+
+        # ── 計算趨勢箭頭 + 近7日變化，更新 grade-box ──
+        if len(_hist_display) >= 2:
+            _td = _hist_display[-1]['total'] - _hist_display[-2]['total']
+            if   _td >= 3:  _ta, _tc = '↑', '#22c55e'
+            elif _td <= -3: _ta, _tc = '↓', '#ef4444'
+            else:           _ta, _tc = '→', '#94a3b8'
+            _grade_ph.markdown(
+                f'<div class="grade-box" style="border-color:{gc}">'
+                f'<div style="font-size:64px;font-weight:700;color:{gc}">{total}</div>'
+                f'<div style="font-size:18px;font-weight:600;color:{gc}">{grade}'
+                f'&nbsp;&nbsp;<span style="font-size:22px;color:{_tc}">{_ta}</span></div>'
+                f'</div>',
+                unsafe_allow_html=True
+            )
 
         if _hist_display:
             _dates   = [h['date']  for h in _hist_display]
@@ -2408,6 +2424,20 @@ def render_score(result, code, name, prices=None, fund_data=None, chips_all=None
             if not _has_mkt:
                 _cap += '　｜　大盤評分：請先前往「📊 大盤分析」頁面載入。'
             st.caption(_cap)
+
+            # ── 近7日評分動能 ──
+            if len(_hist_display) >= 3:
+                _chg7 = _hist_display[-1]['total'] - _hist_display[max(0, len(_hist_display)-3)]['total']
+                _mc   = '#ef4444' if _chg7 < -3 else '#22c55e' if _chg7 > 3 else '#94a3b8'
+                _desc = ('持續上升' if _chg7 > 5 else '小幅上升' if _chg7 > 2 else
+                         '持續下滑' if _chg7 < -5 else '小幅下滑' if _chg7 < -2 else '相對平穩')
+                st.markdown(
+                    f'<div style="display:flex;gap:28px;padding:6px 2px;font-size:13px;color:#8892a4">'
+                    f'近7日評分變化：<span style="color:{_mc};font-weight:600">{_chg7:+d}分</span>'
+                    f'&nbsp;&nbsp;｜&nbsp;&nbsp;動能：<span style="color:{_mc};font-weight:600">{_desc}</span>'
+                    f'</div>',
+                    unsafe_allow_html=True
+                )
         else:
             st.info('歷史資料不足，無法顯示評分走勢。')
 
