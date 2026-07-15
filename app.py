@@ -2332,13 +2332,26 @@ def render_score(result, code, name, prices=None, fund_data=None, chips_all=None
         else:
             _hist = st.session_state[_cache_key]
 
+        # 動態補入今日評分（不存快取，每次更新）
+        _hist_display = list(_hist)
+        _today_price_date = prices[-1]['date'] if prices else None
+        if _today_price_date and (not _hist_display or _today_price_date > _hist_display[-1]['date']):
+            _chips_for_today = chips_all[-65:] if len(chips_all) > 65 else chips_all
+            _r_today = full_score(prices, fund_data, _chips_for_today, ownership)
+            if _r_today:
+                _hist_display.append({'date': _today_price_date,
+                                      'total': _r_today['total_score'],
+                                      'tech':  _r_today['tech_score'],
+                                      'fund':  _r_today['fund_score'],
+                                      'chips': _r_today['chip_score']})
+
         # 大盤評分歷史（重用快取，對齊個股日期區間）
         _ms_hist     = st.session_state.get('_market_score_history', [])
         _ms_by_date  = {h['date']: h['ms'] for h in _ms_hist}
 
-        if _hist:
-            _dates   = [h['date']  for h in _hist]
-            _totals  = [h['total'] for h in _hist]
+        if _hist_display:
+            _dates   = [h['date']  for h in _hist_display]
+            _totals  = [h['total'] for h in _hist_display]
             # 取大盤評分中對應個股日期的值（找最近日期補齊）
             _ms_dates_sorted = sorted(_ms_by_date.keys())
             def _nearest_ms(d):
@@ -2353,11 +2366,11 @@ def render_score(result, code, name, prices=None, fund_data=None, chips_all=None
 
             # 分項走勢（可選）
             if _show_sub:
-                fig.add_trace(go.Scatter(x=_dates, y=[h['tech']  for h in _hist],
+                fig.add_trace(go.Scatter(x=_dates, y=[h['tech']  for h in _hist_display],
                     name='技術面', line=dict(color='#a855f7', width=1, dash='dot')))
-                fig.add_trace(go.Scatter(x=_dates, y=[h['fund']  for h in _hist],
+                fig.add_trace(go.Scatter(x=_dates, y=[h['fund']  for h in _hist_display],
                     name='基本面', line=dict(color='#3b82f6', width=1, dash='dot')))
-                fig.add_trace(go.Scatter(x=_dates, y=[h['chips'] for h in _hist],
+                fig.add_trace(go.Scatter(x=_dates, y=[h['chips'] for h in _hist_display],
                     name='籌碼面', line=dict(color='#f59e0b', width=1, dash='dot')))
 
             # 個股評分主線（綠/紅點）
@@ -2391,7 +2404,7 @@ def render_score(result, code, name, prices=None, fund_data=None, chips_all=None
             fig.update_xaxes(showgrid=False)
             fig.update_yaxes(showgrid=True, gridcolor='#1e293b')
             show_chart(fig, key=f'score_hist_chart_{code}')
-            _cap = f'近90日走勢，每3日計算一次。綠點 ≥65分，紅點 <65分。'
+            _cap = f'近90日走勢，每3日計算一次；最後一點為今日即時評分。綠點 ≥65分，紅點 <65分。'
             if not _has_mkt:
                 _cap += '　｜　大盤評分：請先前往「📊 大盤分析」頁面載入。'
             st.caption(_cap)
