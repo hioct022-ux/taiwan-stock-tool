@@ -2438,6 +2438,41 @@ def render_score(result, code, name, prices=None, fund_data=None, chips_all=None
                     f'</div>',
                     unsafe_allow_html=True
                 )
+
+            # ── 買入訊號衰退偵測 ──────────────────────────────────
+            if len(_hist_display) >= 3:
+                _recent_totals = [h['total'] for h in _hist_display[-5:]]  # 最近5個計算點（約15日）
+                _curr_score    = _hist_display[-1]['total']
+                _prev_scores   = _recent_totals[:-1]                        # 不含今日的前幾點
+                _recent_peak   = max(_prev_scores) if _prev_scores else _curr_score
+                _peak_decline  = _curr_score - _recent_peak                  # 負數 = 從峰值下跌
+
+                if _recent_peak >= 65 and _peak_decline <= -5:
+                    # 從買入區間的高點明顯下滑
+                    if _curr_score >= 65:
+                        # 仍在買入門檻之上，但從高點滑落
+                        st.markdown(
+                            f'<div style="background:#422006;border-left:4px solid #f59e0b;'
+                            f'border-radius:6px;padding:10px 14px;margin-top:8px;font-size:13px">'
+                            f'<span style="color:#fbbf24;font-weight:700">🟡 買入訊號衰退</span>'
+                            f'<span style="color:#d4a14a;margin-left:10px">'
+                            f'評分從近期高點 <b>{_recent_peak}</b> 分下滑至 <b>{_curr_score}</b> 分'
+                            f'（下滑 {abs(_peak_decline)} 分），仍在買入區間但動能轉弱，留意趨勢轉折</span>'
+                            f'</div>',
+                            unsafe_allow_html=True
+                        )
+                    else:
+                        # 已跌破買入門檻（65分以下）
+                        st.markdown(
+                            f'<div style="background:#3f0f0f;border-left:4px solid #ef4444;'
+                            f'border-radius:6px;padding:10px 14px;margin-top:8px;font-size:13px">'
+                            f'<span style="color:#f87171;font-weight:700">🔴 評分跌破買入門檻</span>'
+                            f'<span style="color:#c47070;margin-left:10px">'
+                            f'從近期高點 <b>{_recent_peak}</b> 分下滑至 <b>{_curr_score}</b> 分'
+                            f'（下滑 {abs(_peak_decline)} 分），考慮減碼或停損</span>'
+                            f'</div>',
+                            unsafe_allow_html=True
+                        )
         else:
             st.info('歷史資料不足，無法顯示評分走勢。')
 
