@@ -5445,8 +5445,7 @@ def render_market():
             f'</div>',
             unsafe_allow_html=True)
 
-        _latest_date = _mm[-1]['date']
-        st.caption(f'評估基準日：{_latest_date}　空方/多方分數為各訊號加權總計（每日常態化）　｜　僅供參考，不構成投資建議')
+        st.caption(f'評估基準日：{_tpx_date}　空方/多方分數為各訊號加權總計（每日常態化）　｜　僅供參考，不構成投資建議')
     else:
         st.info('資料不足，無法進行開盤前預判（需至少5日融資融券及期貨資料）')
 
