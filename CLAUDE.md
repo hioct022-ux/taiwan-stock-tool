@@ -456,15 +456,17 @@ if label == '融券(交易單位)': ...
 
 ```python
 # st.session_state['page'] 控制路由
-# 可能值：'market' | 'watchlist' | 'stock_detail' | 't86' | 'exdividend' | 'notes'
+# 可能值：'market' | 'watchlist' | 'stock_detail' | 't86' | 'exdividend'
+#         | 'notes' | 'market_tracker' | 'strategy'
 
-def render_market()     # 大盤分析
-def render_watchlist()  # 自選股
-def render_stock(code)  # 個股查詢
-def render_t86()        # 法人排行
-def render_exdividend() # 除權息
-def render_notes()      # 個股筆記
-def render_market_tracker()  # 市場追蹤（個股監控面板集合）
+def render_market()          # 大盤分析（含開盤前預判 Signal 1–11、評分歷史圖）
+def render_watchlist()       # 自選股（含 🎯/🔥 型態篩選）
+def render_stock(code)       # 個股查詢（7 個分頁：技術/基本/估值/籌碼/評分/備註/匯出）
+def render_t86()             # 法人排行（T86 買超/賣超榜）
+def render_exdividend()      # 除權息（預告 + 正式，TWT48U / TWT49U）
+def render_notes()           # 個股筆記
+def render_market_tracker()  # 市場追蹤（DDR4/上銀/鴻海/台達電/鴻勁 5 個監控分頁）
+def render_strategy()        # 投資策略（依大盤評分決定個股進場門檻）
 ```
 
 ### 側邊欄自選股清單顯示（2026-06 新增）
@@ -478,7 +480,8 @@ def render_market_tracker()  # 市場追蹤（個股監控面板集合）
 
 - 日期格式：`MM-DD`（省略年份節省空間）
 - 收盤價：白色加粗
-- 漲跌：上漲綠色 ▲，下跌紅色 ▼；使用 `:+.0f` 格式，**不要另外加 `+` 前綴否則會出現 `++100`**
+- 漲跌顏色：**台灣慣例，紅色=漲、綠色=跌**（`'#ef4444' if chg >= 0 else '#22c55e'`）；符號 ▲=漲 ▼=跌
+- 使用 `:+.0f` 格式，**不要另外加 `+` 前綴否則會出現 `++100`**
 - 本機與雲端版均顯示（不受 IS_LOCAL 影響）
 - 每次頁面渲染都直接讀 DB，不走快取（N 支股票 N 次 SQLite 查詢，速度足夠）
 
@@ -899,6 +902,12 @@ r.content.decode('big5', errors='ignore')  # 不是 r.text
 "1150624" → "2026-06-24"   # 7碼民國年，d[0]=='1'
 ```
 
+### 15. APScheduler 排程在 Streamlit 重啟時失效（2026-06 發現）
+現象：程式每天 16:30 應自動抓資料，但 update_log 只有手動更新紀錄，沒有自動執行的記錄。  
+原因：APScheduler 跑在 Streamlit Python 程序內部，每次 Streamlit 重新載入（存檔、刷新）就會重置排程，若重啟時間點正好跨過 16:30 則整天都不會觸發。  
+**建議：** 改用 macOS cron 獨立執行 `run_daily_fetch.sh`（已在專案根目錄），完全不依賴 Streamlit 存活。  
+**目前做法：** 使用者每日手動按「🔄 手動更新資料」，TWSE 通常在 15:00~16:30 更新，建議 17:00 後再按。
+
 ### 16. GitHub Token 被自動撤銷（2026-07 發現）
 現象：`git push` 報 `Invalid username or token`，即使 Token 設定為無限期。  
 原因：GitHub Secret Scanning 偵測到 Token 出現在曾 commit 的檔案中（如 `config_local.py` 意外推送），會自動撤銷，無視有效期限設定。  
@@ -950,11 +959,75 @@ python3 -c "from fetcher import fetch_quarterly_financials; print(fetch_quarterl
 3. `fetch_all()` 改為 `if fetch_t86() is False: errors.append(...)`，失敗會反映在 UI 上
 4. 手動補救：`python3 -c "from fetcher import fetch_t86; fetch_t86()"`
 
-### 15. APScheduler 排程在 Streamlit 重啟時失效（2026-06 發現）
-現象：程式每天 16:30 應自動抓資料，但 update_log 只有手動更新紀錄，沒有自動執行的記錄。  
-原因：APScheduler 跑在 Streamlit Python 程序內部，每次 Streamlit 重新載入（存檔、刷新）就會重置排程，若重啟時間點正好跨過 16:30 則整天都不會觸發。  
-**建議：** 改用 macOS cron 獨立執行 `run_daily_fetch.sh`（已在專案根目錄），完全不依賴 Streamlit 存活。  
-**目前做法：** 使用者每日手動按「🔄 手動更新資料」，TWSE 通常在 15:00~16:30 更新，建議 17:00 後再按。
+### 22. Safari InvalidCharacterError：訊號訊息中的 < > 字元（2026-07 發現）
+現象：大盤分析頁在 Safari 瀏覽器出現 `InvalidCharacterError: The string contains invalid characters`，Chrome 正常。  
+原因：Signal 7（均線排列）訊息含 `MA5<MA20<MA60`，Signal 10（斷頭/多殺多）含 `<2.5%`、`>3.5%`，個股籌碼面券資比含 `< 2.5%`。這些字串被放入 `<div>` HTML 後，Safari 的 DOM parser 將 `<MA20` 誤判為 HTML 標籤，最終 `document.createTextNode()` 收到破損字串而拋錯。Chrome 有更寬鬆的 error recovery，故不受影響。  
+**修正（2026-07）：** 將訊息字串中的 `<` / `>` 全部改為全形 `＜` / `＞`：
+- Signal 7 bear：`MA5＜MA20＜MA60`
+- Signal 7 bull：`MA5＞MA20＞MA60`
+- Signal 10 多殺多：`（正常 ＜2.5%）`
+- Signal 10 斷頭風險：`（＞3.5% 警戒）`
+- Signal 10 融券回補：`（＞3% 偏高）`
+- 個股籌碼 sig3_label：`（＜ 2.5%）`
+
+**通則：** 凡是動態字串被放入 `st.markdown(..., unsafe_allow_html=True)` 的 HTML div，若含有 `<` 或 `>` 必須使用 `＜` `＞`（全形）或 `&lt;` `&gt;`（HTML 實體）代替。純比較符號用全形即可，不影響閱讀。
+
+**觸發時機：** 此 Bug 只在特定訊號第一次觸發時才被察覺。Signal 7 平時在多頭市場不觸發（MA5>MA20>MA60），只有在均線轉空頭排列後才第一次執行到那行程式碼。Signal 10 同理（需大跌才觸發）。
+
+---
+
+### 23. 台指期夜盤雲端版不顯示（2026-07 確認）
+現象：雲端版大盤分析頁台指期夜盤區塊消失。  
+原因：`_fetch_taiex_futures()` 需要 `FINMIND_TOKEN`，該 Token 存於 `config_local.py`（不上傳 Git），雲端無法取得，函式直接 `return {}`。  
+**目前做法（2026-07）：** 接受本機專屬，雲端版顯示說明文字：「🇹🇼 台指期夜盤資料需 FinMind Token，僅本機版可用」。  
+**如欲解決：** 到 Streamlit Cloud → Settings → Secrets 加入 `FINMIND_TOKEN = "your_token"`，並在 `_fetch_taiex_futures()` 加 fallback：
+```python
+if not _fmt:
+    try:
+        _fmt = st.secrets.get('FINMIND_TOKEN', '')
+    except Exception:
+        _fmt = ''
+```
+
+---
+
+### 24. 大盤評分歷史圖最後一點只到昨日（2026-07 修正）
+現象：大盤評分走勢圖最右端停在昨日，今日即時評分未反映。  
+原因：歷史圖從 TAIEX DB/JSON 回溯計算（S1–S8），DB 最新資料是昨日；即時評分（S1–S11）算完後存在 session_state 但沒有被加進圖裡。  
+**修正（2026-07）：** 顯示圖表前動態補入今日即時評分：
+```python
+_ms_hist_display = list(_ms_hist)
+if _ms_hist_display and _tpx_date > _ms_hist_display[-1]['date']:
+    _ms_hist_display.append({'date': _tpx_date, 'ms': _ms, 'net': _net, 'close': _tpx_now})
+elif _ms_hist_display and _tpx_date == _ms_hist_display[-1]['date']:
+    # 同一天：用即時評分（含S9–S11）覆蓋回溯評分（僅S1–S8）
+    _ms_hist_display[-1] = {'date': _tpx_date, 'ms': _ms, 'net': _net, 'close': _tpx_now}
+```
+Caption 改為：「近180日大盤評分走勢。歷史點僅含S1–S8；最後一點為今日即時評分（含S9–S11）。」
+
+---
+
+### 25. 股價漲跌顏色使用西方慣例（綠漲紅跌）（2026-07 修正）
+台灣習慣：**紅色=漲、綠色=跌**（與西方相反）。  
+**修正範圍（2026-07）：** 以下所有股價/籌碼方向相關的顏色已改為台灣慣例：
+- 側邊欄價格摘要（`_color`）
+- K 線量柱（`colors`）
+- 連續漲跌方向文字（`dir_color`）
+- 個股頁最新價漲跌（`chg_color`）
+- 外資/投信/自營商近5日 net（`color`）
+- 週籌碼柱狀圖（`_w_colors`、`_ch_colors`）
+- 季度 EPS 柱狀圖（`_ecolors`）
+- DRAM 現貨漲跌幅（`_colors`）
+- 台指期日夜盤（`_tcolor`、`_d_color`）
+- 三大法人大盤彙總（`_cc()`、`_ca_total`）
+- 個股三大法人彙總（`net_color()`）
+- 個股近5日收盤（`color`）
+- 外部市場卡片（`_market_card` else 分支，涵蓋 S&P/Nasdaq/SOX/TSM/原油/黃金/台幣）
+
+**沒改的**（非股價方向，保持紅=警戒/綠=安全的通用邏輯）：
+- RSI 超買/超賣色、PE 高低估色、大盤評分歷史色
+- VIX、美元指數、美債10年（各有特殊邏輯）
+- 多方/空方訊號燈（🔴/🟢 emoji 對應色）
 
 ---
 
