@@ -2350,17 +2350,18 @@ def render_score(result, code, name, prices=None, fund_data=None, chips_all=None
         _ms_hist     = st.session_state.get('_market_score_history', [])
         _ms_by_date  = {h['date']: h['ms'] for h in _ms_hist}
 
-        # ── 計算趨勢箭頭 + 近7日變化，更新 grade-box ──
+        # ── 計算評分趨勢標籤，更新 grade-box ──
         if len(_hist_display) >= 2:
             _td = _hist_display[-1]['total'] - _hist_display[-2]['total']
-            if   _td >= 3:  _ta, _tc = '↑', '#22c55e'
-            elif _td <= -3: _ta, _tc = '↓', '#ef4444'
-            else:           _ta, _tc = '→', '#94a3b8'
+            if   _td >= 3:  _ta, _tc = '趨強', '#22c55e'
+            elif _td <= -3: _ta, _tc = '趨弱', '#ef4444'
+            else:           _ta, _tc = '持穩', '#94a3b8'
             _grade_ph.markdown(
                 f'<div class="grade-box" style="border-color:{gc}">'
                 f'<div style="font-size:64px;font-weight:700;color:{gc}">{total}</div>'
                 f'<div style="font-size:18px;font-weight:600;color:{gc}">{grade}'
-                f'&nbsp;&nbsp;<span style="font-size:22px;color:{_tc}">{_ta}</span></div>'
+                f'&nbsp;&nbsp;<span style="font-size:14px;font-weight:700;color:{_tc};'
+                f'background:rgba(0,0,0,0.25);padding:2px 7px;border-radius:4px">{_ta}</span></div>'
                 f'</div>',
                 unsafe_allow_html=True
             )
@@ -2429,12 +2430,12 @@ def render_score(result, code, name, prices=None, fund_data=None, chips_all=None
             if len(_hist_display) >= 3:
                 _chg7 = _hist_display[-1]['total'] - _hist_display[max(0, len(_hist_display)-3)]['total']
                 _mc   = '#ef4444' if _chg7 < -3 else '#22c55e' if _chg7 > 3 else '#94a3b8'
-                _desc = ('持續上升' if _chg7 > 5 else '小幅上升' if _chg7 > 2 else
-                         '持續下滑' if _chg7 < -5 else '小幅下滑' if _chg7 < -2 else '相對平穩')
+                _desc = ('評分持續趨強' if _chg7 > 5 else '評分小幅趨強' if _chg7 > 2 else
+                         '評分持續趨弱' if _chg7 < -5 else '評分小幅趨弱' if _chg7 < -2 else '評分相對持穩')
                 st.markdown(
                     f'<div style="display:flex;gap:28px;padding:6px 2px;font-size:13px;color:#8892a4">'
                     f'近7日評分變化：<span style="color:{_mc};font-weight:600">{_chg7:+d}分</span>'
-                    f'&nbsp;&nbsp;｜&nbsp;&nbsp;動能：<span style="color:{_mc};font-weight:600">{_desc}</span>'
+                    f'&nbsp;&nbsp;｜&nbsp;&nbsp;<span style="color:{_mc};font-weight:600">{_desc}</span>'
                     f'</div>',
                     unsafe_allow_html=True
                 )
@@ -5330,6 +5331,20 @@ def render_market():
         elif _ms >= 45: _ms_rec = '大盤中性，個股建議門檻提高至 75 分，保守操作'
         else:           _ms_rec = '大盤偏空，建議暫停進場，觀望為主'
 
+        # 趨勢標籤：從上次載入的歷史評分取前一點作比較
+        _ms_prev_hist = st.session_state.get('_market_score_history', [])
+        if len(_ms_prev_hist) >= 2:
+            _ms_td = _ms - _ms_prev_hist[-2]['ms']
+            if   _ms_td >= 3:  _ms_trend, _ms_trend_c = '趨強', '#22c55e'
+            elif _ms_td <= -3: _ms_trend, _ms_trend_c = '趨弱', '#ef4444'
+            else:              _ms_trend, _ms_trend_c = '持穩', '#94a3b8'
+            _ms_trend_html = (
+                f'&nbsp;&nbsp;<span style="font-size:13px;font-weight:700;color:{_ms_trend_c};'
+                f'background:rgba(0,0,0,0.25);padding:2px 7px;border-radius:4px">{_ms_trend}</span>'
+            )
+        else:
+            _ms_trend_html = ''
+
         _market_score_placeholder.markdown(
             f'<div style="background:{_ms_bg};border:2px solid {_ms_c};'
             f'border-radius:10px;padding:14px 18px;margin-bottom:16px">'
@@ -5339,7 +5354,8 @@ def render_market():
             f'<div style="font-size:40px;font-weight:800;color:{_ms_c};line-height:1">{_ms}</div>'
             f'<div style="font-size:10px;color:#475569;margin-top:2px">滿分100</div></div>'
             f'<div style="border-left:1px solid #2d3748;padding-left:20px;flex:1">'
-            f'<div style="font-size:18px;font-weight:700;color:{_ms_c}">{_ms_grade}</div>'
+            f'<div style="font-size:18px;font-weight:700;color:{_ms_c}">{_ms_grade}'
+            f'{_ms_trend_html}</div>'
             f'<div style="font-size:12px;color:#94a3b8;margin-top:6px">{_ms_rec}</div>'
             f'<div style="font-size:11px;color:#475569;margin-top:4px">'
             f'空方 +{_bear_score} ／ 多方 +{_bull_score}　｜　淨值 {_net:+d}</div>'
