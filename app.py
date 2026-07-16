@@ -6995,30 +6995,25 @@ def render_strategy():
 
         if qualified:
             st.markdown(f'**✅ 符合進場條件（評分 ≥{_threshold}）　共 {len(qualified)} 檔**')
-            _rows = ''
+            _hc1, _hc2, _hc3 = st.columns([3, 1, 2])
+            _hc1.caption('股票'); _hc2.caption('評分'); _hc3.caption('標籤')
             for w, sc in qualified:
                 if   sc >= 85: _sc_c = '#22c55e'
                 elif sc >= 70: _sc_c = '#4ade80'
                 elif sc >= 65: _sc_c = '#86efac'
                 else:          _sc_c = '#94a3b8'
-                _rows += (f'<tr>'
-                          f'<td style="padding:8px 12px;font-weight:600">{w["code"]}</td>'
-                          f'<td style="padding:8px 12px">{w["name"]}</td>'
-                          f'<td style="padding:8px 12px;text-align:center;'
-                          f'font-weight:800;color:{_sc_c}">{sc}</td>'
-                          f'<td style="padding:8px 12px;font-size:11px;color:#64748b">'
-                          f'{"、".join(w.get("tags", [])) or "—"}</td>'
-                          f'</tr>')
-            st.markdown(
-                f'<table style="width:100%;border-collapse:collapse;'
-                f'background:#0f172a;border-radius:8px;overflow:hidden">'
-                f'<thead><tr style="background:#1e293b;color:#94a3b8;font-size:12px">'
-                f'<th style="padding:8px 12px;text-align:left">代號</th>'
-                f'<th style="padding:8px 12px;text-align:left">名稱</th>'
-                f'<th style="padding:8px 12px;text-align:center">評分</th>'
-                f'<th style="padding:8px 12px;text-align:left">標籤</th>'
-                f'</tr></thead><tbody>{_rows}</tbody></table>',
-                unsafe_allow_html=True)
+                _c1, _c2, _c3 = st.columns([3, 1, 2])
+                with _c1:
+                    if st.button(f'{w["code"]} {w["name"]}',
+                                 key=f'strat_q_{w["code"]}', use_container_width=True):
+                        st.session_state['page'] = 'stock_detail'
+                        st.session_state['selected_code'] = w['code']
+                        st.rerun()
+                _c2.markdown(f'<div style="padding:6px 0;font-weight:800;color:{_sc_c}">{sc}</div>',
+                             unsafe_allow_html=True)
+                _c3.markdown(f'<div style="padding:6px 0;font-size:12px;color:#64748b">'
+                             f'{"、".join(w.get("tags", [])) or "—"}</div>',
+                             unsafe_allow_html=True)
             st.caption('進場時機：確認訊號後隔日買入，不追漲。停損設進場價 -8%。')
         else:
             st.info(f'目前無自選股達到 {_threshold} 分門檻，建議觀望。')
@@ -7030,35 +7025,38 @@ def render_strategy():
 
         if danger or caution:
             st.markdown('**⚠️ 退場警示　若持有以下股票，建議重新評估**')
-            _warn_rows = ''
+            _hwc1, _hwc2, _hwc3 = st.columns([3, 1, 2])
+            _hwc1.caption('股票'); _hwc2.caption('評分'); _hwc3.caption('狀態')
             for w, sc in danger + caution:
                 if sc < 45:
-                    _wc = '#ef4444'; _wbg = '#2d0a0a'; _wlabel = '🔴 偏空'
+                    _wc = '#ef4444'; _wlabel = '🔴 偏空'
                 else:
-                    _wc = '#f59e0b'; _wbg = '#1a1505'; _wlabel = '🟡 轉弱'
-                _warn_rows += (
-                    f'<tr style="background:{_wbg}">'
-                    f'<td style="padding:8px 12px;font-weight:600;color:{_wc}">{w["code"]}</td>'
-                    f'<td style="padding:8px 12px;color:{_wc}">{w["name"]}</td>'
-                    f'<td style="padding:8px 12px;text-align:center;font-weight:800;color:{_wc}">{sc}</td>'
-                    f'<td style="padding:8px 12px;font-size:12px;color:{_wc}">{_wlabel}</td>'
-                    f'</tr>')
-            st.markdown(
-                f'<table style="width:100%;border-collapse:collapse;'
-                f'background:#0f172a;border-radius:8px;overflow:hidden;margin-bottom:8px">'
-                f'<thead><tr style="background:#1e293b;color:#94a3b8;font-size:12px">'
-                f'<th style="padding:8px 12px;text-align:left">代號</th>'
-                f'<th style="padding:8px 12px;text-align:left">名稱</th>'
-                f'<th style="padding:8px 12px;text-align:center">評分</th>'
-                f'<th style="padding:8px 12px;text-align:left">狀態</th>'
-                f'</tr></thead><tbody>{_warn_rows}</tbody></table>',
-                unsafe_allow_html=True)
+                    _wc = '#f59e0b'; _wlabel = '🟡 轉弱'
+                _c1, _c2, _c3 = st.columns([3, 1, 2])
+                with _c1:
+                    if st.button(f'{w["code"]} {w["name"]}',
+                                 key=f'strat_d_{w["code"]}', use_container_width=True):
+                        st.session_state['page'] = 'stock_detail'
+                        st.session_state['selected_code'] = w['code']
+                        st.rerun()
+                _c2.markdown(f'<div style="padding:6px 0;font-weight:800;color:{_wc}">{sc}</div>',
+                             unsafe_allow_html=True)
+                _c3.markdown(f'<div style="padding:6px 0;font-size:12px;color:{_wc}">{_wlabel}</div>',
+                             unsafe_allow_html=True)
             st.caption('⚠️ 警示基於當前評分系統，不代表一定虧損。停損（-8%）仍是最優先出場條件。')
 
         if watch:
             with st.expander(f'觀察中（{len(watch)} 檔，分數偏低但尚未警示）'):
                 for w, sc in watch:
-                    st.markdown(f'`{w["code"]}` {w["name"]} — **{sc} 分**')
+                    _c1, _c2 = st.columns([3, 1])
+                    with _c1:
+                        if st.button(f'{w["code"]} {w["name"]}',
+                                     key=f'strat_ob_{w["code"]}', use_container_width=True):
+                            st.session_state['page'] = 'stock_detail'
+                            st.session_state['selected_code'] = w['code']
+                            st.rerun()
+                    _c2.markdown(f'<div style="padding:6px 0;font-weight:600;color:#94a3b8">{sc} 分</div>',
+                                 unsafe_allow_html=True)
 
     st.markdown('---')
 
