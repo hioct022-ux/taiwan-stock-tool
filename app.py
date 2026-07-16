@@ -7006,8 +7006,8 @@ def render_strategy():
                 with _c1:
                     if st.button(f'{w["code"]} {w["name"]}',
                                  key=f'strat_q_{w["code"]}', use_container_width=True):
-                        st.session_state['page'] = 'stock_detail'
-                        st.session_state['selected_code'] = w['code']
+                        st.session_state['current_code'] = w['code']
+                        st.session_state['page'] = 'stock'
                         st.rerun()
                 _c2.markdown(f'<div style="padding:6px 0;font-weight:800;color:{_sc_c}">{sc}</div>',
                              unsafe_allow_html=True)
@@ -7036,8 +7036,8 @@ def render_strategy():
                 with _c1:
                     if st.button(f'{w["code"]} {w["name"]}',
                                  key=f'strat_d_{w["code"]}', use_container_width=True):
-                        st.session_state['page'] = 'stock_detail'
-                        st.session_state['selected_code'] = w['code']
+                        st.session_state['current_code'] = w['code']
+                        st.session_state['page'] = 'stock'
                         st.rerun()
                 _c2.markdown(f'<div style="padding:6px 0;font-weight:800;color:{_wc}">{sc}</div>',
                              unsafe_allow_html=True)
@@ -7052,8 +7052,8 @@ def render_strategy():
                     with _c1:
                         if st.button(f'{w["code"]} {w["name"]}',
                                      key=f'strat_ob_{w["code"]}', use_container_width=True):
-                            st.session_state['page'] = 'stock_detail'
-                            st.session_state['selected_code'] = w['code']
+                            st.session_state['current_code'] = w['code']
+                            st.session_state['page'] = 'stock'
                             st.rerun()
                     _c2.markdown(f'<div style="padding:6px 0;font-weight:600;color:#94a3b8">{sc} 分</div>',
                                  unsafe_allow_html=True)
