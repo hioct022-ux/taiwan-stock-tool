@@ -5183,6 +5183,8 @@ def render_market():
                 _bull_msgs.append(('🟢', f'VIX={_vix_now:.1f}，市場情緒穩定，風險偏好良好'))
 
         # ══ Signal 10：斷頭 / 多殺多風險評估（大跌時觸發）══
+        _s10_alert_level = 0   # 0=無, 1=輕度, 2=警告, 3=嚴重
+        _s10_alert_info  = {}  # 供警告框使用的詳細資訊
         if len(_mm) >= 3:
             _ms_now      = _mm[-1].get('margin_sell', 0) or 0
             _mb_s10      = _mm[-1].get('margin_balance', 0) or 0
@@ -5205,20 +5207,33 @@ def render_market():
                 _bear_msgs.append(('🔴', f'⚡ **多殺多啟動**：{_tpx_date} 跌幅 {_tpx_chg:.2f}%，'
                                    f'融資賣出比例 **{_ms_ratio:.1f}%**（正常 ＜2.5%），'
                                    f'強制斷頭引發恐慌拋售，今日開盤續跌風險高'))
+                _s10_alert_level = 3
+                _s10_alert_info  = {'title': '⚡ 多殺多啟動', 'chg': _tpx_chg,
+                                    'ratio': _ms_ratio, 'type': 'margin_sell'}
             elif _tpx_chg <= -3.0 and _ms_ratio >= 3.5:
                 _bear_score += 2
                 _bear_msgs.append(('🔴', f'⚠️ **多殺多跡象**：{_tpx_date} 跌幅 {_tpx_chg:.2f}%，'
                                    f'融資賣出比例 **{_ms_ratio:.1f}%**（異常偏高），'
                                    f'斷頭賣壓仍在釋放，注意今日開盤量能'))
+                _s10_alert_level = 2
+                _s10_alert_info  = {'title': '⚠️ 多殺多跡象', 'chg': _tpx_chg,
+                                    'ratio': _ms_ratio, 'type': 'margin_sell'}
             elif _tpx_chg <= -2.0 and _ms_ratio >= 3.5:
                 _bear_score += 2
                 _bear_msgs.append(('🔴', f'🔻 **斷頭風險**：{_tpx_date} 跌幅 {_tpx_chg:.2f}%，'
                                    f'融資賣出比例 {_ms_ratio:.1f}%（＞3.5% 警戒），'
                                    f'槓桿戶面臨維持率壓力，今日若再跌易觸發連鎖斷頭'))
+                _s10_alert_level = 2
+                _s10_alert_info  = {'title': '🔻 斷頭風險', 'chg': _tpx_chg,
+                                    'ratio': _ms_ratio, 'type': 'margin_sell'}
             elif _tpx_chg <= -2.0 and _ms_ratio >= 2.5:
                 _bear_score += 1
                 _bear_msgs.append(('🟡', f'融資賣出比例 {_ms_ratio:.1f}%（{_tpx_date} 跌 {_tpx_chg:.2f}%），'
                                    f'略偏高，注意槓桿戶是否開始被動去槓桿'))
+                _s10_alert_level = max(_s10_alert_level, 1)
+                if not _s10_alert_info:
+                    _s10_alert_info = {'title': '融資去槓桿提示', 'chg': _tpx_chg,
+                                       'ratio': _ms_ratio, 'type': 'margin_sell'}
 
             # 條件 C：斷頭加速（連續 2 日融資餘額萎縮 ≥ 1.5%/日，獨立評估）
             if _mb_d1_shrink <= -1.5 and _mb_d2_shrink <= -1.5:
@@ -5226,10 +5241,17 @@ def render_market():
                 _bear_msgs.append(('🔴', f'📉 **斷頭加速**：融資餘額連續 2 日快速萎縮'
                                    f'（{_mb_d2_shrink:.1f}% → {_mb_d1_shrink:.1f}%），'
                                    f'被動斷頭持續進行，賣壓尚未出清'))
+                _s10_alert_level = max(_s10_alert_level, 2)
+                if _s10_alert_info.get('type') != 'margin_sell' or _s10_alert_level < 3:
+                    _s10_alert_info.setdefault('shrink', f'{_mb_d2_shrink:.1f}% → {_mb_d1_shrink:.1f}%')
+                    _s10_alert_info.setdefault('title', '📉 斷頭加速')
             elif _mb_d1_shrink <= -1.5:
                 _bear_score += 1
                 _bear_msgs.append(('🟡', f'融資餘額（{_tpx_date}）萎縮 {_mb_d1_shrink:.1f}%，'
                                    f'確認部分強制斷頭已發生，觀察今日是否延續'))
+                _s10_alert_level = max(_s10_alert_level, 1)
+                _s10_alert_info.setdefault('shrink', f'{_mb_d1_shrink:.1f}%')
+                _s10_alert_info.setdefault('title', '融資去槓桿提示')
 
             # 條件 D：融券大量回補（空頭獲利了結 = 短線反彈支撐，獨立評估）
             if _tpx_chg <= -2.0 and _ss_ratio >= 3.0:
@@ -5361,6 +5383,38 @@ def render_market():
             f'空方 +{_bear_score} ／ 多方 +{_bull_score}　｜　淨值 {_net:+d}</div>'
             f'</div></div></div>',
             unsafe_allow_html=True)
+
+        # ── 多殺多 / 斷頭警告框 ──────────────────────────────
+        if _s10_alert_level >= 2:
+            _al_bg = '#2d0a0a'; _al_bc = '#ef4444'
+        elif _s10_alert_level == 1:
+            _al_bg = '#1a1505'; _al_bc = '#f59e0b'
+        else:
+            _al_bg = None
+
+        if _al_bg and _s10_alert_info:
+            _al_title = _s10_alert_info.get('title', '融資異常')
+            _al_lines = []
+            if 'chg' in _s10_alert_info:
+                _al_lines.append(f'昨日大盤跌幅 <b>{_s10_alert_info["chg"]:.2f}%</b>')
+            if 'ratio' in _s10_alert_info:
+                _al_lines.append(f'融資賣出比例 <b>{_s10_alert_info["ratio"]:.1f}%</b>（正常值 ＜2.5%）')
+            if 'shrink' in _s10_alert_info:
+                _al_lines.append(f'融資餘額萎縮幅度 <b>{_s10_alert_info["shrink"]}</b>')
+            _al_advice = ('建議今日暫緩進場，已持倉確認停損位置' if _s10_alert_level >= 2
+                          else '留意今日開盤是否延續去槓桿，已持倉注意風控')
+            st.markdown(
+                f'<div style="background:{_al_bg};border-left:5px solid {_al_bc};'
+                f'border-radius:8px;padding:12px 16px;margin:8px 0 12px 0">'
+                f'<div style="font-size:15px;font-weight:700;color:{_al_bc};margin-bottom:6px">'
+                f'🚨 {_al_title}</div>'
+                f'<div style="font-size:13px;color:#d4a0a0;line-height:1.7">'
+                + '　'.join(_al_lines) +
+                f'</div>'
+                f'<div style="font-size:12px;color:#94a3b8;margin-top:8px">'
+                f'💡 {_al_advice}</div>'
+                f'</div>',
+                unsafe_allow_html=True)
 
         # ── 大盤評分歷史走勢 ──────────────────────────────
         _ms_hist_key = '_market_score_history'
