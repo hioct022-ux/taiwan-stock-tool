@@ -562,6 +562,55 @@ else:
 
 **解讀：** 🎯 = 整理蓄勢中，🔥 = 量能啟動（可能是整理結束的訊號，需搭配其他條件判斷）。
 
+### _check_short_squeeze(prices, chips_list) — 個股軋空偵測（2026-07 新增）
+
+定義在模組頂層（`_check_volume_breakout` 正下方）。同時用於側邊欄標旗與籌碼頁警示框。
+
+**回傳值：**
+- `'squeezing'`：軋空進行中（高空單 + 大漲 + 融券實際回補）
+- `'at_risk'`：軋空風險（高空單 + 股價啟動，或超高券資比）
+- `None`：正常
+
+**三階段判斷條件：**
+
+| 回傳 | 券資比 | 5日漲幅 | 融券5日趨勢 |
+|------|--------|---------|------------|
+| `squeezing` | ≥20% | ≥5% | ≤-5%（回補中） |
+| `at_risk` | ≥20% | ≥3% | 任意 |
+| `at_risk` | ≥30% | 任意 | 任意 |
+| `None` | ＜15% | — | — |
+
+**資料需求：** `prices` 需 ≥6 筆，`chips_list` 需 ≥2 筆；`margin_balance` 或 `short_balance` 為 0 時直接回傳 `None`。
+
+**側邊欄標旗優先順序：**
+```python
+if _sq_result == 'squeezing':
+    _pattern_flag = '🌀 '   # 最高優先
+elif _check_volume_breakout(_latest_prices):
+    _pattern_flag = '🔥 '
+elif _sq_result == 'at_risk':
+    _pattern_flag = '⚡ '
+elif _check_consolidation_pattern(_latest_prices):
+    _pattern_flag = '🎯 '
+else:
+    _pattern_flag = ''
+```
+
+側邊欄 chips 資料來源：`get_chips(code, days=10)`（IS_LOCAL）；雲端不做標旗（`_sq_chips = []`）。
+
+**篩選入口：** 自選股清單篩選列「🌀 軋空」選項（僅本機有效）。
+
+**籌碼頁警示框：** 觸發時在融資融券圖下方顯示帶色框（🌀 綠色 / ⚡ 橘色），含三個數字：
+- 券資比（%）
+- 5日漲幅（%）
+- 融券5日趨勢（%，負值 = 回補中）
+
+**`render_chips()` 函式簽名更新：** 新增 `prices=None` 參數，呼叫時傳入：
+```python
+render_chips(result, code, name, chips_list, market=_mkt_tab,
+             ownership_override=_own, prices=prices)
+```
+
 ### 圖表統一函式（必須用這個，不能直接 st.plotly_chart）
 
 ```python
