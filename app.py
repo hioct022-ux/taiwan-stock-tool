@@ -499,8 +499,10 @@ def render_sidebar():
 
         st.markdown('---')
 
-        # 雲端版：每次進入自選股頁都清除評分快取，確保分數永遠從最新 JSON 計算
-        if not IS_LOCAL:
+        # 雲端版：只在進入「大盤分析」或「自選股清單（stock 以外）」頁時清除評分快取
+        # 不在每次 sidebar render 都清（避免投資策略頁點擊後重算無限迴圈）
+        _cur_page = st.session_state.get('page', 'stock')
+        if not IS_LOCAL and _cur_page in ('market', 'ranking', 'strategy'):
             st.session_state.pop('_wl_scores', None)
 
         # 本機版：若 DB 有新資料（排程器在背景更新），清除舊快取
