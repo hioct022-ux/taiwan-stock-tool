@@ -222,6 +222,41 @@ def _check_volume_breakout(prices):
         return False
     return True
 
+def _check_short_squeeze(prices, chips_list):
+    """
+    個股軋空偵測（三階段）：
+    - 'squeezing' : 券資比 ≥20% + 5日漲幅 ≥5% + 融券5日萎縮 ≥5%（軋空進行中）
+    - 'at_risk'   : 券資比 ≥20% + 5日漲幅 ≥3%，或券資比 ≥30%（軋空風險）
+    - None        : 正常
+    """
+    if not prices or len(prices) < 6:
+        return None
+    if not chips_list or len(chips_list) < 2:
+        return None
+    latest      = chips_list[-1]
+    short_bal   = latest.get('short_balance', 0) or 0
+    margin_bal  = latest.get('margin_balance', 0) or 0
+    if margin_bal <= 0 or short_bal <= 0:
+        return None
+    xr_ratio = short_bal / margin_bal * 100
+    if xr_ratio < 15:
+        return None
+    # 5日收盤漲幅
+    p5_ago       = prices[-min(6, len(prices))]['close']
+    p_now        = prices[-1]['close']
+    price_5d_chg = (p_now - p5_ago) / p5_ago * 100 if p5_ago > 0 else 0
+    # 融券餘額5日趨勢
+    short_5d_ago = chips_list[-min(5, len(chips_list))].get('short_balance', short_bal) or short_bal
+    short_trend  = (short_bal - short_5d_ago) / short_5d_ago * 100 if short_5d_ago > 0 else 0
+    if xr_ratio >= 20 and price_5d_chg >= 5 and short_trend <= -5:
+        return 'squeezing'   # 軋空進行中
+    if xr_ratio >= 20 and price_5d_chg >= 3:
+        return 'at_risk'     # 軋空風險
+    if xr_ratio >= 30:
+        return 'at_risk'     # 超高空單，不需要漲也要留意
+    return None
+
+
 def show_chart(fig, key=None, date_xaxis=True):
     fig.update_layout(dragmode=False)
     if date_xaxis:
@@ -530,7 +565,7 @@ def render_sidebar():
 
         if watchlist:
             # 標籤篩選
-            filter_opts = ['全部', '🔥 放量', '🎯 整理'] + TAG_LIST
+            filter_opts = ['全部', '🔥 放量', '🌀 軋空', '🎯 整理'] + TAG_LIST
             # 舊 session_state 可能存著已改名的選項（如 '🎯 型態'），清掉避免 DOM 錯誤
             if st.session_state.get('watchlist_tag_filter') not in filter_opts:
                 st.session_state.pop('watchlist_tag_filter', None)
@@ -546,6 +581,19 @@ def render_sidebar():
                     if _check_volume_breakout(get_prices(w['code'], days=25))
                 }
                 filtered = [w for w in watchlist if w['code'] in _breakout_codes]
+            elif sel_filter == '🌀 軋空':
+                if IS_LOCAL:
+                    from database import get_chips as _gc_sq
+                    _squeeze_codes = {
+                        w['code'] for w in watchlist
+                        if _check_short_squeeze(
+                            get_prices(w['code'], days=25),
+                            _gc_sq(w['code'], days=10)
+                        )
+                    }
+                else:
+                    _squeeze_codes = set()
+                filtered = [w for w in watchlist if w['code'] in _squeeze_codes]
             elif sel_filter == '🎯 整理':
                 _pattern_codes = {
                     w['code'] for w in watchlist
@@ -612,8 +660,14 @@ def render_sidebar():
 
                 # 取最新收盤資料（25天，同時用於價格顯示和型態掃描）
                 _latest_prices = get_prices(w['code'], days=25)
-                if _check_volume_breakout(_latest_prices):
+                _sq_chips = get_chips(w['code'], days=10) if IS_LOCAL else []
+                _sq_result = _check_short_squeeze(_latest_prices, _sq_chips)
+                if _sq_result == 'squeezing':
+                    _pattern_flag = '🌀 '
+                elif _check_volume_breakout(_latest_prices):
                     _pattern_flag = '🔥 '
+                elif _sq_result == 'at_risk':
+                    _pattern_flag = '⚡ '
                 elif _check_consolidation_pattern(_latest_prices):
                     _pattern_flag = '🎯 '
                 else:
@@ -1761,7 +1815,7 @@ def render_valuation(result, code, name, fund_data):
 
 
 # ── 頁籤四：籌碼面 ──────────────────────
-def render_chips(result, code, name, chips_list, market=None, ownership_override=None):
+def render_chips(result, code, name, chips_list, market=None, ownership_override=None, prices=None):
     st.markdown('#### 三大法人')
 
     if not chips_list:
@@ -2029,6 +2083,39 @@ def render_chips(result, code, name, chips_list, market=None, ownership_override
         show_chart(fig_margin)
     else:
         st.caption('融資融券歷史資料不足，請先按手動更新補齊歷史資料')
+
+    # ── 軋空風險警示 ──────────────────────────
+    _sq = _check_short_squeeze(prices, chips_list) if prices else None
+    if _sq and margin_rows and short_rows:
+        _sq_margin = margin_rows[-1].get('margin_balance', 0) or 0
+        _sq_short  = short_rows[-1].get('short_balance',  0) or 0
+        _sq_xr     = _sq_short / _sq_margin * 100 if _sq_margin > 0 else 0
+        _sq_p5     = prices[-min(6, len(prices))]['close'] if prices else 0
+        _sq_pnow   = prices[-1]['close'] if prices else 0
+        _sq_chg5   = (_sq_pnow - _sq_p5) / _sq_p5 * 100 if _sq_p5 > 0 else 0
+        _sq_s5ago  = chips_list[-min(5, len(chips_list))].get('short_balance', _sq_short) or _sq_short
+        _sq_strend = (_sq_short - _sq_s5ago) / _sq_s5ago * 100 if _sq_s5ago > 0 else 0
+        if _sq == 'squeezing':
+            _sq_bg, _sq_bc = '#0a2010', '#22c55e'
+            _sq_title = '🌀 軋空進行中'
+            _sq_desc  = '高空單 + 近期大漲 + 融券持續回補，軋空已在進行，上漲動能強，留意追高風險'
+        else:
+            _sq_bg, _sq_bc = '#1a1505', '#f59e0b'
+            _sq_title = '⚡ 軋空風險'
+            _sq_desc  = '高券資比 + 股價啟動，若多頭持續將迫使空方回補，潛在上漲加速動能'
+        st.markdown(
+            f'<div style="background:{_sq_bg};border-left:5px solid {_sq_bc};'
+            f'border-radius:8px;padding:12px 16px;margin:10px 0 12px 0">'
+            f'<div style="font-size:15px;font-weight:700;color:{_sq_bc};margin-bottom:8px">'
+            f'{_sq_title}</div>'
+            f'<div style="display:flex;gap:24px;font-size:13px;color:#d4e4ff;margin-bottom:8px">'
+            f'<span>券資比 <b style="color:{_sq_bc}">{_sq_xr:.1f}%</b></span>'
+            f'<span>5日漲幅 <b style="color:{"#ef4444" if _sq_chg5>=0 else "#22c55e"}">{_sq_chg5:+.1f}%</b></span>'
+            f'<span>融券5日 <b style="color:{"#22c55e" if _sq_strend<0 else "#ef4444"}">{_sq_strend:+.1f}%</b></span>'
+            f'</div>'
+            f'<div style="font-size:12px;color:#94a3b8">{_sq_desc}</div>'
+            f'</div>',
+            unsafe_allow_html=True)
 
     st.markdown('---')
     # ── 持股結構 + ETF 持股（同一排）──
@@ -7443,7 +7530,7 @@ def main():
         _conn_tab = _gc_tab()
         _mkt_tab = (_conn_tab.execute('SELECT market FROM stocks WHERE code=?', (code,)).fetchone() or [None])[0]
         _conn_tab.close()
-        render_chips(result, code, name, chips_list, market=_mkt_tab, ownership_override=_own)
+        render_chips(result, code, name, chips_list, market=_mkt_tab, ownership_override=_own, prices=prices)
     with tabs[4]:
         render_score(result, code, name,
                      prices=prices, fund_data=fund_data,
