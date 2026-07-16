@@ -800,6 +800,45 @@ Signal 10 計算時同步記錄 `_s10_alert_level`（0=無、1=輕度、2=警告
 
 框內顯示：標題、昨日跌幅、融資賣出比例、融資餘額萎縮幅度（依實際觸發條件顯示），以及操作建議。與信號清單獨立，讓使用者一眼看到而不需要翻閱全部訊號。
 
+**市場壓力監控區塊（2026-07 新增，方案B統一顯示框）**
+
+Signal 11 後、訊號清單前，計算四項市場應力指標並顯示統一警告框。只要有任一指標觸發（level ≥ 1）就顯示；沒有觸發不佔版面。框的位置：多殺多警告框之後、大盤評分走勢圖之前。
+
+**四項指標（`_stress_alerts` 清單）：**
+
+| 指標 | 資料來源 | 輕度（level 1）| 嚴重（level 2）|
+|------|----------|--------------|--------------|
+| 台幣走弱/急貶 | Signal 9 `global_data['USD/TWD']` | 日貶 ≥0.5% Bear+1 | 日貶 ≥1.0% Bear+2 |
+| 三大法人同步賣超 | `_t86_raw[-1]`（foreign/trust/dealer 全負） | 合計賣超 ＞3萬張 Bear+1 | 合計 ＞15萬且外資 ＞8萬 Bear+2 |
+| 外資連續賣超天數 | `_t86_raw`（reversed 遍歷計連續） | 5–9 天 Bear+1 | ≥10 天 Bear+2 |
+| 量價背離 | Signal 8 `_pv_diverge` 變數 | 'distribution'（漲時量縮）Bear+1（已在S8計分） | — |
+| （正面）量縮下跌 | Signal 8 `_pv_diverge='accumulation'` | Bull+1（S8已計分），level 0 顯示綠色 | — |
+
+**資料載入異動：** `_t86_raw` 由 `days=5` 改為 `days=15`（JSON 也由 `[-5:]` 改 `[-15:]`），以提供足夠天數計算連續賣超。Signal 4 不受影響（只用 `_t86[-1]`）。
+
+**變數初始化位置：** 在 `_bear_score = 0` 同處新增：
+```python
+_stress_alerts = []   # 市場壓力監控（統一顯示框用）
+_pv_diverge    = None  # 量價背離：'distribution' | 'accumulation' | None
+_vol_trend     = 0   # Signal 8 成交量趨勢 %
+```
+
+**顯示規則：**
+- 無任何 level ≥ 1 且無 level 0：不顯示框
+- 有 level 0 但無 level ≥ 1：只顯示正面訊息（綠框）
+- 最高 level = 1：橘色框（#1a1505 / #f59e0b）
+- 最高 level ≥ 2：紅色框（#2d0a0a / #ef4444）
+- 框標題顯示異常數量；level 0 項目附在下方顯示為綠色
+
+**Signal 9 台幣計分補充：**  
+USD/TWD 原本只顯示不計分（台幣貶值）。現在加入評分：升值 ＞0.5% Bull+1，貶值 ≥0.5% Bear+1，貶值 ≥1.0% Bear+2。
+
+**Signal 8 量價背離邏輯修改：**  
+原本量縮統一給 Bear+1。現改為：
+- 漲時量縮 `_tpx_chg ≥ 0.5% AND _vol_trend ≤ -15%`：Bear+1（分配跡象），`_pv_diverge='distribution'`
+- 跌時量縮 `_tpx_chg ≤ -0.5% AND _vol_trend ≤ -15%`：Bull+1（跌勢趨緩），`_pv_diverge='accumulation'`
+- 量縮但無明顯方向：Bear+1（市場觀望，維持原邏輯）
+
 **Signal 11：選擇權 P/C 比率（2026-06 新增）**
 
 資料來源：`get_options_pc(days=60)`（本機）或 `options_pc.json`（雲端）。需 `len >= 5`。

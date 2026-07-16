@@ -4891,14 +4891,14 @@ def render_market():
             _tpx = get_prices('TAIEX', days=30)
     # Signal 4 與三大法人圖統一使用 chips_market_agg 來源，確保上下一致
     if IS_LOCAL:
-        _t86_raw = get_chips_market_aggregate(days=5)
+        _t86_raw = get_chips_market_aggregate(days=15)
     else:
         try:
             import json as _jt86
             with open(os.path.join('data', 'json', 'chips_market_agg.json'), encoding='utf-8') as _f:
-                _t86_raw = _jt86.load(_f).get('rows', [])[-5:]
+                _t86_raw = _jt86.load(_f).get('rows', [])[-15:]
         except Exception:
-            _t86_raw = get_chips_market_agg_from_table(days=5)
+            _t86_raw = get_chips_market_agg_from_table(days=15)
     _t86 = [{'date': r['date'],
              'foreign_net_total': r.get('foreign_net', 0),
              'trust_net_total':   r.get('trust_net', 0),
@@ -4906,10 +4906,13 @@ def render_market():
             for r in _t86_raw]
 
     if _mm and _fut and _tpx and len(_mm) >= 2 and len(_fut) >= 2 and len(_tpx) >= 2:
-        _bear_score = 0   # 空方累積分
-        _bull_score = 0   # 多方累積分
-        _bear_msgs  = []  # 空方訊號清單 (icon, msg)
-        _bull_msgs  = []  # 多方訊號清單 (icon, msg)
+        _bear_score    = 0   # 空方累積分
+        _bull_score    = 0   # 多方累積分
+        _bear_msgs     = []  # 空方訊號清單 (icon, msg)
+        _bull_msgs     = []  # 多方訊號清單 (icon, msg)
+        _stress_alerts = []  # 市場壓力監控（統一顯示框用）
+        _pv_diverge    = None  # 量價背離：'distribution' | 'accumulation' | None
+        _vol_trend     = 0   # Signal 8 成交量趨勢 %（供壓力監控使用）
 
         # ── 計算大盤技術指標（BIAS / 位置）────
         _ind_tpx   = calc_all(_tpx)
@@ -5085,15 +5088,24 @@ def render_market():
             _bear_score += 1
             _bear_msgs.append(('🟡', f'大盤均線空頭排列（MA5＜MA20＜MA60），中線趨勢向下'))
 
-        # ══ Signal 8：成交量趨勢 ═════════
+        # ══ Signal 8：成交量趨勢 + 量價背離偵測 ═════════
         _vols = [p['value'] for p in _tpx[-5:] if p.get('value', 0) > 0]
         if len(_vols) >= 3:
             _vol_avg3    = sum(_vols[-3:]) / 3
             _vol_avg_pre = sum(_vols[:max(1, len(_vols)-3)]) / max(1, len(_vols)-3)
             _vol_trend   = (_vol_avg3 - _vol_avg_pre) / _vol_avg_pre * 100 if _vol_avg_pre else 0
             if _vol_trend <= -15:
-                _bear_score += 1
-                _bear_msgs.append(('🟡', f'近3日成交量萎縮 {_vol_trend:.0f}%，上漲無力'))
+                if _tpx_chg >= 0.5:     # 漲時量縮 → 分配跡象（偏空）
+                    _bear_score += 1
+                    _bear_msgs.append(('🟡', f'量縮上漲（{_tpx_chg:+.1f}% / 量萎縮 {_vol_trend:.0f}%），分配跡象'))
+                    _pv_diverge = 'distribution'
+                elif _tpx_chg <= -0.5:  # 跌時量縮 → 跌勢趨緩（偏多）
+                    _bull_score += 1
+                    _bull_msgs.append(('🟢', f'量縮下跌（{_tpx_chg:.1f}% / 量萎縮 {_vol_trend:.0f}%），跌勢趨緩'))
+                    _pv_diverge = 'accumulation'
+                else:
+                    _bear_score += 1
+                    _bear_msgs.append(('🟡', f'近3日成交量萎縮 {_vol_trend:.0f}%，市場觀望'))
             elif _vol_trend >= 20:
                 _bull_score += 1
                 _bull_msgs.append(('🟢', f'近3日成交量放大 {_vol_trend:.0f}%，市場積極度提升'))
@@ -5181,6 +5193,22 @@ def render_market():
             elif 0 < _vix_now <= 16:
                 _bull_score += 1
                 _bull_msgs.append(('🟢', f'VIX={_vix_now:.1f}，市場情緒穩定，風險偏好良好'))
+
+            # 台幣急貶（USD/TWD 上漲 = 台幣貶值 = 外資匯出壓力上升）
+            _twd_chg = global_data.get('USD/TWD', {}).get('chg_pct', 0) or 0
+            if _twd_chg >= 1.0:
+                _bear_score += 2
+                _bear_msgs.append(('🔴', f'台幣急貶 {_twd_chg:+.2f}%（USD/TWD），外資匯出壓力上升'))
+                _stress_alerts.append({'level': 2, 'icon': '🔴', 'title': '台幣急貶',
+                                       'detail': f'單日大幅貶值 {_twd_chg:+.2f}%，外資匯出壓力高，警戒'})
+            elif _twd_chg >= 0.5:
+                _bear_score += 1
+                _bear_msgs.append(('🟡', f'台幣走弱 {_twd_chg:+.2f}%（USD/TWD），留意外資動向'))
+                _stress_alerts.append({'level': 1, 'icon': '🟡', 'title': '台幣走弱',
+                                       'detail': f'單日貶值 {_twd_chg:+.2f}%，留意外資是否同步撤退'})
+            elif _twd_chg <= -0.5:
+                _bull_score += 1
+                _bull_msgs.append(('🟢', f'台幣升值 {abs(_twd_chg):.2f}%（USD/TWD），外資匯入跡象'))
 
         # ══ Signal 10：斷頭 / 多殺多風險評估（大跌時觸發）══
         _s10_alert_level = 0   # 0=無, 1=輕度, 2=警告, 3=嚴重
@@ -5293,6 +5321,62 @@ def render_market():
                                        f'歷史第 {_pc_rank} 百分位，市場偏樂觀，注意過熱風險'))
         except Exception:
             pass  # 尚無 P/C 資料，靜默略過
+
+        # ══ 市場壓力監控：三大法人同步賣超 ══
+        if _t86_raw:
+            _t86_lr  = _t86_raw[-1]
+            _t86_fr  = _t86_lr.get('foreign_net', 0) or 0
+            _t86_tr  = _t86_lr.get('trust_net',   0) or 0
+            _t86_dr  = _t86_lr.get('dealer_net',  0) or 0
+            _t86_rd  = _t86_lr.get('date', '')
+            if _t86_fr < 0 and _t86_tr < 0 and _t86_dr < 0:
+                _all_sell_abs = abs(_t86_fr) + abs(_t86_tr) + abs(_t86_dr)
+                if _t86_fr < -80000 and _all_sell_abs > 150000:
+                    _bear_score += 2
+                    _stress_alerts.append({
+                        'level': 2, 'icon': '🔴', 'title': '三大法人同步大賣超',
+                        'detail': (f'外資 {_t86_fr:,} / 投信 {_t86_tr:,} / 自營 {_t86_dr:,} 張（{_t86_rd}）'
+                                   f'，合計 {-_all_sell_abs:,} 張')
+                    })
+                elif _all_sell_abs > 30000:
+                    _bear_score += 1
+                    _stress_alerts.append({
+                        'level': 1, 'icon': '🟡', 'title': '三大法人同步賣超',
+                        'detail': (f'外資 {_t86_fr:,} / 投信 {_t86_tr:,} / 自營 {_t86_dr:,} 張（{_t86_rd}）')
+                    })
+
+        # ══ 市場壓力監控：外資連續賣超天數 ══
+        if _t86_raw:
+            _foreign_consec = 0
+            for _rr in reversed(_t86_raw):
+                if _rr.get('foreign_net', 0) < 0:
+                    _foreign_consec += 1
+                else:
+                    break
+            if _foreign_consec >= 10:
+                _bear_score += 2
+                _stress_alerts.append({
+                    'level': 2, 'icon': '🔴', 'title': f'外資連續賣超 {_foreign_consec} 天',
+                    'detail': f'持續淨賣出 {_foreign_consec} 個交易日，籌碼面壓力沉重'
+                })
+            elif _foreign_consec >= 5:
+                _bear_score += 1
+                _stress_alerts.append({
+                    'level': 1, 'icon': '🟡', 'title': f'外資連續賣超 {_foreign_consec} 天',
+                    'detail': f'連續 {_foreign_consec} 日淨賣出，法人態度偏保守'
+                })
+
+        # ══ 市場壓力監控：量價背離（由 Signal 8 計算，此處加入警示清單）══
+        if _pv_diverge == 'distribution':
+            _stress_alerts.append({
+                'level': 1, 'icon': '🟡', 'title': '量縮上漲（分配跡象）',
+                'detail': f'大盤漲 {_tpx_chg:+.1f}% 但量萎縮 {_vol_trend:.0f}%，留意法人藉反彈出貨'
+            })
+        elif _pv_diverge == 'accumulation':
+            _stress_alerts.append({
+                'level': 0, 'icon': '🟢', 'title': '量縮下跌（跌勢趨緩）',
+                'detail': f'大盤跌 {_tpx_chg:.1f}% 但量萎縮 {_vol_trend:.0f}%，賣壓衰竭跡象'
+            })
 
         # ── 整理訊號清單 ──────────────────────
         _bear_real    = [(i, m) for i, m in _bear_msgs if i != '⚪']
@@ -5413,6 +5497,45 @@ def render_market():
                 f'</div>'
                 f'<div style="font-size:12px;color:#94a3b8;margin-top:8px">'
                 f'💡 {_al_advice}</div>'
+                f'</div>',
+                unsafe_allow_html=True)
+
+        # ── 市場壓力監控（方案B統一顯示框）──────────────
+        _stress_warn  = [a for a in _stress_alerts if a['level'] >= 1]
+        _stress_green = [a for a in _stress_alerts if a['level'] == 0]
+        if _stress_warn or _stress_green:
+            _stress_max = max((a['level'] for a in _stress_warn), default=0)
+            if _stress_max >= 2:
+                _smb = '#2d0a0a'; _smc = '#ef4444'; _smi = '🚨'; _sml = '警告'
+            else:
+                _smb = '#1a1505'; _smc = '#f59e0b'; _smi = '⚠️'; _sml = '注意'
+            _stress_count = len(_stress_warn)
+            _stress_rows_html = ''
+            for _sa in _stress_warn:
+                _sc = '#ef4444' if _sa['level'] >= 2 else '#f59e0b'
+                _stress_rows_html += (
+                    f'<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px">'
+                    f'<span style="min-width:18px">{_sa["icon"]}</span>'
+                    f'<div><span style="color:{_sc};font-weight:700;font-size:13px">{_sa["title"]}</span>'
+                    f'<span style="color:#94a3b8;font-size:12px;margin-left:8px">{_sa["detail"]}</span>'
+                    f'</div></div>'
+                )
+            for _sa in _stress_green:
+                _stress_rows_html += (
+                    f'<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px">'
+                    f'<span style="min-width:18px">{_sa["icon"]}</span>'
+                    f'<div><span style="color:#22c55e;font-weight:700;font-size:13px">{_sa["title"]}</span>'
+                    f'<span style="color:#94a3b8;font-size:12px;margin-left:8px">{_sa["detail"]}</span>'
+                    f'</div></div>'
+                )
+            _smh = (f'{_smi} 市場壓力監控（{_stress_count} 項異常）'
+                    if _stress_count else f'💡 市場壓力監控')
+            st.markdown(
+                f'<div style="background:{_smb};border-left:5px solid {_smc};'
+                f'border-radius:8px;padding:12px 16px;margin:8px 0 12px 0">'
+                f'<div style="font-size:14px;font-weight:700;color:{_smc};margin-bottom:10px">'
+                f'{_smh}</div>'
+                + _stress_rows_html +
                 f'</div>',
                 unsafe_allow_html=True)
 
