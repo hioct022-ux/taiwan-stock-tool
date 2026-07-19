@@ -29,6 +29,7 @@ from database import (init_db, get_prices, get_fundamentals, get_chips,
 from indicators import calc_all
 from scorer import full_score, get_grade, generate_auto_note
 from scheduler import start_scheduler, get_data_status, manual_fetch
+from theme_rotation import render_theme_rotation
 
 # ── 頁面設定 ────────────────────────────
 st.set_page_config(
@@ -494,6 +495,12 @@ def render_sidebar():
         # 市場追蹤
         if st.button('🌐 市場追蹤', use_container_width=True):
             st.session_state['page'] = 'market_tracker'
+            st.session_state.pop('current_code', None)
+            st.rerun()
+
+        # 主題輪動
+        if st.button('🔄 主題輪動', use_container_width=True):
+            st.session_state['page'] = 'theme_rotation'
             st.session_state.pop('current_code', None)
             st.rerun()
 
@@ -7384,6 +7391,11 @@ def main():
     # 市場追蹤頁
     if page == 'market_tracker':
         render_market_tracker()
+        return
+
+    # 主題輪動頁
+    if page == 'theme_rotation':
+        render_theme_rotation()
         return
 
     # 程式說明頁
