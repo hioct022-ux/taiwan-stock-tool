@@ -174,7 +174,7 @@ def _calc_rrg(df: pd.DataFrame) -> list:
             {
                 'ratio':  float(row['ratio']),
                 'moment': float(row['moment']),
-                'date':   str(idx.date()),
+                'date':   f'{idx.year}年{idx.month}月{idx.day}日',
             }
             for idx, row in trail.iterrows()
         ]
@@ -190,12 +190,12 @@ def _calc_rrg(df: pd.DataFrame) -> list:
 def _quadrant(ratio: float, moment: float) -> tuple:
     """回傳 (象限名稱, 顏色)"""
     if ratio >= 100 and moment >= 100:
-        return 'Leading',   '#22c55e'
+        return '領先',   '#22c55e'
     if ratio >= 100 and moment < 100:
-        return 'Weakening', '#f59e0b'
+        return '轉弱', '#f59e0b'
     if ratio < 100  and moment < 100:
-        return 'Lagging',   '#ef4444'
-    return                  'Improving', '#3b82f6'
+        return '落後',   '#ef4444'
+    return                  '改善', '#3b82f6'
 
 
 # ── 主渲染函式 ───────────────────────────────────────────
@@ -320,10 +320,10 @@ def render_theme_rotation():
 
         # 象限標籤
         for (label, xpos, ypos, col) in [
-            ('Leading ↗',   xmax - 1.2, ymax - 0.6, '#22c55e'),
-            ('Weakening ↘', xmax - 1.2, ymin + 0.6, '#f59e0b'),
-            ('Lagging ↙',   xmin + 1.2, ymin + 0.6, '#ef4444'),
-            ('Improving ↖', xmin + 1.2, ymax - 0.6, '#3b82f6'),
+            ('領先 ↗', xmax - 1.2, ymax - 0.6, '#22c55e'),
+            ('轉弱 ↘', xmax - 1.2, ymin + 0.6, '#f59e0b'),
+            ('落後 ↙', xmin + 1.2, ymin + 0.6, '#ef4444'),
+            ('改善 ↖', xmin + 1.2, ymax - 0.6, '#3b82f6'),
         ]:
             fig_rrg.add_annotation(
                 x=xpos, y=ypos, text=label,
@@ -413,10 +413,10 @@ def render_theme_rotation():
     rs_now = _calc_rs_lines(df, n_days)
 
     _q_emoji = {
-        'Leading':   '🟢',
-        'Improving': '🔵',
-        'Weakening': '🟡',
-        'Lagging':   '🔴',
+        '領先': '🟢',
+        '改善': '🔵',
+        '轉弱': '🟡',
+        '落後': '🔴',
     }
 
     if rrg_items:
@@ -453,6 +453,6 @@ def render_theme_rotation():
             )
 
     st.caption(
-        'RRG 說明：**Leading** = 強勢延續　**Weakening** = 強勢但動能衰退　'
-        '**Improving** = 弱勢但動能回升（輪動進場訊號）　**Lagging** = 持續弱勢'
+        'RRG 說明：🟢 **領先** = 強勢延續　🟡 **轉弱** = 強勢但動能衰退　'
+        '🔵 **改善** = 弱勢但動能回升（輪動進場訊號）　🔴 **落後** = 持續弱勢'
     )
