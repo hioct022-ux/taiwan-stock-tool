@@ -1354,3 +1354,81 @@ python3 backtest_stocks.py trail  # 移動停利掃描（None/3%/5%/8%）
 - `scan_hold_days()` 的「◀ 最佳」標記需先收集所有 rows 再決定最佳，不能在 append 時即時判斷（會讓每列都被標記）
 - `market_net` 字典由 `_market_score_history`（Signal 1–8 回溯）提供，格式：`{date_str: net_int}`
 - 回測資料範圍約 2024 至今，均為台股多頭環境，偏空策略系統性低估
+
+---
+
+## 十六、主題輪動頁（theme_rotation.py）（2026-07 新增）
+
+**路由值：** `'theme_rotation'`，側邊欄按鈕「🔄 主題輪動」觸發。
+
+**設計原則：完全獨立模組**
+- 所有邏輯封裝在 `theme_rotation.py`，`app.py` 只改了 3 處共 8 行（import + 側邊欄按鈕 + 路由）
+- 不依賴 DB、不依賴 `github_sync.py`、不需要 `IS_LOCAL` 分支
+- 資料來源：yfinance（雲端本機均可用）
+- 快取：`@st.cache_data(ttl=900)`，15 分鐘
+
+### 主題定義（THEMES dict）
+
+| 主題鍵 | Ticker | 說明 | 是否基準 |
+|--------|--------|------|---------|
+| `'台灣寬基'` | `0050.TW` | 元大台灣50，RS 計算的分母 | ✅ |
+| `'台灣半導體'` | `00891.TW` | 中信關鍵半導體 | — |
+| `'高股息'` | `0056.TW` | 元大高股息 | — |
+| `'費城半導體（美）'` | `00830.TW` | 國泰費城半導體，涵蓋 NVIDIA/AMD | — |
+
+新增主題只需在 `THEMES` dict 加一筆，其餘計算和圖表自動包含。
+
+### 核心計算函式
+
+```python
+_fetch() -> pd.DataFrame
+# @st.cache_data(ttl=900)，下載所有主題 ETF 近 1 年日收盤
+# 回傳寬表 columns=ticker，index=date
+# 任一 ticker 失敗不影響其他
+
+_calc_rs_lines(df, n_days) -> dict
+# 各主題相對強度折線，區間起點標準化為 100
+# RS_Line = theme / benchmark，normalize to 100 at period start
+# 回傳 {theme_name: pd.Series}
+
+_calc_rrg(df) -> list
+# JdK RS-Ratio & RS-Momentum（簡化版）
+# RS_Ratio   = (price/bench) / SMA52(price/bench) * 100
+# RS_Momentum = RS_Ratio / SMA10(RS_Ratio) * 100
+# 週取樣，回傳最近 8 個週資料點（含尾跡）
+# 每筆：{'theme', 'label', 'color', 'points': [{'ratio', 'moment', 'date'}, ...]}
+
+_quadrant(ratio, moment) -> (str, str)
+# 回傳（象限名稱, 顏色）
+# 領先（右上）：ratio≥100 & moment≥100，#22c55e
+# 轉弱（右下）：ratio≥100 & moment<100，#f59e0b
+# 落後（左下）：ratio<100 & moment<100，#ef4444
+# 改善（左上）：ratio<100 & moment≥100，#3b82f6
+```
+
+### 頁面結構
+
+1. **時間區間選擇**：1個月 / 3個月 / 6個月 / 1年（影響 RS Line 圖）
+2. **RS Line 折線圖**：各主題相對 0050 的強弱走勢，基準線 = 100
+3. **RRG 四象限圖**：X 軸 RS Ratio、Y 軸 RS Momentum，含近 8 週虛線尾跡
+4. **文字摘要**：各主題象限位置 + 選定區間的相對強度百分比
+
+### RRG 象限解讀
+
+| 象限 | 位置 | 顏色 | 意義 |
+|------|------|------|------|
+| 領先 | 右上 | 🟢 | 強勢延續，相對強度高且動能持續 |
+| 轉弱 | 右下 | 🟡 | 強勢但動能衰退，注意高點 |
+| 落後 | 左下 | 🔴 | 持續弱勢，迴避 |
+| 改善 | 左上 | 🔵 | 弱勢但動能回升，輪動進場的早期訊號 |
+
+主題通常依 領先 → 轉弱 → 落後 → 改善 → 領先 順時針循環。
+最有意義的切入點：主題從「落後」進入「改善」象限。
+
+### 注意事項
+
+- RRG 需要至少 60 個交易日資料，ETF 上市未滿 60 日不顯示
+- RS Ratio 計算使用 52 週 SMA，需要足夠歷史才穩定（00891 上市 2021/09，00830 上市 2019）
+- RRG 顯示範圍自動依實際資料調整（`xmin/xmax/ymin/ymax` 動態計算，pad=1.5）
+- 日期格式：`2026年7月19日`（中文格式）
+- 所有象限名稱使用中文：領先/轉弱/落後/改善
