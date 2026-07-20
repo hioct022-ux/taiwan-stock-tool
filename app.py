@@ -4372,11 +4372,16 @@ def render_market_tracker():
             )
             show_chart(fig, key='dram_spot_chart')
 
-            # ── 漲跌幅柱狀圖（從價格序列動態計算，不依賴 DB 的 spot_chg_pct）──
+            # ── 漲跌幅柱狀圖（從價格序列動態計算，只納入相鄰 ≤7 天的資料避免季度跳空）──
             if len(spots) >= 3:
+                from datetime import datetime as _dt
                 _chg_dates = []
                 _chg_vals  = []
                 for _i in range(1, len(spots)):
+                    _prev_d = _dt.strptime(dates_all[_i - 1], '%Y-%m-%d')
+                    _curr_d = _dt.strptime(dates_all[_i],     '%Y-%m-%d')
+                    if (_curr_d - _prev_d).days > 7:   # 跨週以上的缺口不計算
+                        continue
                     _prev = spots[_i - 1]
                     _curr = spots[_i]
                     if _prev and _curr and _prev > 0:
