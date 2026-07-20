@@ -4372,10 +4372,16 @@ def render_market_tracker():
             )
             show_chart(fig, key='dram_spot_chart')
 
-            # ── 漲跌幅柱狀圖 ──
-            if len(data) >= 3:
-                _chg_dates = [d['date'] for d in data if d['spot_chg_pct'] is not None]
-                _chg_vals  = [d['spot_chg_pct'] for d in data if d['spot_chg_pct'] is not None]
+            # ── 漲跌幅柱狀圖（從價格序列動態計算，不依賴 DB 的 spot_chg_pct）──
+            if len(spots) >= 3:
+                _chg_dates = []
+                _chg_vals  = []
+                for _i in range(1, len(spots)):
+                    _prev = spots[_i - 1]
+                    _curr = spots[_i]
+                    if _prev and _curr and _prev > 0:
+                        _chg_dates.append(dates_all[_i])
+                        _chg_vals.append(round((_curr - _prev) / _prev * 100, 2))
                 _colors    = ['#ef4444' if v >= 0 else '#22c55e' for v in _chg_vals]
                 fig2 = go.Figure(go.Bar(x=_chg_dates, y=_chg_vals,
                                         marker_color=_colors, name='日漲跌幅%'))
