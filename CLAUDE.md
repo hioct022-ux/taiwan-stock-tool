@@ -1192,6 +1192,44 @@ if (_curr_d - _prev_d).days > 7:   # 跨週以上的缺口不計算
 
 ---
 
+### 27. 大盤分析成交量圖單位錯誤 + 歷史資料單位混雜（2026-07 修正）
+
+**現象一（單位錯誤）：** 大盤分析頁「加權指數」走勢圖，成交量子圖 Y 軸標示「成交金額（億元）」，但顯示的數字（~100–180）跟 Signal 8、K 線解讀、caption 顯示的成交金額（~8,000–13,000 億元）對不上。
+**原因：** 圖表資料來源用了 `ind.get('volumes', [])`（來自 `prices['volume']` 欄位，成交股數/億股），而其他地方都用 `prices['value']`（成交金額/億元），兩者單位不同、來源不同。
+**修正：** 圖表改為直接從 `prices` 用 `p['value']` 建立 `volumes`，與 Signal 8、K 線解讀對齊：
+```python
+_tpx_val_dict = {p['date']: p.get('value', 0) for p in prices}
+volumes = [_tpx_val_dict.get(d, 0) for d in dates]
+```
+
+**現象二（改完後 Y 軸被撐到 8M）：** 上面的修正做完後，圖表 Y 軸出現到 `8M` 的天文數字，遠超合理的成交金額範圍。
+**原因：** `fetch_market_volume()`（FMTQIK 補正函式）原本只呼叫**不帶 `date` 參數**的 FMTQIK API，該端點只回傳「當月」資料。因此只有最近一個月的 `prices.value` 是正確的億元值（如 `8663`），而 3–6 月等較舊資料仍停留在 **yfinance 原始值**（未經補正，數量級是 `4,000,000–8,000,000`，非億元）。同一個 `value` 欄位裡混雜了兩種單位，圖表把兩者連在一起畫，Y 軸被舊資料的量級撐爆，近期真正的資料反而看不出波動。
+
+**修正（fetcher.py `fetch_market_volume()`）：** 重構為逐月呼叫 FMTQIK（`?date=YYYYMM01`），預設補全近 12 個月：
+```python
+def fetch_market_volume(months=12):
+    ...
+    for i in range(months - 1, -1, -1):
+        target = now - timedelta(days=30 * i)
+        date_str = target.strftime('%Y%m01')
+        _fmtqik_fetch_month(date_str, conn)   # 該月份逐日補正 value/volume
+        time.sleep(0.3)
+```
+
+**app.py 防禦性修正：** 圖表資料加上單位合理性過濾（成交金額不可能 ≥ 50,000 億元/日），避免未來又有未補正資料混入時再次撐爆 Y 軸：
+```python
+volumes = [v if 0 < v < 50000 else 0
+           for v in [_tpx_val_dict.get(d, 0) for d in dates]]
+_has_missing_vol = any(v == 0 for v in volumes[-60:])
+```
+若近 60 日仍有缺值，圖表下方顯示提示：「部分歷史成交金額尚未補正，請按手動更新資料」。
+
+**操作提醒：** 修正後需在本機按一次「🔄 手動更新資料」，讓 `fetch_market_volume(months=12)` 跑過一輪，把 3–6 月的 `value` 欄位補正為正確億元值。之後每日更新只需補正當月，不會重跑全部 12 個月的舊資料（`UPDATE ... WHERE date=?`，已補正的資料再次執行是幂等的，只是稍微浪費 API 呼叫）。
+
+**通則：** 任何「歷史資料 + 新資料」用不同來源/方法產生的欄位（本例：yfinance 原始值 vs FMTQIK 補正值），如果只在「新增當下」用新方法補正，舊資料會永久停留在舊格式，形成同一欄位混雜多種單位的陷阱。修正時必須考慮**回填歷史**，不能只改「未來新資料」的產生邏輯。
+
+---
+
 ## 十一、新增功能的標準流程
 
 ### A. 新增一個大盤指標（從 API 抓資料到顯示）
