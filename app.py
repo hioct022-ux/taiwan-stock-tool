@@ -6093,8 +6093,11 @@ def render_market():
     ma60s   = ind.get('ma60_series', [])
     # 成交金額（億元）：使用 value 欄位（FMTQIK 補正後），與 Signal 8 / K 線解讀一致
     # 注意：ind.get('volumes') 是成交股數（億股），Y 軸單位不同，不能用
+    # 安全過濾：未補正的舊 yfinance 原始值 >> 50,000，超過此值代表單位不對（非億元），顯示 0
     _tpx_val_dict = {p['date']: p.get('value', 0) for p in prices}
-    volumes = [_tpx_val_dict.get(d, 0) for d in dates]
+    volumes = [v if 0 < v < 50000 else 0
+               for v in [_tpx_val_dict.get(d, 0) for d in dates]]
+    _has_missing_vol = any(v == 0 for v in volumes[-60:])  # 近60日有空值代表尚未補正
     bb_upper_s = ind.get('bb_upper_series', [])
     bb_lower_s = ind.get('bb_lower_series', [])
 
@@ -6191,6 +6194,9 @@ def render_market():
         )
         fig.update_xaxes(showgrid=True, gridcolor='#252a38')
         show_chart(fig)
+
+        if _has_missing_vol:
+            st.caption('⚠️ 部分歷史成交金額尚未補正（舊版資料），請按「🔄 手動更新資料」即可補全。')
 
         # ── 成交量判斷 ──────────────────────────
         # 過濾掉 0 值（yfinance 近日資料有時為 0）

@@ -2705,43 +2705,31 @@ def fetch_taiex(months=6):
     return len(all_rows)
 
 
-def fetch_market_volume():
+def _fmtqik_fetch_month(date_str, conn):
     """
-    從 TWSE FMTQIK 抓取每日市場成交金額，
-    補正 prices 表中 TAIEX 的 value 欄位（億元）。
-    yfinance 對指數成交量不可靠，改用此 API 修正。
+    抓取單一月份的 FMTQIK 資料並更新 DB。
+    date_str 格式：YYYYMMDD（取當月任意一天，通常用 01）。
+    回傳更新筆數。
     """
-    url = 'https://www.twse.com.tw/exchangeReport/FMTQIK?response=json'
+    url = f'https://www.twse.com.tw/exchangeReport/FMTQIK?response=json&date={date_str}'
     try:
         r = requests.get(url, headers=HEADERS, timeout=15, verify=False)
         data = r.json()
     except Exception as e:
-        print(f'FMTQIK 成交金額抓取失敗：{e}')
-        return
+        print(f'FMTQIK {date_str} 失敗：{e}')
+        return 0
 
     if data.get('stat') != 'OK':
-        print('FMTQIK 無資料')
-        return
+        return 0
 
-    fields = data.get('fields', [])
-    rows   = data.get('data', [])
-
-    from database import get_conn
-    conn = get_conn()
     updated = 0
-
-    for row in rows:
+    for row in data.get('data', []):
         try:
-            # 日期：民國年 115/05/29 → 2026-05-29
             date_std = twse_date_to_std(row[0])
             if not date_std or len(date_std) < 8:
                 continue
-            # 成交金額（元）→ 億元
-            value_b = float(str(row[2]).replace(',', '')) / 1e8
-            # 成交股數（股）→ 億股
-            volume_b = float(str(row[1]).replace(',', '')) / 1e8
-
-            # 更新 prices 表的 value / volume 欄位
+            value_b  = float(str(row[2]).replace(',', '')) / 1e8   # 成交金額 元 → 億元
+            volume_b = float(str(row[1]).replace(',', '')) / 1e8   # 成交股數 股 → 億股
             conn.execute(
                 'UPDATE prices SET value=?, volume=? WHERE code=? AND date=?',
                 (value_b, volume_b, 'TAIEX', date_std)
@@ -2750,10 +2738,39 @@ def fetch_market_volume():
                 updated += 1
         except Exception:
             continue
+    return updated
+
+
+def fetch_market_volume(months=12):
+    """
+    從 TWSE FMTQIK 補正 TAIEX 的 value（成交金額 億元）和 volume（成交股數 億股）。
+    預設補全近 months 個月，修正 yfinance 原始值單位錯誤的歷史資料。
+    """
+    from database import get_conn
+    from datetime import datetime, timedelta
+
+    conn = get_conn()
+    total = 0
+    now   = datetime.now()
+
+    # 逐月補抓（最近月份在最後，確保最新資料是最終狀態）
+    seen_months = set()
+    for i in range(months - 1, -1, -1):
+        # 往前推 i 個月（近似：30天 × i）
+        target = now - timedelta(days=30 * i)
+        ym = target.strftime('%Y%m')
+        if ym in seen_months:
+            continue
+        seen_months.add(ym)
+        date_str = target.strftime('%Y%m01')
+        updated  = _fmtqik_fetch_month(date_str, conn)
+        if updated:
+            print(f'FMTQIK {ym}：補正 {updated} 筆')
+        time.sleep(0.3)   # 不要太快打 TWSE
 
     conn.commit()
     conn.close()
-    print(f'FMTQIK 成交金額補正：{updated} 筆（億元）')
+    print(f'FMTQIK 成交金額補正完成（近 {months} 個月）')
 
 
 if __name__ == '__main__':
