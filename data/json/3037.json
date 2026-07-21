@@ -1426,23 +1426,16 @@
       "pe": 116.76,
       "pb": 11.12,
       "dividend_yield": 0.25
+    },
+    {
+      "date": "2026-07-21",
+      "eps_ttm": 6.8,
+      "pe": 110.29,
+      "pb": 10.51,
+      "dividend_yield": 0.26
     }
   ],
   "chips": [
-    {
-      "date": "2026-04-17",
-      "foreign_buy": 2270,
-      "foreign_sell": 2036,
-      "foreign_net": 234,
-      "trust_buy": 291,
-      "trust_sell": 198,
-      "trust_net": 52,
-      "dealer_buy": 0,
-      "dealer_sell": 0,
-      "dealer_net": 0,
-      "margin_balance": 34714,
-      "short_balance": 167
-    },
     {
       "date": "2026-04-20",
       "foreign_buy": 4707,
@@ -2338,11 +2331,25 @@
       "dealer_net": 0,
       "margin_balance": 40436,
       "short_balance": 161
+    },
+    {
+      "date": "2026-07-21",
+      "foreign_buy": 6727,
+      "foreign_sell": 5775,
+      "foreign_net": 951,
+      "trust_buy": -193,
+      "trust_sell": 24,
+      "trust_net": 246,
+      "dealer_buy": 0,
+      "dealer_sell": 0,
+      "dealer_net": 0,
+      "margin_balance": 40356,
+      "short_balance": 294
     }
   ],
   "ownership": {
-    "foreign_pct": 36.54,
-    "date": "2026-07-20"
+    "foreign_pct": 36.57,
+    "date": "2026-07-21"
   },
-  "exported_at": "2026-07-20 21:47"
+  "exported_at": "2026-07-21 22:01"
 }
