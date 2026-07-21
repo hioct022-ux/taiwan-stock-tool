@@ -6091,7 +6091,10 @@ def render_market():
     ma5s    = ind.get('ma5_series', [])
     ma20s   = ind.get('ma20_series', [])
     ma60s   = ind.get('ma60_series', [])
-    volumes = ind.get('volumes', [])
+    # 成交金額（億元）：使用 value 欄位（FMTQIK 補正後），與 Signal 8 / K 線解讀一致
+    # 注意：ind.get('volumes') 是成交股數（億股），Y 軸單位不同，不能用
+    _tpx_val_dict = {p['date']: p.get('value', 0) for p in prices}
+    volumes = [_tpx_val_dict.get(d, 0) for d in dates]
     bb_upper_s = ind.get('bb_upper_series', [])
     bb_lower_s = ind.get('bb_lower_series', [])
 
@@ -6152,15 +6155,25 @@ def render_market():
                 showlegend=True
             ), row=1, col=1)
 
-        # 成交量柱狀圖
+        # 成交金額柱狀圖（億元，FMTQIK 補正）
         if volumes:
             fig.add_trace(go.Bar(
                 x=dates, y=volumes,
-                name='成交量',
+                name='成交金額',
                 marker_color=vol_colors,
                 opacity=0.75,
                 showlegend=True
             ), row=2, col=1)
+            # 20日均量參考線
+            _valid_vols = [v for v in volumes if v and v > 0]
+            if len(_valid_vols) >= 20:
+                _avg20 = sum(_valid_vols[-20:]) / 20
+                fig.add_trace(go.Scatter(
+                    x=dates, y=[_avg20] * len(dates),
+                    name='20日均量',
+                    line=dict(color='#94a3b8', width=1, dash='dot'),
+                    showlegend=True
+                ), row=2, col=1)
 
         fig.update_layout(
             paper_bgcolor='#0d0f12',
