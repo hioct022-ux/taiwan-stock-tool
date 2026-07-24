@@ -405,9 +405,10 @@ def _parse_market_margin_response(data, date_std_fb):
         return None, None
 
     return date_str, {
-        'margin_balance': margin_balance,
-        'margin_buy':     margin_buy,
-        'margin_sell':    margin_sell,
+        'margin_balance': margin_balance,   # 億元（融資金額換算）
+        'margin_buy':     margin_buy,       # 張
+        'margin_sell':    margin_sell,      # 張
+        'margin_lots':    margin_lots,      # 張（融資餘額，與 margin_buy/sell 同單位，供比例計算用）
         'short_balance':  short_balance,
         'short_buy':      short_buy,
         'short_sell':     short_sell,
@@ -549,6 +550,7 @@ def fetch_market_margin():
                 'margin_balance': margin_balance,   # 億元
                 'margin_buy':     margin_buy,       # 張
                 'margin_sell':    margin_sell,       # 張
+                'margin_lots':    margin_lots,      # 張（融資餘額，供比例計算，勿與 margin_balance 億元混用）
                 'short_balance':  short_balance,    # 張
                 'short_buy':      short_buy,        # 張
                 'short_sell':     short_sell,       # 張

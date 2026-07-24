@@ -5346,9 +5346,11 @@ def render_market():
             _mb_d2_s10   = _mm[-3].get('margin_balance', 0) or 0
             _ss_buy_s10  = _mm[-1].get('short_buy', 0) or 0
             _ss_bal_s10  = _mm[-1].get('short_balance', 0) or 0
+            _mb_lots_s10 = _mm[-1].get('margin_lots', 0) or 0   # 融資餘額（張），與 margin_sell 同單位
 
-            # 融資賣出比例：昨日融資賣出 / 融資餘額
-            _ms_ratio = _ms_now / _mb_s10 * 100 if _mb_s10 > 0 else 0
+            # 融資賣出比例：昨日融資賣出（張） / 融資餘額（張）
+            # 注意：分母必須用 margin_lots（張），不能用 margin_balance（億元），單位不同會產生離譜比例
+            _ms_ratio = _ms_now / _mb_lots_s10 * 100 if _mb_lots_s10 > 0 else 0
             # 融資餘額連續萎縮幅度
             _mb_d1_shrink = (_mb_s10 - _mb_d1_s10) / _mb_d1_s10 * 100 if _mb_d1_s10 > 0 else 0
             _mb_d2_shrink = (_mb_d1_s10 - _mb_d2_s10) / _mb_d2_s10 * 100 if _mb_d2_s10 > 0 else 0

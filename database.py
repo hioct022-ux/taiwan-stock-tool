@@ -196,6 +196,7 @@ def init_db():
             margin_balance   INTEGER DEFAULT 0,
             margin_buy       INTEGER DEFAULT 0,
             margin_sell      INTEGER DEFAULT 0,
+            margin_lots      INTEGER DEFAULT 0,
             short_balance    INTEGER DEFAULT 0,
             short_buy        INTEGER DEFAULT 0,
             short_sell       INTEGER DEFAULT 0
@@ -288,6 +289,7 @@ def init_db():
     # ── 欄位 migration（舊版 DB 相容）──
     migrations = [
         'ALTER TABLE exdividend ADD COLUMN is_confirmed INTEGER DEFAULT 0',
+        'ALTER TABLE market_margin ADD COLUMN margin_lots INTEGER DEFAULT 0',
     ]
     for sql in migrations:
         try:
@@ -821,11 +823,12 @@ def save_market_margin(date, data):
     conn = get_conn()
     conn.execute('''
         INSERT OR REPLACE INTO market_margin
-        (date, margin_balance, margin_buy, margin_sell,
+        (date, margin_balance, margin_buy, margin_sell, margin_lots,
          short_balance, short_buy, short_sell)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     ''', (date,
           data.get('margin_balance', 0), data.get('margin_buy', 0), data.get('margin_sell', 0),
+          data.get('margin_lots', 0),
           data.get('short_balance', 0),  data.get('short_buy', 0),  data.get('short_sell', 0)))
     conn.commit()
     conn.close()
@@ -833,12 +836,12 @@ def save_market_margin(date, data):
 def get_market_margin(days=120):
     conn = get_conn()
     rows = conn.execute('''
-        SELECT date, margin_balance, margin_buy, margin_sell,
+        SELECT date, margin_balance, margin_buy, margin_sell, margin_lots,
                short_balance, short_buy, short_sell
         FROM market_margin ORDER BY date DESC LIMIT ?
     ''', (days,)).fetchall()
     conn.close()
-    cols = ['date', 'margin_balance', 'margin_buy', 'margin_sell',
+    cols = ['date', 'margin_balance', 'margin_buy', 'margin_sell', 'margin_lots',
             'short_balance', 'short_buy', 'short_sell']
     return [dict(zip(cols, r)) for r in reversed(rows)]
 
