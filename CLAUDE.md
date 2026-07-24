@@ -1230,6 +1230,38 @@ _has_missing_vol = any(v == 0 for v in volumes[-60:])
 
 ---
 
+### 28. Signal 10 融資賣出比例爆出 5000%+ 離譜數字（2026-07 修正）
+
+**現象：** 大盤分析頁跳出「斷頭風險」警告，但顯示「融資賣出比例 5418.1%」，明顯不合理（正常值 1.5–2.5%，異常也頂多 3–5%）。
+
+**根本原因：** `market_margin` 表裡的欄位單位不一致：
+- `margin_balance`：**億元**（`fetch_market_margin()` 內用「融資金額(仟元)」÷ 100000 換算而來）
+- `margin_sell` / `margin_buy`：**張**（「融資(交易單位)」欄位，未經任何換算）
+
+Signal 10 原始計算：
+```python
+_ms_ratio = _ms_now / _mb_s10 * 100   # margin_sell(張) / margin_balance(億元)
+```
+分子是「張」、分母是「億元」，兩者量級差了約 10 萬倍（1 億元對應的張數遠大於「1」），導致比例失真到 5000%+ 這種荒謬數字。融券那邊的 `_ss_ratio = short_buy(張) / short_balance(張)` 因為兩者都是「張」，單位一致，沒有這個問題——這也是為什麼只有融資賣出比例出包。
+
+**追根究底：** `fetch_market_margin()` 內部其實已經算出「融資餘額（張）」這個值（變數 `margin_lots`），但只拿它當 `margin_balance` 抓不到「融資金額(仟元)」時的**備援**，從沒有單獨存進 DB。所以 Signal 10 想找一個「張」單位的融資餘額當分母時，DB 裡根本沒有這個欄位可用，才會誤用單位不同的 `margin_balance`。
+
+**修正：**
+1. `database.py`：`market_margin` 表新增 `margin_lots` 欄位（張，融資餘額），並在 `init_db()` migrations 加 `ALTER TABLE market_margin ADD COLUMN margin_lots INTEGER DEFAULT 0`；`save_market_margin()` / `get_market_margin()` 同步支援這個欄位。
+2. `fetcher.py`：`_parse_market_margin_response()`（歷史補抓用）與 `fetch_market_margin()`（每日抓取用）都把原本就算出來的 `margin_lots` 一併存入 DB。
+3. `app.py` Signal 10：
+   ```python
+   _mb_lots_s10 = _mm[-1].get('margin_lots', 0) or 0   # 融資餘額（張）
+   _ms_ratio = _ms_now / _mb_lots_s10 * 100 if _mb_lots_s10 > 0 else 0
+   ```
+   分子分母都改成「張」，單位一致。
+
+**歷史資料回填：** 既有 `market_margin` 資料的 `margin_lots` 一律是 0（欄位新增前沒有值），修正當下 Signal 10 會暫時失效（分母為 0 直接回傳 0%，不會誤報但也不會正確觸發）。提供 `backfill_margin_lots.py`（一次性腳本，執行後可刪除）重新呼叫 TWSE MI_MARGN 補近 20 個交易日的 `margin_lots`。之後每日「🔄 手動更新資料」會自動帶入新資料，不需要再手動補。
+
+**通則：** 同一張表裡不同欄位如果分別代表「原始單位」與「換算後單位」（本例 `margin_buy/sell` 是張、`margin_balance` 是換算過的億元），寫比例公式前務必先確認兩個欄位的實際單位是否一致，不能只看欄位語意接近就直接相除。跨欄位運算前，最快的驗證方法是拿 DB 裡的真實數字手算一次，數量級對不上就是單位錯誤的訊號。
+
+---
+
 ## 十一、新增功能的標準流程
 
 ### A. 新增一個大盤指標（從 API 抓資料到顯示）
