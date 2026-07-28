@@ -1262,6 +1262,62 @@ _ms_ratio = _ms_now / _mb_s10 * 100   # margin_sell(張) / margin_balance(億元
 
 ---
 
+### 29. 台指期夜盤資料偶爾「消失」——FinMind ReadTimeout（2026-07 修正）
+
+**現象：** 大盤分析頁的台指期日盤/夜盤區塊有時突然不顯示，但 token 沒過期、`config_local.py` 也沒被改動。
+
+**原因：** `_fetch_taiex_futures()` 內層用 `except Exception: return {}` 把任何錯誤都吞掉直接回傳空字典，包含單純的連線逾時（`ReadTimeout`）。原本 `timeout=12` 秒偏緊，FinMind API 偶爾回應較慢，一旦單次請求超過 12 秒就直接判定失敗，畫面上完全看不出「是額度用完、token失效、還是單純網路慢」，只會看到整個區塊消失。
+
+**診斷方式：** 寫了一次性腳本 `debug_taiex_futures.py`（可重複使用，不用每次都刪），會印出 HTTP 狀態碼、FinMind 回傳的 `status`/`msg`、資料筆數，直接執行：
+```bash
+python3 debug_taiex_futures.py
+```
+這次實際測試結果是 `ReadTimeout`（15秒都沒回應完），確認是網路/伺服器回應速度問題，不是 token 或程式邏輯錯誤。
+
+**修正（app.py `_fetch_taiex_futures()`）：**
+1. `timeout` 從 12 秒拉長到 20 秒
+2. 加最多 3 次重試（間隔 3 秒），只針對連線層級例外（`requests.exceptions.RequestException`）：
+```python
+data = None
+for _attempt in range(3):
+    try:
+        r = _req.get(..., timeout=20)
+        data = r.json()
+        break
+    except _req.exceptions.RequestException:
+        if _attempt < 2:
+            _time.sleep(3)
+            continue
+        return {}
+if data is None or data.get('status') != 200:
+    return {}
+```
+
+**通則：** 外部 API 呼叫如果用 `except Exception: return {}` 這種寬鬆的錯誤處理，會讓「額度用完」「token失效」「單純網路慢」在畫面上呈現一模一樣的「資料不見了」，難以排查。建議搭配一個診斷腳本（印出原始 HTTP 狀態碼與錯誤訊息）放在專案裡備用，遇到類似「怎麼突然不見了」的回報時可以直接請使用者執行、貼結果回來，不用臆測。
+
+---
+
+### 30. 多殺多/斷頭警告框日期硬編碼「昨日」（2026-07 修正）
+
+**現象：** 大盤分析頁的多殺多/斷頭警告框，文字寫死「昨日大盤跌幅 X%」。使用者反映：今天看是「昨日」，那明天再看該不會還顯示同一個「昨日」吧？——這正是問題所在：日期用字是寫死的字串，沒有跟著資料實際日期走。
+
+**根本原因：** 陷阱 4（2026-06）已經把訊號清單裡的文字訊息（`_bear_msgs`）從「昨日」改成套用 `_tpx_date`（資料實際日期）。但「多殺多/斷頭獨立警告框」是**在陷阱 4 之後才新增的功能**（2026-07），這個警告框的文字是另外寫的一段程式碼，沒有沿用同樣的修正，殘留了舊的硬編碼寫法，導致同一頁面出現「訊號清單用對日期、警告框用死日期」的不一致。
+
+**修正（app.py）：**
+1. `_s10_alert_info` 這個 dict 在 4 處直接指派 + 2 處 `setdefault` 都補上 `'date': _tpx_date`
+2. 警告框顯示文字改為：
+```python
+_al_date_label = _s10_alert_info.get('date', '')
+_al_lines.append(f'{_al_date_label} 大盤跌幅 <b>{_s10_alert_info["chg"]:.2f}%</b>')
+```
+取代原本寫死的 `f'昨日大盤跌幅 ...'`。
+
+**效果：** 修正後不管哪一天開啟工具查看，警告框都會顯示事件實際發生的日期（例如「2026-07-28 大盤跌幅 2.67%」），不會因為查看的時間點不同而產生語意錯亂。
+
+**通則：** 修正「相對日期用字」（昨日/今日/近日）這類問題時，要注意程式裡可能有**多處**用類似邏輯產生訊息文字（例如本例的「訊號清單文字」與「警告框文字」是分別維護的兩段程式碼），只改其中一處容易漏掉另一處。搜尋關鍵字（如「昨日」）確認全檔案沒有殘留，是比較保險的做法。
+
+---
+
 ## 十一、新增功能的標準流程
 
 ### A. 新增一個大盤指標（從 API 抓資料到顯示）
