@@ -4732,6 +4732,7 @@ def _fetch_taiex_futures():
     回傳 {'day': {...}, 'night': {...}}，失敗的 session 不含對應 key。
     每 5 分鐘快取一次。
     spread / spread_per：夜盤相對於當日日盤結算的漲跌點 / %。
+    FinMind 偶有回應緩慢（ReadTimeout），故加重試 + 拉長 timeout，避免單次逾時就整個區塊消失。
     """
     try:
         try:
@@ -4742,17 +4743,28 @@ def _fetch_taiex_futures():
             return {}
 
         import requests as _req
+        import time as _time
         from datetime import datetime as _dt, timedelta as _td
 
         start = (_dt.now() - _td(days=5)).strftime('%Y-%m-%d')
-        r = _req.get(
-            'https://api.finmindtrade.com/api/v4/data',
-            params={'dataset': 'TaiwanFuturesDaily', 'data_id': 'TX',
-                    'start_date': start, 'token': _fmt},
-            timeout=12
-        )
-        data = r.json()
-        if data.get('status') != 200:
+
+        data = None
+        for _attempt in range(3):
+            try:
+                r = _req.get(
+                    'https://api.finmindtrade.com/api/v4/data',
+                    params={'dataset': 'TaiwanFuturesDaily', 'data_id': 'TX',
+                            'start_date': start, 'token': _fmt},
+                    timeout=20
+                )
+                data = r.json()
+                break
+            except _req.exceptions.RequestException:
+                if _attempt < 2:
+                    _time.sleep(3)
+                    continue
+                return {}
+        if data is None or data.get('status') != 200:
             return {}
 
         rows = data.get('data', [])
