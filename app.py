@@ -7289,6 +7289,32 @@ def render_strategy():
             f'</div></div></div>',
             unsafe_allow_html=True)
 
+        # ── 大盤轉空全面減碼警報（策略 D 邏輯，2026-07 空頭回測驗證）──
+        # 空頭段驗證：D（大盤 net 轉空提前出場）平均損益 -1.84% vs C -4.52%
+        if _net is not None and _net >= 4:
+            st.markdown(
+                f'<div style="background:#2d0a0a;border-left:5px solid #ef4444;'
+                f'border-radius:8px;padding:12px 16px;margin-bottom:14px">'
+                f'<div style="font-size:15px;font-weight:700;color:#ef4444;margin-bottom:6px">'
+                f'🚨 大盤明確轉空（淨值 {_net:+d}）——建議全面減碼或出場</div>'
+                f'<div style="font-size:13px;color:#d4a0a0;line-height:1.7">'
+                f'不論個股評分高低，系統性下跌時個股會一起跌，等個股警訊出現通常已太遲。<br>'
+                f'空頭段回測：大盤轉空即出場的策略平均損益 -1.8%，等個股訊號的策略 -4.5%。</div>'
+                f'<div style="font-size:12px;color:#94a3b8;margin-top:8px">'
+                f'💡 持股者：明日開盤減碼至半倉以下；未掛停損單者立即補掛。</div>'
+                f'</div>',
+                unsafe_allow_html=True)
+        elif _net is not None and _net >= 2:
+            st.markdown(
+                f'<div style="background:#1a1505;border-left:5px solid #f59e0b;'
+                f'border-radius:8px;padding:12px 16px;margin-bottom:14px">'
+                f'<div style="font-size:14px;font-weight:700;color:#f59e0b;margin-bottom:4px">'
+                f'⚠️ 大盤偏空（淨值 {_net:+d}）——建議開始減碼</div>'
+                f'<div style="font-size:12px;color:#94a3b8;line-height:1.6">'
+                f'大盤層級的轉弱通常比個股評分早 1–2 天反映。確認所有持股都已預掛停損單。</div>'
+                f'</div>',
+                unsafe_allow_html=True)
+
     st.markdown('---')
 
     # ── 今日進場訊號 ──
@@ -7334,14 +7360,37 @@ def render_strategy():
 
         if qualified:
             st.markdown(f'**✅ 符合進場條件（評分 ≥{_threshold}）　共 {len(qualified)} 檔**')
-            _hc1, _hc2, _hc3 = st.columns([3, 1, 2])
-            _hc1.caption('股票'); _hc2.caption('評分'); _hc3.caption('標籤')
+
+            # 取最新收盤價，計算建議停損價（收盤 × 0.92）
+            def _latest_close_for(code):
+                try:
+                    if IS_LOCAL:
+                        _lp = get_prices(code, days=1)
+                    else:
+                        _lp, _, _, _ = _read_stock_json(code)
+                    return _lp[-1]['close'] if _lp else None
+                except Exception:
+                    return None
+
+            _hc1, _hc2, _hc3, _hc4 = st.columns([3, 1, 1.6, 1.4])
+            _hc1.caption('股票'); _hc2.caption('評分')
+            _hc3.caption('參考停損價'); _hc4.caption('標籤')
             for w, sc in qualified:
                 if   sc >= 85: _sc_c = '#22c55e'
                 elif sc >= 70: _sc_c = '#4ade80'
                 elif sc >= 65: _sc_c = '#86efac'
                 else:          _sc_c = '#94a3b8'
-                _c1, _c2, _c3 = st.columns([3, 1, 2])
+                _close = _latest_close_for(w['code'])
+                if _close:
+                    _stop  = _close * 0.92
+                    _stop_str = f'{_stop:,.0f}' if _stop >= 500 else f'{_stop:,.2f}'
+                    _close_str = f'{_close:,.0f}' if _close >= 500 else f'{_close:,.2f}'
+                    _stop_html = (f'<div style="padding:6px 0;font-size:12px">'
+                                  f'<span style="color:#ef4444;font-weight:700">{_stop_str}</span>'
+                                  f'<span style="color:#475569">　(現 {_close_str})</span></div>')
+                else:
+                    _stop_html = '<div style="padding:6px 0;font-size:12px;color:#475569">—</div>'
+                _c1, _c2, _c3, _c4 = st.columns([3, 1, 1.6, 1.4])
                 with _c1:
                     if st.button(f'{w["code"]} {w["name"]}',
                                  key=f'strat_q_{w["code"]}', use_container_width=True):
@@ -7350,10 +7399,14 @@ def render_strategy():
                         st.rerun()
                 _c2.markdown(f'<div style="padding:6px 0;font-weight:800;color:{_sc_c}">{sc}</div>',
                              unsafe_allow_html=True)
-                _c3.markdown(f'<div style="padding:6px 0;font-size:12px;color:#64748b">'
+                _c3.markdown(_stop_html, unsafe_allow_html=True)
+                _c4.markdown(f'<div style="padding:6px 0;font-size:12px;color:#64748b">'
                              f'{"、".join(w.get("tags", [])) or "—"}</div>',
                              unsafe_allow_html=True)
-            st.caption('進場時機：確認訊號後隔日買入，不追漲。停損設進場價 -8%。')
+            st.caption('進場時機：確認訊號後隔日買入，不追漲。'
+                       '**買進當日立即在券商 App 預掛停損單**（表列價格以最新收盤 ×0.92 估算，'
+                       '實際請以你的成交價 ×0.92 為準）。'
+                       '預掛停損單是即時價格觸發，可避免「盤後警示 + 隔日才能動作」的延遲。')
         else:
             st.info(f'目前無自選股達到 {_threshold} 分門檻，建議觀望。')
 
@@ -7420,9 +7473,11 @@ def render_strategy():
         st.markdown('''
 **持有管理**
 - 停損：跌 8% 立即出場（最優先）
+- **買進當日即預掛停損單**（成交價×0.92），即時觸發不等盤後
 - 標準持有：10 個交易日
 - 到期重新評分：≥65 續抱，<65 出場
 - 不設固定停利
+- 大盤淨值 ≥+4 → 不等個股訊號，全面減碼（空頭回測驗證）
 
 **回測依據（策略 C）**
 - 157+ 筆歷史交易
