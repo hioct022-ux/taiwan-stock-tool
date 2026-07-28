@@ -5376,7 +5376,7 @@ def render_market():
                                    f'融資賣出比例 **{_ms_ratio:.1f}%**（正常 ＜2.5%），'
                                    f'強制斷頭引發恐慌拋售，今日開盤續跌風險高'))
                 _s10_alert_level = 3
-                _s10_alert_info  = {'title': '⚡ 多殺多啟動', 'chg': _tpx_chg,
+                _s10_alert_info  = {'title': '⚡ 多殺多啟動', 'chg': _tpx_chg, 'date': _tpx_date,
                                     'ratio': _ms_ratio, 'type': 'margin_sell'}
             elif _tpx_chg <= -3.0 and _ms_ratio >= 3.5:
                 _bear_score += 2
@@ -5384,7 +5384,7 @@ def render_market():
                                    f'融資賣出比例 **{_ms_ratio:.1f}%**（異常偏高），'
                                    f'斷頭賣壓仍在釋放，注意今日開盤量能'))
                 _s10_alert_level = 2
-                _s10_alert_info  = {'title': '⚠️ 多殺多跡象', 'chg': _tpx_chg,
+                _s10_alert_info  = {'title': '⚠️ 多殺多跡象', 'chg': _tpx_chg, 'date': _tpx_date,
                                     'ratio': _ms_ratio, 'type': 'margin_sell'}
             elif _tpx_chg <= -2.0 and _ms_ratio >= 3.5:
                 _bear_score += 2
@@ -5392,7 +5392,7 @@ def render_market():
                                    f'融資賣出比例 {_ms_ratio:.1f}%（＞3.5% 警戒），'
                                    f'槓桿戶面臨維持率壓力，今日若再跌易觸發連鎖斷頭'))
                 _s10_alert_level = 2
-                _s10_alert_info  = {'title': '🔻 斷頭風險', 'chg': _tpx_chg,
+                _s10_alert_info  = {'title': '🔻 斷頭風險', 'chg': _tpx_chg, 'date': _tpx_date,
                                     'ratio': _ms_ratio, 'type': 'margin_sell'}
             elif _tpx_chg <= -2.0 and _ms_ratio >= 2.5:
                 _bear_score += 1
@@ -5400,7 +5400,7 @@ def render_market():
                                    f'略偏高，注意槓桿戶是否開始被動去槓桿'))
                 _s10_alert_level = max(_s10_alert_level, 1)
                 if not _s10_alert_info:
-                    _s10_alert_info = {'title': '融資去槓桿提示', 'chg': _tpx_chg,
+                    _s10_alert_info = {'title': '融資去槓桿提示', 'chg': _tpx_chg, 'date': _tpx_date,
                                        'ratio': _ms_ratio, 'type': 'margin_sell'}
 
             # 條件 C：斷頭加速（連續 2 日融資餘額萎縮 ≥ 1.5%/日，獨立評估）
@@ -5413,6 +5413,7 @@ def render_market():
                 if _s10_alert_info.get('type') != 'margin_sell' or _s10_alert_level < 3:
                     _s10_alert_info.setdefault('shrink', f'{_mb_d2_shrink:.1f}% → {_mb_d1_shrink:.1f}%')
                     _s10_alert_info.setdefault('title', '📉 斷頭加速')
+                    _s10_alert_info.setdefault('date', _tpx_date)
             elif _mb_d1_shrink <= -1.5:
                 _bear_score += 1
                 _bear_msgs.append(('🟡', f'融資餘額（{_tpx_date}）萎縮 {_mb_d1_shrink:.1f}%，'
@@ -5420,6 +5421,7 @@ def render_market():
                 _s10_alert_level = max(_s10_alert_level, 1)
                 _s10_alert_info.setdefault('shrink', f'{_mb_d1_shrink:.1f}%')
                 _s10_alert_info.setdefault('title', '融資去槓桿提示')
+                _s10_alert_info.setdefault('date', _tpx_date)
 
             # 條件 D：融券大量回補（空頭獲利了結 = 短線反彈支撐，獨立評估）
             if _tpx_chg <= -2.0 and _ss_ratio >= 3.0:
@@ -5620,7 +5622,8 @@ def render_market():
             _al_title = _s10_alert_info.get('title', '融資異常')
             _al_lines = []
             if 'chg' in _s10_alert_info:
-                _al_lines.append(f'昨日大盤跌幅 <b>{_s10_alert_info["chg"]:.2f}%</b>')
+                _al_date_label = _s10_alert_info.get('date', '')
+                _al_lines.append(f'{_al_date_label} 大盤跌幅 <b>{_s10_alert_info["chg"]:.2f}%</b>')
             if 'ratio' in _s10_alert_info:
                 _al_lines.append(f'融資賣出比例 <b>{_s10_alert_info["ratio"]:.1f}%</b>（正常值 ＜2.5%）')
             if 'shrink' in _s10_alert_info:
