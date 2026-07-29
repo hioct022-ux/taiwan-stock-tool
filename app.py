@@ -5728,10 +5728,10 @@ def render_market():
         elif _ms >= 20: _ms_grade = '偏空';     _ms_c = '#f97316'; _ms_bg = '#2d1500'
         else:           _ms_grade = '強烈偏空'; _ms_c = '#ef4444'; _ms_bg = '#2d0a0a'
 
-        if   _ms >= 70: _ms_rec = '大盤條件良好，個股 ≥65 分可積極考慮進場'
-        elif _ms >= 55: _ms_rec = '大盤偏多，個股建議門檻提高至 70 分'
-        elif _ms >= 45: _ms_rec = '大盤中性，個股建議門檻提高至 75 分，保守操作'
-        else:           _ms_rec = '大盤偏空，建議暫停進場，觀望為主'
+        if   _ms >= 70: _ms_rec = '大盤條件良好，個股 ≥65 分可積極進場；多頭不追高，逢回檔分批佈局'
+        elif _ms >= 55: _ms_rec = '大盤偏多，個股門檻提高至 70 分；買點挑回檔日（量縮、不破前低），不追漲'
+        elif _ms >= 45: _ms_rec = '大盤中性，個股門檻提高至 75 分；輕倉試單，進場即掛停損單'
+        else:           _ms_rec = '大盤偏空，暫停進場；持股逢反彈減碼（不恐慌殺低），停損單守最後底線'
 
         # 趨勢標籤：從上次載入的歷史評分取前一點作比較
         _ms_prev_hist = st.session_state.get('_market_score_history', [])
