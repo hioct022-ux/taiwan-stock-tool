@@ -2573,6 +2573,130 @@ def render_score(result, code, name, prices=None, fund_data=None, chips_all=None
         else:
             st.info('歷史資料不足，無法顯示評分走勢。')
 
+        # ── 個股轉折觀察清單（弱勢→底部觀察；強勢→過熱觀察）──────
+        # 與大盤版同一設計：條件判斷非預測。中間地帶（50–64分）不顯示，避免資訊過載。
+        # 側邊欄 🎯🔥🌀⚡ 旗標照舊保留（掃描視角）；本清單為深入視角，偵測邏輯對齊。
+        _sck_items = []
+        _sck_title = None
+        if len(prices) >= 30:
+            _closes_ck = [p['close'] for p in prices]
+            _lows_ck   = [p['low']   for p in prices]
+            _vols_ck   = [p.get('volume', 0) for p in prices]
+            _vol_ma20_ck = sum(_vols_ck[-20:]) / 20 if len(_vols_ck) >= 20 else None
+            _ma20_ck   = ind.get('ma20')
+            _bias5_ck  = ind.get('bias5')
+            _rsi_ck    = ind.get('rsi')
+            # 法人（外資+投信）連續賣超天數與最新動向
+            _inst_consec_sell = 0
+            for _c in reversed(chips_all):
+                if (_c.get('foreign_net', 0) + _c.get('trust_net', 0)) < 0:
+                    _inst_consec_sell += 1
+                else:
+                    break
+            _inst_latest = ((chips_all[-1].get('foreign_net', 0) + chips_all[-1].get('trust_net', 0))
+                            if chips_all else 0)
+            # 融資餘額變化
+            _mb_rows_ck = [c.get('margin_balance', 0) for c in chips_all if c.get('margin_balance', 0) > 0]
+            _mb_chg20_ck = ((_mb_rows_ck[-1] - _mb_rows_ck[-20]) / _mb_rows_ck[-20] * 100
+                            if len(_mb_rows_ck) >= 20 else None)
+            _mb_chg5_ck  = ((_mb_rows_ck[-1] - _mb_rows_ck[-6]) / _mb_rows_ck[-6] * 100
+                            if len(_mb_rows_ck) >= 6 else None)
+            # 評分走勢
+            _sc_rising  = (len(_hist_display) >= 3 and
+                           _hist_display[-1]['total'] > _hist_display[-2]['total'] >= _hist_display[-3]['total'])
+            _recent5_tot = [h['total'] for h in _hist_display[-5:]] if _hist_display else []
+            _peak_prev   = max(_recent5_tot[:-1]) if len(_recent5_tot) >= 2 else None
+            _sc_decline  = (_peak_prev is not None and _peak_prev >= 65 and
+                            _hist_display[-1]['total'] <= _peak_prev - 5)
+            _vol_shrink3 = bool(_vol_ma20_ck and len(_vols_ck) >= 3 and
+                                all(v < _vol_ma20_ck for v in _vols_ck[-3:]))
+
+            def _sck_row(ok, title, val, plain):
+                _ic  = '✅' if ok else '❌'
+                _tc2 = '#22c55e' if ok else '#8892a4'
+                return (ok,
+                        f'<div style="margin:6px 0;font-size:13px;line-height:1.5">'
+                        f'{_ic} <b style="color:{_tc2}">{title}</b>'
+                        f'<span style="color:#94a3b8">　{val}</span><br>'
+                        f'<span style="font-size:11px;color:#64748b">　　白話：{plain}</span></div>')
+
+            if total < 50:
+                _sck_title = '🧭 底部轉折觀察清單'
+                _sck_sub   = '出現越多 ✅ 代表越接近打底完成；全部 ❌ 代表弱勢尚未止穩'
+                _sck_color = '#f97316'
+                _sck_items.append(_sck_row(_vol_shrink3, '量縮整理',
+                    '近3日量均低於20日均量' if _vol_shrink3 else '量能未明顯萎縮',
+                    '想賣的人變少了，賣壓逐漸消化'))
+                _ok = (len(_lows_ck) >= 25 and min(_lows_ck[-5:]) > min(_lows_ck[-25:-5]))
+                _sck_items.append(_sck_row(_ok, '低點不再創新低',
+                    (f'近5日低點 {min(_lows_ck[-5:]):,.1f} vs 前段低點 {min(_lows_ck[-25:-5]):,.1f}'
+                     if len(_lows_ck) >= 25 else '資料不足'),
+                    '每次下殺都有人接手，底部有支撐'))
+                _ok = _inst_consec_sell <= 1
+                _sck_items.append(_sck_row(_ok, '法人停止連續賣超',
+                    f'外資+投信連續賣超 {_inst_consec_sell} 天',
+                    '主要賣壓來源（法人）收手了'))
+                _ok = (_mb_chg20_ck is not None and _mb_chg20_ck <= -5)
+                _sck_items.append(_sck_row(_ok, '融資餘額明顯下降',
+                    (f'近20日 {_mb_chg20_ck:+.1f}%（≤-5% 觸發）'
+                     if _mb_chg20_ck is not None else '資料不足'),
+                    '借錢買進而套牢的浮動籌碼洗掉了，反彈時上方賣壓變小'))
+                _ok = (_ma20_ck is not None and close >= _ma20_ck)
+                _sck_items.append(_sck_row(_ok, '站回月線之上',
+                    f'股價 {close:,.1f} / 月線 {_ma20_ck:,.1f}' if _ma20_ck else '資料不足',
+                    '近一個月買進的人開始解套，心理賣壓減輕'))
+                _sck_items.append(_sck_row(_sc_rising, '評分止跌回升',
+                    '已連續回升' if _sc_rising else '尚未回升',
+                    '綜合訊號連續改善，弱勢可能接近尾聲'))
+                _sck_note = ('註：個股受消息面影響大（財報、法說、產業事件），條件再完整也可能單日反轉。'
+                             '此清單為輔助確認，重大決策仍應搭配大盤環境與停損紀律。')
+            elif total >= 65:
+                _sck_title = '🧭 過熱衰竭觀察清單'
+                _sck_sub   = '出現越多 ⚠️ 代表漲勢越接近尾聲；全部正常代表多方結構健康'
+                _sck_color = '#22c55e'
+                _ok = (_bias5_ck is not None and _bias5_ck >= 8)
+                _sck_items.append(_sck_row(_ok, '短線乖離過大',
+                    (f'BIAS5 {_bias5_ck:+.1f}%（≥+8% 觸發）'
+                     if _bias5_ck is not None else '資料不足'),
+                    '漲太快、離短線平均成本太遠，容易引來獲利了結賣壓'))
+                _ok = (len(_closes_ck) >= 6 and _closes_ck[-1] > _closes_ck[-6] and _vol_shrink3)
+                _sck_items.append(_sck_row(_ok, '漲時量縮',
+                    '價漲但近3日量縮' if _ok else '未出現',
+                    '價格還在漲但買的人變少，可能有人邊漲邊出貨'))
+                _ok = _inst_latest < 0
+                _sck_items.append(_sck_row(_ok, '法人由買轉賣',
+                    f'最新一日外資+投信合計 {_inst_latest:+,} 張',
+                    '推升股價的主力（法人）開始收手'))
+                _ok = (_mb_chg5_ck is not None and _mb_chg5_ck >= 10)
+                _sck_items.append(_sck_row(_ok, '融資急增',
+                    (f'近5日 {_mb_chg5_ck:+.1f}%（≥+10% 觸發）'
+                     if _mb_chg5_ck is not None else '資料不足'),
+                    '散戶借錢追高，籌碼從穩定的大戶換到不穩定的散戶手上'))
+                _ok = (_rsi_ck is not None and _rsi_ck >= 80)
+                _sck_items.append(_sck_row(_ok, 'RSI 超買',
+                    f'RSI {_rsi_ck:.0f}（≥80 觸發）' if _rsi_ck is not None else '資料不足',
+                    '短線動能過熱，統計上容易出現回檔修正'))
+                _sck_items.append(_sck_row(bool(_sc_decline), '評分從峰值下滑',
+                    (f'近期高點 {_peak_prev} → 目前 {_hist_display[-1]["total"]}'
+                     if _sc_decline else '未下滑'),
+                    '綜合訊號從高檔轉弱（與上方衰退警告連動）'))
+                _sck_note = ('註：過熱不等於馬上跌——強勢股可以在過熱狀態續漲一段時間。'
+                             '此清單的用途是提醒「逐步調高警覺、檢查停損位」，而非立即賣出訊號。')
+
+        if _sck_title and _sck_items:
+            _sck_hit  = sum(1 for ok, _ in _sck_items if ok)
+            _sck_html = ''.join(h for _, h in _sck_items)
+            st.markdown(
+                f'<div style="background:#141720;border:1px solid #252a38;'
+                f'border-radius:10px;padding:14px 18px;margin-top:12px">'
+                f'<div style="font-size:15px;font-weight:700;color:{_sck_color};margin-bottom:2px">'
+                f'{_sck_title}　<span style="font-size:13px">{_sck_hit} / {len(_sck_items)} 項出現</span></div>'
+                f'<div style="font-size:11px;color:#64748b;margin-bottom:8px">{_sck_sub}</div>'
+                + _sck_html +
+                f'<div style="font-size:11px;color:#475569;margin-top:8px">{_sck_note}</div>'
+                f'</div>',
+                unsafe_allow_html=True)
+
     # 分項評分
     col1, col2, col3 = st.columns(3)
     with col1:
