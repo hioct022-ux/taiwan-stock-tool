@@ -4996,7 +4996,8 @@ def _fetch_global_markets():
 def render_market():
     st.markdown('## 📊 大盤走勢分析（加權指數）')
     _market_score_placeholder = st.empty()             # ← 大盤評分佔位符，稍後填入
-    _market_checklist_placeholder = st.container()     # ← 轉折觀察清單佔位符（評分卡正下方）
+    _market_alert_placeholder = st.container()         # ← 緊急警告佔位符（多殺多/斷頭 + 市場壓力，正在發生的事）
+    _market_checklist_placeholder = st.container()     # ← 轉折觀察清單佔位符
     _market_score_chart_placeholder = st.container()  # ← 評分歷史走勢佔位符，稍後填入
 
     # ── 外部市場警示 ─────────────────────────
@@ -5783,7 +5784,8 @@ def render_market():
                 _al_lines.append(f'融資餘額萎縮幅度 <b>{_s10_alert_info["shrink"]}</b>')
             _al_advice = ('建議今日暫緩進場，已持倉確認停損位置' if _s10_alert_level >= 2
                           else '留意今日開盤是否延續去槓桿，已持倉注意風控')
-            st.markdown(
+            # 填入頂部緊急警告佔位符（評分卡正下方，代表「正在發生的事」）
+            _market_alert_placeholder.markdown(
                 f'<div style="background:{_al_bg};border-left:5px solid {_al_bc};'
                 f'border-radius:8px;padding:12px 16px;margin:8px 0 12px 0">'
                 f'<div style="font-size:15px;font-weight:700;color:{_al_bc};margin-bottom:6px">'
@@ -5826,7 +5828,8 @@ def render_market():
                 )
             _smh = (f'{_smi} 市場壓力監控（{_stress_count} 項異常）'
                     if _stress_count else f'💡 市場壓力監控')
-            st.markdown(
+            # 填入頂部緊急警告佔位符（接在多殺多框之後，同屬「正在發生的事」）
+            _market_alert_placeholder.markdown(
                 f'<div style="background:{_smb};border-left:5px solid {_smc};'
                 f'border-radius:8px;padding:12px 16px;margin:8px 0 12px 0">'
                 f'<div style="font-size:14px;font-weight:700;color:{_smc};margin-bottom:10px">'
