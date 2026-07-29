@@ -5430,6 +5430,7 @@ def render_market():
                                    f'空頭獲利了結，可能提供短線技術性反彈支撐'))
 
         # ══ Signal 11：選擇權 P/C 比率 ══
+        _pc_rank = None   # 供轉折觀察清單使用（資料不足時維持 None）
         try:
             if IS_LOCAL:
                 from database import get_options_pc as _get_pc
@@ -5874,6 +5875,131 @@ def render_market():
             unsafe_allow_html=True)
 
         st.caption(f'評估基準日：{_tpx_date}　空方/多方分數為各訊號加權總計（每日常態化）　｜　僅供參考，不構成投資建議')
+
+        # ── 轉折觀察清單（偏空→空頭轉折觀察；偏多→多頭衰竭觀察）──────
+        # 設計原則：不預測時間（無法可靠預測），改用條件判斷——列出「趨勢接近尾聲」的訊號，
+        # 出現越多項代表越接近轉折，全部未出現代表趨勢仍在途中。
+        if _net >= 1 or _net <= -1:
+            # 共用資料準備
+            _mb_vals_chk = [r.get('margin_balance', 0) for r in _mm if r.get('margin_balance', 0) > 0]
+            _f_consec_sell_chk = 0
+            for _r in reversed(_t86_raw):
+                if _r.get('foreign_net', 0) < 0:
+                    _f_consec_sell_chk += 1
+                else:
+                    break
+            _f_latest_net_chk = _t86_raw[-1].get('foreign_net', 0) if _t86_raw else 0
+            _ma20_chk = _ind_tpx.get('ma20')
+            _ms_rising_chk = (len(_ms_hist_display) >= 3 and
+                              _ms_hist_display[-1]['ms'] > _ms_hist_display[-2]['ms'] >= _ms_hist_display[-3]['ms'])
+            _ms_falling_chk = (len(_ms_hist_display) >= 3 and
+                               _ms_hist_display[-1]['ms'] < _ms_hist_display[-2]['ms'] <= _ms_hist_display[-3]['ms'])
+            _mb_c1_chk = _mb_c2_chk = _mb_5chg_chk = None
+            if len(_mb_vals_chk) >= 3:
+                _mb_c1_chk = (_mb_vals_chk[-1] - _mb_vals_chk[-2]) / _mb_vals_chk[-2] * 100
+                _mb_c2_chk = (_mb_vals_chk[-2] - _mb_vals_chk[-3]) / _mb_vals_chk[-3] * 100
+            if len(_mb_vals_chk) >= 6:
+                _mb_5chg_chk = (_mb_vals_chk[-1] - _mb_vals_chk[-6]) / _mb_vals_chk[-6] * 100
+
+            _chk_items = []   # list of (ok: bool, html: str)
+
+            def _chk_row(ok, title, val, plain):
+                _ic = '✅' if ok else '❌'
+                _tc = '#22c55e' if ok else '#8892a4'
+                return (ok,
+                        f'<div style="margin:6px 0;font-size:13px;line-height:1.5">'
+                        f'{_ic} <b style="color:{_tc}">{title}</b>'
+                        f'<span style="color:#94a3b8">　{val}</span><br>'
+                        f'<span style="font-size:11px;color:#64748b">　　白話：{plain}</span></div>')
+
+            if _net >= 1:
+                _chk_title = '🧭 空頭轉折觀察清單'
+                _chk_sub   = '出現越多 ✅ 代表越接近底部；全部 ❌ 代表空頭尚無結束跡象'
+                _chk_color = '#f97316'
+                # 1. 融資餘額止穩
+                _ok = (_mb_c1_chk is not None and _mb_c1_chk > -0.5 and _mb_c2_chk > -0.5)
+                _val = (f'近2日變化 {_mb_c2_chk:+.1f}% / {_mb_c1_chk:+.1f}%'
+                        if _mb_c1_chk is not None else '資料不足')
+                _chk_items.append(_chk_row(_ok, '融資餘額止穩', _val,
+                    '借錢買股票的人被強制賣出（斷頭）的壓力告一段落，該賣的賣得差不多了'))
+                # 2. 量縮下跌
+                _ok = (_pv_diverge == 'accumulation')
+                _val = '已出現' if _ok else '未出現'
+                _chk_items.append(_chk_row(_ok, '量縮下跌（賣壓衰竭）', _val,
+                    '還在跌但成交量明顯縮小，代表想賣的人已經賣完，跌勢自然趨緩'))
+                # 3. 外資停止連續賣超
+                _ok = (_f_consec_sell_chk <= 1)
+                _chk_items.append(_chk_row(_ok, '外資停止連續賣超',
+                    f'目前連續賣超 {_f_consec_sell_chk} 天',
+                    '市場最大的賣方（外資）收手了，主要賣壓來源減少'))
+                # 4. 恐慌極端（P/C 高百分位）
+                _ok = (_pc_rank is not None and _pc_rank >= 90)
+                _val = f'P/C 百分位 {_pc_rank}%（≥90% 觸發）' if _pc_rank is not None else '資料不足'
+                _chk_items.append(_chk_row(_ok, '恐慌情緒達極端', _val,
+                    '買保險（避險部位）的人多到極點；歷史上市場怕到極致時，反而常是底部'))
+                # 5. 大盤評分連續回升
+                _chk_items.append(_chk_row(_ms_rising_chk, '大盤評分連續回升',
+                    '已連續回升' if _ms_rising_chk else '尚未回升',
+                    '本工具的綜合訊號連續改善中，空方力道在減弱'))
+                # 6. 站回月線
+                _ok = (_ma20_chk is not None and _tpx_now >= _ma20_chk)
+                _val = (f'指數 {_tpx_now:,.0f} / 月線 {_ma20_chk:,.0f}'
+                        if _ma20_chk else '資料不足')
+                _chk_items.append(_chk_row(_ok, '站回月線之上', _val,
+                    '指數回到近20日平均成本之上，短線買進的人多數解套，賣壓減輕'))
+                _chk_note = ('註：清單為條件判斷，非時間預測。空頭要走多久取決於下跌原因'
+                             '（估值修正通常數週、系統性風險可能數月），無法從盤後資料預估；'
+                             '與其猜時間，不如每天確認上述條件出現了幾項。')
+            else:
+                _chk_title = '🧭 多頭衰竭觀察清單'
+                _chk_sub   = '出現越多 ⚠️ 代表漲勢越接近尾聲；全部正常代表多頭健康'
+                _chk_color = '#22c55e'
+                # 1. 融資餘額急增
+                _ok = (_mb_5chg_chk is not None and _mb_5chg_chk >= 3)
+                _val = (f'近5日 {_mb_5chg_chk:+.1f}%（≥+3% 觸發）'
+                        if _mb_5chg_chk is not None else '資料不足')
+                _chk_items.append(_chk_row(_ok, '融資餘額急增', _val,
+                    '散戶借錢追高的量暴增，籌碼變得不穩，一跌就容易引發連環賣壓'))
+                # 2. 漲時量縮
+                _ok = (_pv_diverge == 'distribution')
+                _chk_items.append(_chk_row(_ok, '漲時量縮（分配跡象）',
+                    '已出現' if _ok else '未出現',
+                    '價格還在漲但成交量縮小，可能是大戶邊漲邊把股票倒給散戶'))
+                # 3. 外資由買轉賣
+                _ok = (_f_latest_net_chk < 0)
+                _chk_items.append(_chk_row(_ok, '外資由買轉賣',
+                    f'最新一日 {_f_latest_net_chk:+,} 張',
+                    '市場最大的買方開始收手甚至反手賣出，上漲的燃料減少'))
+                # 4. 過度樂觀（P/C 低百分位）
+                _ok = (_pc_rank is not None and _pc_rank <= 25)
+                _val = f'P/C 百分位 {_pc_rank}%（≤25% 觸發）' if _pc_rank is not None else '資料不足'
+                _chk_items.append(_chk_row(_ok, '市場過度樂觀', _val,
+                    '幾乎沒人買保險（避險）＝大家都不怕跌；歷史上全場樂觀時反而要小心'))
+                # 5. 大盤評分連續下滑
+                _chk_items.append(_chk_row(_ms_falling_chk, '大盤評分連續下滑',
+                    '已連續下滑' if _ms_falling_chk else '未下滑',
+                    '本工具的綜合訊號連續轉弱，多方力道在減退'))
+                # 6. 短線乖離過大
+                _ok = (_bias5_tpx is not None and _bias5_tpx >= 5)
+                _val = (f'BIAS5 {_bias5_tpx:+.1f}%（≥+5% 觸發）'
+                        if _bias5_tpx is not None else '資料不足')
+                _chk_items.append(_chk_row(_ok, '短線乖離過大', _val,
+                    '指數漲太快、離近5日平均成本太遠，短線獲利的人容易賣出造成回檔'))
+                _chk_note = ('註：清單為條件判斷，非時間預測。多頭能走多久無法預估；'
+                             '出現的警訊越多，越應該把「逢回檔買」改成「逢反彈減碼」的心態。')
+
+            _chk_hit = sum(1 for ok, _ in _chk_items if ok)
+            _chk_html = ''.join(h for _, h in _chk_items)
+            st.markdown(
+                f'<div style="background:#141720;border:1px solid #252a38;'
+                f'border-radius:10px;padding:14px 18px;margin-top:12px">'
+                f'<div style="font-size:15px;font-weight:700;color:{_chk_color};margin-bottom:2px">'
+                f'{_chk_title}　<span style="font-size:13px">{_chk_hit} / {len(_chk_items)} 項出現</span></div>'
+                f'<div style="font-size:11px;color:#64748b;margin-bottom:8px">{_chk_sub}</div>'
+                + _chk_html +
+                f'<div style="font-size:11px;color:#475569;margin-top:8px">{_chk_note}</div>'
+                f'</div>',
+                unsafe_allow_html=True)
     else:
         st.info('資料不足，無法進行開盤前預判（需至少5日融資融券及期貨資料）')
 
