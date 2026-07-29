@@ -4845,6 +4845,7 @@ def _fetch_global_markets():
 def render_market():
     st.markdown('## 📊 大盤走勢分析（加權指數）')
     _market_score_placeholder = st.empty()             # ← 大盤評分佔位符，稍後填入
+    _market_checklist_placeholder = st.container()     # ← 轉折觀察清單佔位符（評分卡正下方）
     _market_score_chart_placeholder = st.container()  # ← 評分歷史走勢佔位符，稍後填入
 
     # ── 外部市場警示 ─────────────────────────
@@ -5990,9 +5991,10 @@ def render_market():
 
             _chk_hit = sum(1 for ok, _ in _chk_items if ok)
             _chk_html = ''.join(h for _, h in _chk_items)
-            st.markdown(
+            # 填入頁面頂部的佔位符（大盤評分卡正下方）
+            _market_checklist_placeholder.markdown(
                 f'<div style="background:#141720;border:1px solid #252a38;'
-                f'border-radius:10px;padding:14px 18px;margin-top:12px">'
+                f'border-radius:10px;padding:14px 18px;margin-bottom:14px">'
                 f'<div style="font-size:15px;font-weight:700;color:{_chk_color};margin-bottom:2px">'
                 f'{_chk_title}　<span style="font-size:13px">{_chk_hit} / {len(_chk_items)} 項出現</span></div>'
                 f'<div style="font-size:11px;color:#64748b;margin-bottom:8px">{_chk_sub}</div>'
