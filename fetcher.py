@@ -2638,11 +2638,12 @@ def fetch_etf_holdings():
 
 
 # ── 抓加權指數歷史資料（TAIEX）────────────
-def fetch_taiex(months=6):
+def fetch_taiex(months=6, force=False):
     """
     抓取台灣加權指數（TAIEX）歷史日資料，存入 prices 表（code='TAIEX'）。
     使用 yfinance 套件抓取 Yahoo Finance ^TWII，自動處理 cookie/session。
     如未安裝 yfinance，執行：pip install yfinance --break-system-packages
+    force=True：不跳過已有日期，全部 INSERT OR REPLACE（用於回填長歷史，如年線需要 240+ 交易日）
     """
     from database import save_prices, get_latest_price_date, save_stock_info
 
@@ -2650,7 +2651,7 @@ def fetch_taiex(months=6):
     last_date = get_latest_price_date('TAIEX')
     all_rows  = []
 
-    period = f'{months}mo' if months <= 11 else '1y'
+    period = f'{months}mo' if months <= 11 else ('2y' if months <= 24 else '5y')
     print(f'抓取加權指數歷史（yfinance ^TWII，{period}）...')
 
     try:
@@ -2664,7 +2665,7 @@ def fetch_taiex(months=6):
         prev_close = None
         for ts, row in hist.iterrows():
             date_str = ts.strftime('%Y-%m-%d')
-            if last_date and date_str <= last_date:
+            if not force and last_date and date_str <= last_date:
                 prev_close = float(row['Close'])
                 continue
             close = round(float(row['Close']), 2)

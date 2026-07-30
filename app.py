@@ -6161,7 +6161,7 @@ def render_market():
 
     st.markdown('---')
 
-    prices = get_prices('TAIEX', days=250)
+    prices = get_prices('TAIEX', days=400)   # 400日：年線(MA240)需要240+交易日
     if not prices:
         st.warning('尚無大盤資料，請先按左側「🔄 手動更新資料」抓取最新數據。')
         return
@@ -6186,22 +6186,27 @@ def render_market():
         )
     with col2:
         # 動態均線位置：對稱顯示「腳下支撐」與「頭上反壓」，下跌與回升皆適用
-        ma5  = ind.get('ma5')
-        ma20 = ind.get('ma20')
-        ma60 = ind.get('ma60')
-        _ml_lines = [(n, v) for n, v in [('5日線', ma5), ('月線', ma20), ('季線', ma60)] if v]
+        # 含半年線/年線（需 DB 有 120/240+ 交易日資料，不足時自動略過該線）
+        ma5   = ind.get('ma5')
+        ma20  = ind.get('ma20')
+        ma60  = ind.get('ma60')
+        ma120 = ind.get('ma120')
+        ma240 = ind.get('ma240')
+        _ml_lines = [(n, v) for n, v in [('5日線', ma5), ('月線', ma20), ('季線', ma60),
+                                         ('半年線', ma120), ('年線', ma240)] if v]
         if _ml_lines:
             _ml_sup = [(n, v) for n, v in _ml_lines if close >= v]   # 站上的線（支撐）
             _ml_res = [(n, v) for n, v in _ml_lines if close < v]    # 未站上的線（反壓）
+            _ml_names = '/'.join(n for n, _ in _ml_lines)
             if not _ml_res:
                 st.metric('均線位置', '全數站上', delta='站上所有均線 ✅')
                 st.caption('｜'.join(f'{n} {v:,.0f}' for n, v in _ml_lines))
             elif not _ml_sup:
                 _near_r = min(_ml_res, key=lambda x: x[1])   # 最近的反壓
-                st.metric('均線位置', '全數跌破', delta='跌破所有均線 ❌')
+                st.metric('均線位置', '全數跌破', delta=f'跌破 {_ml_names} ❌')
                 st.caption(f'最近反壓：{_near_r[0]} {_near_r[1]:,.0f}（{close - _near_r[1]:+,.0f} 點）')
             else:
-                _ml_order = {'5日線': 1, '月線': 2, '季線': 3}
+                _ml_order = {'5日線': 1, '月線': 2, '季線': 3, '半年線': 4, '年線': 5}
                 _best_sup = max(_ml_sup, key=lambda x: _ml_order[x[0]])   # 站上的最長週期線
                 _near_sup = max(_ml_sup, key=lambda x: x[1])              # 最近的支撐（值最高）
                 _near_res = min(_ml_res, key=lambda x: x[1])              # 最近的反壓（值最低）

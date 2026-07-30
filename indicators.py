@@ -30,6 +30,8 @@ def calc_all(prices):
     result['ma10'] = round(df['close'].tail(10).mean(), 2)       if n >= 10        else None
     result['ma20'] = round(df['close'].tail(MA_MID).mean(), 2)   if n >= MA_MID    else None
     result['ma60'] = round(df['close'].tail(MA_LONG).mean(), 2)  if n >= MA_LONG   else None
+    result['ma120'] = round(df['close'].tail(120).mean(), 2)     if n >= 120       else None  # 半年線
+    result['ma240'] = round(df['close'].tail(240).mean(), 2)     if n >= 240       else None  # 年線
 
     # ── RSI ─────────────────────────────
     if n >= RSI_PERIOD + 1:
