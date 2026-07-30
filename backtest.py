@@ -142,7 +142,7 @@ for i in range(1, len(taiex_all)):
     actual_dir = 'up' if actual_chg > 0.1 else ('down' if actual_chg < -0.1 else 'flat')
 
     # 昨日之前的 TAIEX 視窗（最多 30 筆）
-    tpx_win  = taiex_all[max(0, i-30):i]
+    tpx_win  = taiex_all[max(0, i-250):i]   # 250日：與 app.py 預判視窗一致（MA60 + 真正的250日位置）
 
     # 昨日及之前的期貨視窗（找 date <= date_prev）
     fut_win  = [r for r in futures_all if r['date'] <= date_prev][-15:]

@@ -2443,7 +2443,7 @@ def render_score(result, code, name, prices=None, fund_data=None, chips_all=None
                                       'chips': _r_today['chip_score']})
 
         # 大盤評分歷史（重用快取，對齊個股日期區間）
-        _ms_hist     = st.session_state.get('_market_score_history', [])
+        _ms_hist     = st.session_state.get('_market_score_history_v3', [])
         _ms_by_date  = {h['date']: h['ms'] for h in _ms_hist}
 
         # ── 計算評分趨勢標籤，更新 grade-box ──
@@ -5165,7 +5165,7 @@ def render_market():
     if IS_LOCAL:
         _mm  = get_market_margin(days=15)
         _fut = get_futures_institutional(days=15)
-        _tpx = get_prices('TAIEX', days=30)
+        _tpx = get_prices('TAIEX', days=250)   # 250日：S7需MA60(60筆)、pos_250需250筆才名實相符
     else:
         try:
             import json as _jmm
@@ -5175,11 +5175,11 @@ def render_market():
             with open(os.path.join(_jbase, 'futures_institutional.json'), encoding='utf-8') as _f:
                 _fut = _jmm.load(_f).get('rows', [])[-15:]
             with open(os.path.join(_jbase, 'TAIEX.json'), encoding='utf-8') as _f:
-                _tpx = _jmm.load(_f).get('prices', [])[-30:]
+                _tpx = _jmm.load(_f).get('prices', [])[-250:]
         except Exception as _je:
             _mm  = get_market_margin(days=15)
             _fut = get_futures_institutional(days=15)
-            _tpx = get_prices('TAIEX', days=30)
+            _tpx = get_prices('TAIEX', days=250)
     # Signal 4 與三大法人圖統一使用 chips_market_agg 來源，確保上下一致
     if IS_LOCAL:
         _t86_raw = get_chips_market_aggregate(days=15)
@@ -5734,7 +5734,7 @@ def render_market():
         else:           _ms_rec = '大盤偏空，暫停進場；持股逢反彈減碼（不恐慌殺低），停損單守最後底線'
 
         # 趨勢標籤：從上次載入的歷史評分取前一點作比較
-        _ms_prev_hist = st.session_state.get('_market_score_history', [])
+        _ms_prev_hist = st.session_state.get('_market_score_history_v3', [])
         if len(_ms_prev_hist) >= 2:
             _ms_td = _ms - _ms_prev_hist[-2]['ms']
             if   _ms_td >= 3:  _ms_trend, _ms_trend_c = '趨強', '#22c55e'
@@ -5839,25 +5839,27 @@ def render_market():
                 unsafe_allow_html=True)
 
         # ── 大盤評分歷史走勢 ──────────────────────────────
-        _ms_hist_key = '_market_score_history'
+        _ms_hist_key = '_market_score_history_v3'   # v3：250日回溯視窗（MA60 + 真正的250日位置），改版時換 key 強制重算
         if _ms_hist_key not in st.session_state:
             try:
+                # 取 430 日：顯示最後 180 日，前面 250 日供回溯視窗（MA60 / pos_250）使用
                 if IS_LOCAL:
-                    _h_tpx  = get_prices('TAIEX', days=180)
-                    _h_fut  = get_futures_institutional(days=180)
-                    _h_mm   = get_market_margin(days=180)
+                    _h_tpx  = get_prices('TAIEX', days=430)
+                    _h_fut  = get_futures_institutional(days=430)
+                    _h_mm   = get_market_margin(days=430)
                 else:
                     import json as _jh
                     from config import JSON_DIR as _jd
-                    _h_tpx  = _jh.load(open(os.path.join(_jd, 'TAIEX.json'))).get('prices', [])[-180:]
-                    _h_fut  = _jh.load(open(os.path.join(_jd, 'futures_institutional.json'))).get('rows', [])[-180:]
-                    _h_mm   = _jh.load(open(os.path.join(_jd, 'market_margin.json'))).get('rows', [])[-180:]
+                    _h_tpx  = _jh.load(open(os.path.join(_jd, 'TAIEX.json'))).get('prices', [])[-430:]
+                    _h_fut  = _jh.load(open(os.path.join(_jd, 'futures_institutional.json'))).get('rows', [])[-430:]
+                    _h_mm   = _jh.load(open(os.path.join(_jd, 'market_margin.json'))).get('rows', [])[-430:]
 
                 _ms_hist = []
-                for _hi in range(1, len(_h_tpx)):
+                _hi_start = max(1, len(_h_tpx) - 180)   # 只輸出最後 180 日的評分點
+                for _hi in range(_hi_start, len(_h_tpx)):
                     _hd   = _h_tpx[_hi]['date']
                     _hprev= _h_tpx[_hi-1]['date']
-                    _htpx = _h_tpx[max(0, _hi-30):_hi]
+                    _htpx = _h_tpx[max(0, _hi-250):_hi]
                     _hfut = [r for r in _h_fut if r['date'] <= _hprev][-15:]
                     _hmm  = [r for r in _h_mm  if r['date'] <= _hprev][-15:]
                     _hb, _hbl = 0, 0
