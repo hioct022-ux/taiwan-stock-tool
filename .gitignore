@@ -1,5 +1,7 @@
-# 資料庫（本機資料，不上傳）
+# 資料庫（本機資料，不上傳；含個人持倉紀錄 positions 表）
 data/stock.db
+data/stock.db-wal
+data/stock.db-shm
 # data/json/ 需要上傳供雲端版讀取，請勿加回此行
 
 # Log 檔

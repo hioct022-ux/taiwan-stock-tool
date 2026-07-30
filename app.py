@@ -27,6 +27,7 @@ from database import (init_db, get_prices, get_fundamentals, get_chips,
                       get_tags, add_tag, rename_tag, delete_tag,
                       update_watchlist_tags, get_latest_price_date,
                       add_position, get_positions, get_position_by_code,
+                      get_positions_by_code, get_position, recalc_position_pnl,
                       renew_position, close_position, update_position, delete_position)
 from indicators import calc_all
 from scorer import full_score, get_grade, generate_auto_note
@@ -7691,13 +7692,16 @@ def _render_position_manager():
     _mnet = st.session_state.get('_market_net')
     _scores = st.session_state.get('_wl_scores', {})
 
+    _uniq_codes = len({p['code'] for p in _hold})
+    _hd_extra = f'（{len(_hold)} 筆 / {_uniq_codes} 檔）' if len(_hold) != _uniq_codes \
+                else f'（{len(_hold)} 檔持有中）'
     st.markdown(f'### 📌 持倉管理　<span style="font-size:14px;color:#64748b">'
-                f'（{len(_hold)} 檔持有中）</span>', unsafe_allow_html=True)
+                f'{_hd_extra}</span>', unsafe_allow_html=True)
 
     if not _hold:
         st.info('目前無持倉紀錄。在上方「符合進場條件」清單按 📌 即可登錄。')
     else:
-        _ph1, _ph2, _ph3, _ph4, _ph5 = st.columns([2.2, 1.1, 1.5, 1.7, 1.5])
+        _ph1, _ph2, _ph3, _ph4, _ph5 = st.columns([2.1, 1.0, 1.4, 1.6, 1.9])
         _ph1.caption('股票'); _ph2.caption('持有天數'); _ph3.caption('損益（毛/淨）')
         _ph4.caption('停損價 / 現價'); _ph5.caption('操作')
 
@@ -7707,7 +7711,7 @@ def _render_position_manager():
             _flag, _fc, _ftext = _position_status(_p, _cur, _mnet)
             _sc    = _scores.get(_p['code'])
 
-            _c1, _c2, _c3, _c4, _c5 = st.columns([2.2, 1.1, 1.5, 1.7, 1.5])
+            _c1, _c2, _c3, _c4, _c5 = st.columns([2.1, 1.0, 1.4, 1.6, 1.9])
             with _c1:
                 if st.button(f'{_flag} {_p["code"]} {_p["name"]}',
                              key=f'pos_go_{_p["id"]}', use_container_width=True):
@@ -7739,7 +7743,7 @@ def _render_position_manager():
                          f'{(_p.get("stop_price") or 0):,.2f}</div>',
                          unsafe_allow_html=True)
             with _c5:
-                _b1, _b2 = st.columns(2)
+                _b1, _b2, _b3 = st.columns(3)
                 if _b1.button('🔄', key=f'pos_renew_{_p["id"]}',
                               help='續抱（重新起算10日）', use_container_width=True):
                     renew_position(_p['id'])
@@ -7747,6 +7751,10 @@ def _render_position_manager():
                 if _b2.button('📤', key=f'pos_exit_{_p["id"]}',
                               help='記錄出場', use_container_width=True):
                     st.session_state['_pos_exit_id'] = _p['id']
+                    st.rerun()
+                if _b3.button('✏️', key=f'pos_edit_{_p["id"]}',
+                              help='修正這筆的進場資料', use_container_width=True):
+                    st.session_state['_pos_edit_id'] = _p['id']
                     st.rerun()
 
             # 到期自動判定建議（策略 C：≥65 續抱、<65 出場）
@@ -7779,12 +7787,19 @@ def _render_position_manager():
         _ep = next((p for p in _hold if p['id'] == _exit_id), None)
         if _ep:
             _ecur = _latest_close(_ep['code']) or _ep['entry_price']
+            # 依當前狀態預選出場原因，減少手動選擇
+            _eflag, _, _ = _position_status(_ep, _ecur, _mnet)
+            _exit_default_idx = {'🔴': 1, '📉': 2, '⏰': 0}.get(_eflag, 0)
             with st.form(f'pos_exit_form_{_exit_id}'):
                 st.markdown(f'**📤 記錄出場：{_ep["code"]} {_ep["name"]}**')
                 _g1, _g2 = st.columns(2)
                 _out_date  = _g1.date_input('出場日', value=datetime.now())
                 _out_price = _g2.number_input('出場價', value=float(_ecur),
                                               min_value=0.01, step=0.05, format='%.2f')
+                _out_reason = st.selectbox(
+                    '出場原因（供策略驗證分組）',
+                    ['到期出場', '停損', '大盤轉空減碼', '評分轉弱', '主動獲利了結', '其他'],
+                    index=_exit_default_idx)
                 _g, _n, _gm, _nm, _cost = _position_pnl(_ep['entry_price'], _out_price,
                                                         _ep['shares'])
                 st.caption(f'進場 {_ep["entry_price"]:,.2f} × {_ep["shares"]:,} 股　→　'
@@ -7794,7 +7809,8 @@ def _render_position_manager():
                 _eok     = _s1.form_submit_button('✅ 確認出場', use_container_width=True)
                 _ecancel = _s2.form_submit_button('取消', use_container_width=True)
             if _eok:
-                close_position(_exit_id, _out_date.strftime('%Y-%m-%d'), float(_out_price))
+                close_position(_exit_id, _out_date.strftime('%Y-%m-%d'), float(_out_price),
+                               _out_reason)
                 st.session_state.pop('_pos_exit_id', None)
                 st.success(f'已記錄 {_ep["code"]} 出場，損益 {_g:+.2f}%')
                 st.rerun()
@@ -7804,40 +7820,242 @@ def _render_position_manager():
         else:
             st.session_state.pop('_pos_exit_id', None)
 
-    # ── 歷史交易紀錄 ──
+    # ── 編輯表單（持倉中與已平倉共用，供修正鍵入錯誤）──
+    _edit_id = st.session_state.get('_pos_edit_id')
+    if _edit_id:
+        _xp = get_position(_edit_id)
+        if not _xp:
+            st.session_state.pop('_pos_edit_id', None)
+        else:
+            _is_closed = _xp['status'] == 'closed'
+            with st.form(f'pos_edit_form_{_edit_id}'):
+                st.markdown(f'**✏️ 修正紀錄：{_xp["code"]} {_xp["name"]}**'
+                            f'{"（已平倉）" if _is_closed else "（持有中）"}')
+                _e1, _e2, _e3 = st.columns(3)
+                _ed_date = _e1.date_input(
+                    '進場日', value=datetime.strptime(_xp['entry_date'], '%Y-%m-%d'))
+                _ed_price = _e2.number_input('進場價', value=float(_xp['entry_price']),
+                                             min_value=0.01, step=0.05, format='%.2f')
+                _ed_shares = _e3.number_input('股數', value=int(_xp['shares'] or 1000),
+                                              min_value=1, step=1)
+                _e4, _e5, _e6 = st.columns(3)
+                _ed_stop = _e4.number_input('停損價', value=float(_xp.get('stop_price') or 0),
+                                            min_value=0.0, step=0.05, format='%.2f')
+                _ed_sc = _e5.number_input('進場時個股評分（0=未記錄）',
+                                          value=int(_xp.get('entry_score') or 0),
+                                          min_value=0, max_value=100, step=1)
+                _ed_ms = _e6.number_input('進場時大盤評分（0=未記錄）',
+                                          value=int(_xp.get('entry_ms') or 0),
+                                          min_value=0, max_value=100, step=1)
+                if _is_closed:
+                    _e7, _e8, _e9 = st.columns(3)
+                    _ed_xdate = _e7.date_input(
+                        '出場日',
+                        value=datetime.strptime(_xp['exit_date'], '%Y-%m-%d')
+                        if _xp.get('exit_date') else datetime.now())
+                    _ed_xprice = _e8.number_input('出場價',
+                                                  value=float(_xp.get('exit_price') or 0),
+                                                  min_value=0.01, step=0.05, format='%.2f')
+                    _rs_opts = ['到期出場', '停損', '大盤轉空減碼', '評分轉弱',
+                                '主動獲利了結', '其他']
+                    _cur_rs = _xp.get('exit_reason') or '其他'
+                    _ed_xreason = _e9.selectbox(
+                        '出場原因', _rs_opts,
+                        index=_rs_opts.index(_cur_rs) if _cur_rs in _rs_opts else 5)
+                    _pg, _pn, _pgm, _pnm, _pc2 = _position_pnl(_ed_price, _ed_xprice,
+                                                               _ed_shares)
+                    st.caption(f'修正後損益：毛 {_pg:+.2f}%（{_pgm:+,} 元）　'
+                               f'淨 {_pn:+.2f}%（{_pnm:+,} 元）')
+                _ed_note = st.text_input('備註', value=_xp.get('note') or '')
+                _x1, _x2, _x3 = st.columns([1, 1, 1])
+                _xok  = _x1.form_submit_button('✅ 儲存修正', use_container_width=True)
+                _xdel = _x2.form_submit_button('🗑 刪除此筆', use_container_width=True)
+                _xcan = _x3.form_submit_button('取消', use_container_width=True)
+            if _xok:
+                _upd = dict(entry_date=_ed_date.strftime('%Y-%m-%d'),
+                            entry_price=float(_ed_price), shares=int(_ed_shares),
+                            stop_price=float(_ed_stop), note=_ed_note,
+                            entry_score=int(_ed_sc) or None,
+                            entry_ms=int(_ed_ms) or None)
+                if _is_closed:
+                    _upd.update(exit_date=_ed_xdate.strftime('%Y-%m-%d'),
+                                exit_price=float(_ed_xprice), exit_reason=_ed_xreason)
+                update_position(_edit_id, **_upd)
+                recalc_position_pnl(_edit_id)
+                st.session_state.pop('_pos_edit_id', None)
+                st.success('已更新紀錄')
+                st.rerun()
+            if _xdel:
+                delete_position(_edit_id)
+                st.session_state.pop('_pos_edit_id', None)
+                st.warning('已刪除該筆紀錄')
+                st.rerun()
+            if _xcan:
+                st.session_state.pop('_pos_edit_id', None)
+                st.rerun()
+
+    # ── 未實現損益總覽（持倉中）──
+    if _hold:
+        _un_cost = _un_val = 0
+        _un_net  = 0
+        for _p in _hold:
+            _c = _latest_close(_p['code'])
+            if not _c:
+                continue
+            _un_cost += _p['entry_price'] * _p['shares']
+            _un_val  += _c * _p['shares']
+            _un_net  += _position_pnl(_p['entry_price'], _c, _p['shares'])[3]
+        if _un_cost:
+            _un_g   = _un_val - _un_cost
+            _un_gp  = _un_g / _un_cost * 100
+            _un_np  = _un_net / _un_cost * 100
+            _uc     = '#ef4444' if _un_g >= 0 else '#22c55e'
+            _m1, _m2, _m3, _m4 = st.columns(4)
+            _m1.metric('投入成本', f'{_un_cost:,.0f} 元')
+            _m2.metric('目前市值', f'{_un_val:,.0f} 元')
+            _m3.metric('未實現損益（毛）', f'{_un_g:+,.0f} 元', delta=f'{_un_gp:+.2f}%')
+            _m4.metric('未實現損益（淨）', f'{_un_net:+,.0f} 元', delta=f'{_un_np:+.2f}%')
+            st.caption('淨額已扣除買賣手續費與證交稅（未平倉部位以最新收盤價估算）')
+
+    # ── 策略驗證儀表板 ──
     _closed = get_positions('closed')
-    if _closed:
-        _wins   = [p for p in _closed if (p.get('pnl_pct') or 0) > 0]
-        _avg    = sum((p.get('pnl_pct') or 0) for p in _closed) / len(_closed)
-        _winr   = len(_wins) / len(_closed) * 100
-        _net_sum = 0
-        for _p in _closed:
-            if _p.get('exit_price'):
-                _net_sum += _position_pnl(_p['entry_price'], _p['exit_price'], _p['shares'])[3]
-        with st.expander(f'📒 歷史交易紀錄（{len(_closed)} 筆　勝率 {_winr:.0f}%　'
-                         f'平均 {_avg:+.2f}%　累計淨損益 {_net_sum:+,} 元）'):
-            st.caption('回測基準（策略C）：勝率 60.6%、期望值 +10.20%　｜　'
-                       '樣本累積 20 筆以上再與回測對照較有意義')
-            for _p in _closed[:50]:
+    st.markdown('---')
+    st.markdown('### 📊 策略驗證')
+    if not _closed:
+        st.info('尚無已平倉紀錄。累積交易後，此區會自動與回測基準對照，'
+                '驗證「評分門檻」與「大盤過濾」是否真的有效。')
+    else:
+        def _stat(rows):
+            """回傳 (筆數, 勝率%, 平均毛%, 平均淨%, 累計淨額)"""
+            rows = [r for r in rows if r.get('exit_price')]
+            if not rows:
+                return 0, 0.0, 0.0, 0.0, 0
+            _w = [r for r in rows if (r.get('pnl_pct') or 0) > 0]
+            _gs = [r.get('pnl_pct') or 0 for r in rows]
+            _ns, _nm = [], 0
+            for r in rows:
+                _gp, _np, _gmv, _nmv, _ = _position_pnl(r['entry_price'], r['exit_price'],
+                                                        r['shares'])
+                _ns.append(_np); _nm += _nmv
+            return (len(rows), len(_w) / len(rows) * 100,
+                    sum(_gs) / len(_gs), sum(_ns) / len(_ns), _nm)
+
+        _n, _wr, _ag, _an, _nm_sum = _stat(_closed)
+
+        _s1, _s2, _s3, _s4 = st.columns(4)
+        _s1.metric('已平倉筆數', f'{_n} 筆')
+        _s2.metric('勝率', f'{_wr:.0f}%', delta=f'{_wr - 60.6:+.1f}pp vs 回測')
+        _s3.metric('平均損益（毛）', f'{_ag:+.2f}%', delta=f'{_ag - 10.2:+.2f}pp vs 回測')
+        _s4.metric('累計已實現淨損益', f'{_nm_sum:+,.0f} 元')
+
+        if _n < 20:
+            st.caption(f'⚠️ 樣本僅 {_n} 筆，與回測基準（策略C：勝率 60.6%、期望值 +10.20%）'
+                       f'的差異多為隨機波動，建議累積 20 筆以上再做判斷。')
+        else:
+            st.caption('回測基準（策略C）：勝率 60.6%、期望值 +10.20%（毛損益基準，'
+                       '與上方「平均損益（毛）」同基礎可直接對照）')
+
+        # 分組拆解
+        _g1, _g2 = st.columns(2)
+        with _g1:
+            st.markdown('**依出場原因**')
+            _reasons = {}
+            for _p in _closed:
+                _reasons.setdefault(_p.get('exit_reason') or '未分類', []).append(_p)
+            for _r, _rows in sorted(_reasons.items(), key=lambda x: -len(x[1])):
+                _rn2, _rwr, _rag, _ran, _ = _stat(_rows)
+                if not _rn2:
+                    continue
+                _rc = '#ef4444' if _rag >= 0 else '#22c55e'
+                st.markdown(f'<div style="font-size:12px;margin:3px 0">'
+                            f'<span style="color:#cbd5e1">{_r}</span>'
+                            f'<span style="color:#64748b">　{_rn2} 筆　勝率 {_rwr:.0f}%　</span>'
+                            f'<span style="color:{_rc};font-weight:700">{_rag:+.2f}%</span></div>',
+                            unsafe_allow_html=True)
+        with _g2:
+            st.markdown('**依進場時個股評分**')
+            _buckets = [('≥75 分', 75, 999), ('70–74 分', 70, 75), ('65–69 分', 65, 70)]
+            _has_sc = [p for p in _closed if p.get('entry_score')]
+            if not _has_sc:
+                st.caption('舊資料無進場評分，之後登錄的交易才會納入統計')
+            for _lb, _lo, _hi2 in _buckets:
+                _rows = [p for p in _has_sc if _lo <= (p.get('entry_score') or 0) < _hi2]
+                _bn, _bwr, _bag, _, _ = _stat(_rows)
+                if not _bn:
+                    continue
+                _bc = '#ef4444' if _bag >= 0 else '#22c55e'
+                st.markdown(f'<div style="font-size:12px;margin:3px 0">'
+                            f'<span style="color:#cbd5e1">{_lb}</span>'
+                            f'<span style="color:#64748b">　{_bn} 筆　勝率 {_bwr:.0f}%　</span>'
+                            f'<span style="color:{_bc};font-weight:700">{_bag:+.2f}%</span></div>',
+                            unsafe_allow_html=True)
+
+        _g3, _g4 = st.columns(2)
+        with _g3:
+            st.markdown('**依進場時大盤評分**')
+            _mbk = [('≥70（偏多）', 70, 999), ('55–69（中性偏多）', 55, 70),
+                    ('45–54（中性）', 45, 55), ('<45（偏空）', 0, 45)]
+            _has_ms = [p for p in _closed if p.get('entry_ms') is not None]
+            if not _has_ms:
+                st.caption('舊資料無大盤評分，之後登錄的交易才會納入統計')
+            for _lb, _lo, _hi2 in _mbk:
+                _rows = [p for p in _has_ms if _lo <= (p.get('entry_ms') or 0) < _hi2]
+                _bn, _bwr, _bag, _, _ = _stat(_rows)
+                if not _bn:
+                    continue
+                _bc = '#ef4444' if _bag >= 0 else '#22c55e'
+                st.markdown(f'<div style="font-size:12px;margin:3px 0">'
+                            f'<span style="color:#cbd5e1">{_lb}</span>'
+                            f'<span style="color:#64748b">　{_bn} 筆　勝率 {_bwr:.0f}%　</span>'
+                            f'<span style="color:{_bc};font-weight:700">{_bag:+.2f}%</span></div>',
+                            unsafe_allow_html=True)
+        with _g4:
+            st.markdown('**續抱 vs 未續抱**')
+            for _lb, _rows in [('有續抱', [p for p in _closed if (p.get('renew_count') or 0) > 0]),
+                               ('未續抱', [p for p in _closed if not (p.get('renew_count') or 0)])]:
+                _bn, _bwr, _bag, _, _ = _stat(_rows)
+                if not _bn:
+                    continue
+                _bc = '#ef4444' if _bag >= 0 else '#22c55e'
+                st.markdown(f'<div style="font-size:12px;margin:3px 0">'
+                            f'<span style="color:#cbd5e1">{_lb}</span>'
+                            f'<span style="color:#64748b">　{_bn} 筆　勝率 {_bwr:.0f}%　</span>'
+                            f'<span style="color:{_bc};font-weight:700">{_bag:+.2f}%</span></div>',
+                            unsafe_allow_html=True)
+            st.caption('回測：續抱子集勝率 83.3%、均報酬 +27.2%')
+
+        # ── 歷史交易明細 ──
+        with st.expander(f'📒 歷史交易明細（{len(_closed)} 筆）'):
+            for _p in _closed[:100]:
                 _pl = _p.get('pnl_pct') or 0
                 _pc = '#ef4444' if _pl >= 0 else '#22c55e'
                 _rn = f'　🔄×{_p["renew_count"]}' if _p['renew_count'] else ''
+                _sc_tag = (f'　評分{_p["entry_score"]}' if _p.get('entry_score') else '')
                 if _p.get('exit_price'):
                     _, _npct, _, _nm2, _ = _position_pnl(_p['entry_price'], _p['exit_price'],
                                                          _p['shares'])
                     _net_txt = f'　淨 {_npct:+.2f}%（{_nm2:+,} 元）'
                 else:
                     _net_txt = ''
-                _d1, _d2, _d3 = st.columns([2.4, 3.2, 2])
+                _d1, _d2, _d3, _d4 = st.columns([2.2, 3.0, 1.9, 0.7])
                 _d1.markdown(f'<div style="font-size:13px;font-weight:600">'
                              f'{_p["code"]} {_p["name"]}{_rn}</div>', unsafe_allow_html=True)
                 _d2.markdown(f'<div style="font-size:12px;color:#94a3b8">'
                              f'{_p["entry_date"]} @{_p["entry_price"]:,.2f}　→　'
                              f'{_p["exit_date"]} @{(_p.get("exit_price") or 0):,.2f}'
-                             f'　{_p["shares"]:,}股</div>', unsafe_allow_html=True)
+                             f'　{_p["shares"]:,}股{_sc_tag}'
+                             f'　<span style="color:#64748b">{_p.get("exit_reason") or ""}</span>'
+                             f'</div>', unsafe_allow_html=True)
                 _d3.markdown(f'<div style="font-size:13px;font-weight:700;color:{_pc}">'
                              f'{_pl:+.2f}%<span style="font-size:11px;font-weight:400">'
                              f'{_net_txt}</span></div>', unsafe_allow_html=True)
+                with _d4:
+                    if st.button('✏️', key=f'hist_edit_{_p["id"]}',
+                                 help='修正或刪除這筆紀錄', use_container_width=True):
+                        st.session_state['_pos_edit_id'] = _p['id']
+                        st.rerun()
+            st.caption('✏️ 可修正鍵入錯誤（進場/出場價、股數、日期、評分、出場原因）或刪除整筆。'
+                       '修正價格後損益會自動重算，確保策略驗證統計不被錯誤資料汙染。')
 
 
 def render_strategy():
@@ -7965,7 +8183,10 @@ def render_strategy():
                 except Exception:
                     return None
 
-            _held_codes = {p['code'] for p in get_positions('holding')} if IS_LOCAL else set()
+            _held_cnt = {}
+            if IS_LOCAL:
+                for _hp0 in get_positions('holding'):
+                    _held_cnt[_hp0['code']] = _held_cnt.get(_hp0['code'], 0) + 1
 
             _hc1, _hc2, _hc3, _hc4, _hc5 = st.columns([2.6, 0.9, 1.5, 1.2, 0.7])
             _hc1.caption('股票'); _hc2.caption('評分')
@@ -8001,22 +8222,31 @@ def render_strategy():
                 with _c5:
                     if not IS_LOCAL:
                         st.caption('—')
-                    elif w['code'] in _held_codes:
-                        st.markdown('<div style="padding:6px 0;font-size:12px;color:#22c55e">持倉中</div>',
-                                    unsafe_allow_html=True)
-                    elif st.button('📌', key=f'strat_add_{w["code"]}',
-                                   help='記錄進場', use_container_width=True):
-                        st.session_state['_pos_add_code'] = w['code']
-                        st.session_state['_pos_add_name'] = w['name']
-                        st.rerun()
+                    else:
+                        _n_held = _held_cnt.get(w['code'], 0)
+                        _btn_help = (f'已持有 {_n_held} 筆，再按可加碼（分批獨立計時）'
+                                     if _n_held else '記錄進場')
+                        if st.button('📌' if not _n_held else f'📌{_n_held}',
+                                     key=f'strat_add_{w["code"]}',
+                                     help=_btn_help, use_container_width=True):
+                            st.session_state['_pos_add_code'] = w['code']
+                            st.session_state['_pos_add_name'] = w['name']
+                            st.session_state['_pos_add_score'] = sc
+                            st.rerun()
 
             # ── 進場登錄表單（點 📌 後展開）──
             _add_code = st.session_state.get('_pos_add_code')
             if IS_LOCAL and _add_code:
                 _add_name  = st.session_state.get('_pos_add_name', '')
                 _add_close = _latest_close_for(_add_code) or 0.0
+                _exist = get_positions_by_code(_add_code)
+                _exist_txt = '、'.join(
+                    '{}@{:,.2f}'.format(e['entry_date'], e['entry_price']) for e in _exist)
                 with st.form(f'pos_add_form_{_add_code}'):
                     st.markdown(f'**📌 記錄進場：{_add_code} {_add_name}**')
+                    if _exist:
+                        st.caption(f'⚠️ 此檔已有 {len(_exist)} 筆未平倉部位（{_exist_txt}）'
+                                   f'　本次為加碼，將獨立計時與獨立停損')
                     _f1, _f2, _f3 = st.columns(3)
                     _in_date  = _f1.date_input('進場日', value=datetime.now())
                     _in_price = _f2.number_input('進場價', value=float(_add_close),
@@ -8035,14 +8265,18 @@ def render_strategy():
                     _cancel = _sub2.form_submit_button('取消', use_container_width=True)
                 if _ok:
                     add_position(_add_code, _add_name, _in_date.strftime('%Y-%m-%d'),
-                                 float(_in_price), int(_in_shares), float(_in_stop))
+                                 float(_in_price), int(_in_shares), float(_in_stop),
+                                 entry_score=st.session_state.get('_pos_add_score'),
+                                 entry_ms=st.session_state.get('_market_ms'))
                     st.session_state.pop('_pos_add_code', None)
                     st.session_state.pop('_pos_add_name', None)
+                    st.session_state.pop('_pos_add_score', None)
                     st.success(f'已記錄 {_add_code} {_add_name} 進場')
                     st.rerun()
                 if _cancel:
                     st.session_state.pop('_pos_add_code', None)
                     st.session_state.pop('_pos_add_name', None)
+                    st.session_state.pop('_pos_add_score', None)
                     st.rerun()
 
             st.caption('進場時機：確認訊號後隔日買入，不追漲。'
@@ -8080,11 +8314,16 @@ def render_strategy():
                 _c3.markdown(f'<div style="padding:6px 0;font-size:12px;color:{_wc}">{_wlabel}</div>',
                              unsafe_allow_html=True)
                 with _c4:
-                    _hp = get_position_by_code(w['code']) if IS_LOCAL else None
-                    if _hp:
-                        if st.button('📤', key=f'strat_exit_{w["code"]}',
-                                     help='記錄出場', use_container_width=True):
-                            st.session_state['_pos_exit_id'] = _hp['id']
+                    _hps = get_positions_by_code(w['code']) if IS_LOCAL else []
+                    if _hps:
+                        _oldest = sorted(_hps, key=lambda x: x['entry_date'])[0]
+                        _lbl = '📤' if len(_hps) == 1 else f'📤{len(_hps)}'
+                        _hlp = ('記錄出場' if len(_hps) == 1
+                                else f'持有 {len(_hps)} 筆，先處理最早一筆'
+                                     f'（{_oldest["entry_date"]}）；其餘可到持倉管理區操作')
+                        if st.button(_lbl, key=f'strat_exit_{w["code"]}',
+                                     help=_hlp, use_container_width=True):
+                            st.session_state['_pos_exit_id'] = _oldest['id']
                             st.rerun()
                     else:
                         st.caption('—')
