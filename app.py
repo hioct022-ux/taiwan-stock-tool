@@ -6185,11 +6185,29 @@ def render_market():
             delta=f'{chg_sign} ({chg_pct:+.2f}%)'
         )
     with col2:
+        # 動態均線位置：依實際跌破/站上的均線層級顯示，不固定只看月線
+        ma5  = ind.get('ma5')
         ma20 = ind.get('ma20')
+        ma60 = ind.get('ma60')
         if ma20:
-            above = close >= ma20
-            st.metric('MA20（月線）', f'{ma20:,.2f}',
-                      delta='站上月線 ✅' if above else '跌破月線 ❌')
+            if ma60 and close < ma60:
+                # 最嚴重：連季線都跌破
+                st.metric('MA60（季線）', f'{ma60:,.2f}', delta='跌破季線 ❌')
+                st.caption(f'月線 {ma20:,.0f}｜距季線 {close - ma60:+,.0f} 點')
+            elif close < ma20:
+                # 跌破月線、守住季線
+                st.metric('MA20（月線）', f'{ma20:,.2f}', delta='跌破月線 ❌')
+                if ma60:
+                    st.caption(f'下一支撐：季線 {ma60:,.0f}（{close - ma60:+,.0f} 點）')
+            elif ma5 and close < ma5:
+                # 短線轉弱但月線之上
+                st.metric('MA5（5日線）', f'{ma5:,.2f}', delta='跌破5日線 ⚠️')
+                st.caption(f'月線支撐 {ma20:,.0f}（{close - ma20:+,.0f} 點）')
+            else:
+                # 全部站上
+                st.metric('MA20（月線）', f'{ma20:,.2f}', delta='站上所有均線 ✅')
+                if ma5:
+                    st.caption(f'5日線 {ma5:,.0f}｜季線 {ma60:,.0f}' if ma60 else f'5日線 {ma5:,.0f}')
         else:
             st.metric('MA20', '資料不足')
     with col3:
