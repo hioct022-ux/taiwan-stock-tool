@@ -6034,7 +6034,17 @@ def render_market():
         # ── 轉折觀察清單（偏空→空頭轉折觀察；偏多→多頭衰竭觀察）──────
         # 設計原則：不預測時間（無法可靠預測），改用條件判斷——列出「趨勢接近尾聲」的訊號，
         # 出現越多項代表越接近轉折，全部未出現代表趨勢仍在途中。
-        if _net >= 1 or _net <= -1:
+        # 顯示模式：偏空→空頭轉折清單；偏多→多頭衰竭清單；
+        # 中性(net=0)不隱藏——多空訊號互相抵銷時反而最需要觀察條件，改依股價相對月線決定顯示哪一份
+        _ind_ma20_mode = _ind_tpx.get('ma20')
+        if _net >= 1:
+            _chk_mode = 'bear'
+        elif _net <= -1:
+            _chk_mode = 'bull'
+        else:
+            _chk_mode = 'bear' if (_ind_ma20_mode and _tpx_now < _ind_ma20_mode) else 'bull'
+
+        if True:
             # 共用資料準備
             _mb_vals_chk = [r.get('margin_balance', 0) for r in _mm if r.get('margin_balance', 0) > 0]
             _f_consec_sell_chk = 0
@@ -6067,9 +6077,11 @@ def render_market():
                         f'<span style="color:#94a3b8">　{val}</span><br>'
                         f'<span style="font-size:11px;color:#64748b">　　白話：{plain}</span></div>')
 
-            if _net >= 1:
+            if _chk_mode == 'bear':
                 _chk_title = '🧭 空頭轉折觀察清單'
-                _chk_sub   = '出現越多 ✅ 代表越接近底部；全部 ❌ 代表空頭尚無結束跡象'
+                _chk_sub   = ('出現越多 ✅ 代表越接近底部；全部 ❌ 代表空頭尚無結束跡象'
+                              + ('　（目前多空訊號互相抵銷，依股價在月線之下顯示此清單）'
+                                 if _net == 0 else ''))
                 _chk_color = '#f97316'
                 # 1. 融資餘額止穩
                 _ok = (_mb_c1_chk is not None and _mb_c1_chk > -0.5 and _mb_c2_chk > -0.5)
@@ -6107,7 +6119,9 @@ def render_market():
                              '與其猜時間，不如每天確認上述條件出現了幾項。')
             else:
                 _chk_title = '🧭 多頭衰竭觀察清單'
-                _chk_sub   = '出現越多 ⚠️ 代表漲勢越接近尾聲；全部正常代表多頭健康'
+                _chk_sub   = ('出現越多 ⚠️ 代表漲勢越接近尾聲；全部正常代表多頭健康'
+                              + ('　（目前多空訊號互相抵銷，依股價在月線之上顯示此清單）'
+                                 if _net == 0 else ''))
                 _chk_color = '#22c55e'
                 # 1. 融資餘額急增
                 _ok = (_mb_5chg_chk is not None and _mb_5chg_chk >= 3)
