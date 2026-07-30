@@ -6185,31 +6185,32 @@ def render_market():
             delta=f'{chg_sign} ({chg_pct:+.2f}%)'
         )
     with col2:
-        # 動態均線位置：依實際跌破/站上的均線層級顯示，不固定只看月線
+        # 動態均線位置：對稱顯示「腳下支撐」與「頭上反壓」，下跌與回升皆適用
         ma5  = ind.get('ma5')
         ma20 = ind.get('ma20')
         ma60 = ind.get('ma60')
-        if ma20:
-            if ma60 and close < ma60:
-                # 最嚴重：連季線都跌破
-                st.metric('MA60（季線）', f'{ma60:,.2f}', delta='跌破季線 ❌')
-                st.caption(f'月線 {ma20:,.0f}｜距季線 {close - ma60:+,.0f} 點')
-            elif close < ma20:
-                # 跌破月線、守住季線
-                st.metric('MA20（月線）', f'{ma20:,.2f}', delta='跌破月線 ❌')
-                if ma60:
-                    st.caption(f'下一支撐：季線 {ma60:,.0f}（{close - ma60:+,.0f} 點）')
-            elif ma5 and close < ma5:
-                # 短線轉弱但月線之上
-                st.metric('MA5（5日線）', f'{ma5:,.2f}', delta='跌破5日線 ⚠️')
-                st.caption(f'月線支撐 {ma20:,.0f}（{close - ma20:+,.0f} 點）')
+        _ml_lines = [(n, v) for n, v in [('5日線', ma5), ('月線', ma20), ('季線', ma60)] if v]
+        if _ml_lines:
+            _ml_sup = [(n, v) for n, v in _ml_lines if close >= v]   # 站上的線（支撐）
+            _ml_res = [(n, v) for n, v in _ml_lines if close < v]    # 未站上的線（反壓）
+            if not _ml_res:
+                st.metric('均線位置', '全數站上', delta='站上所有均線 ✅')
+                st.caption('｜'.join(f'{n} {v:,.0f}' for n, v in _ml_lines))
+            elif not _ml_sup:
+                _near_r = min(_ml_res, key=lambda x: x[1])   # 最近的反壓
+                st.metric('均線位置', '全數跌破', delta='跌破所有均線 ❌')
+                st.caption(f'最近反壓：{_near_r[0]} {_near_r[1]:,.0f}（{close - _near_r[1]:+,.0f} 點）')
             else:
-                # 全部站上
-                st.metric('MA20（月線）', f'{ma20:,.2f}', delta='站上所有均線 ✅')
-                if ma5:
-                    st.caption(f'5日線 {ma5:,.0f}｜季線 {ma60:,.0f}' if ma60 else f'5日線 {ma5:,.0f}')
+                _ml_order = {'5日線': 1, '月線': 2, '季線': 3}
+                _best_sup = max(_ml_sup, key=lambda x: _ml_order[x[0]])   # 站上的最長週期線
+                _near_sup = max(_ml_sup, key=lambda x: x[1])              # 最近的支撐（值最高）
+                _near_res = min(_ml_res, key=lambda x: x[1])              # 最近的反壓（值最低）
+                st.metric('均線位置', f'{_best_sup[0]}之上',
+                          delta=f'{_near_res[0]}反壓 {_near_res[1]:,.0f} ⚠️')
+                st.caption(f'支撐：{_near_sup[0]} {_near_sup[1]:,.0f}（{close - _near_sup[1]:+,.0f} 點）'
+                           f'｜距{_near_res[0]} {close - _near_res[1]:+,.0f} 點')
         else:
-            st.metric('MA20', '資料不足')
+            st.metric('均線位置', '資料不足')
     with col3:
         rsi = ind.get('rsi')
         if rsi:
