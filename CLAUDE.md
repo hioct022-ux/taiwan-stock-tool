@@ -298,6 +298,9 @@ market_margin (date PK, margin_balance/buy/sell, short_balance/buy/sell)
 futures_institutional (date PK, foreign/trust/dealer × long/short/net)
 market_pe (date PK, pe_ratio, pb_ratio, div_yield)
 options_pc_ratio (date PK, call_oi, put_oi, pc_ratio)  ← 2026-06 新增，TAIFEX 選擇權P/C
+positions (id PK, code, name, entry_date, entry_price, shares, stop_price,
+           renew_count, status, exit_date, exit_price, pnl_pct, note, created_at)
+           ← 2026-07 新增，持倉追蹤（本機專屬，不匯出 JSON）
 ```
 
 ---
@@ -1773,3 +1776,51 @@ _quadrant(ratio, moment) -> (str, str)
 **版本紀錄同步更新：** 加入 `v3.1 | 2026/07/21 | 新增「資料時效性與落差說明」章節、大盤成交量圖單位修正`。
 
 **維護提醒：** 未來新增任何「非即時 / 有延遲」的資料來源時，應同步在此章節的表格加一列，避免使用者誤判資料新鮮度。
+
+---
+
+## 十八、持倉追蹤（positions 表，2026-07 新增）
+
+**定位：** 與「自選股」分工——自選股是**候選池**（還沒買），持倉追蹤是**已進場部位**（追蹤策略 C 的 10 日持有週期）。
+
+**本機專屬：** `positions` 是個人交易紀錄，**不匯出 JSON、不同步雲端**（`github_sync.py` 完全未涉及）。所有 UI 區塊都用 `if IS_LOCAL:` 包住，雲端版不顯示。
+
+### config.py 交易成本參數
+
+```python
+HOLD_DAYS    = 10          # 標準持有天數（交易日）
+FEE_RATE     = 0.001425    # 手續費率
+FEE_DISCOUNT = 0.6         # 券商折扣（電子下單常見 6 折；無折扣填 1.0）
+FEE_MIN      = 20          # 單筆手續費低消 —— 零股小額交易常卡此門檻
+TAX_RATE     = 0.003       # 證交稅（僅賣出）
+```
+
+### app.py helper（模組頂層，`_CHART_CONFIG` 下方）
+
+```python
+_trading_days_since(entry_date, code='TAIEX') -> int   # 用 prices 表算交易日，第一天=1
+_trade_cost(amount, is_sell=False) -> float            # 單邊成本（含低消與證交稅）
+_position_pnl(entry, exit, shares) -> (毛%, 淨%, 毛額, 淨額, 總成本)
+_latest_close(code) -> float | None                    # IS_LOCAL 走 DB、雲端走 JSON
+_position_status(pos, cur_price, market_net) -> (旗標, 顏色, 文字)
+```
+
+**`_position_status()` 優先序（重要）：** 停損 🔴 ＞ 大盤轉空 📉（net≥+4）＞ 到期 ⏰ ＞ 接近停損 ⚠️（≤停損×1.02）＞ 持有中 🟢。大盤轉空排在到期之前，因為空頭回測顯示大盤層級訊號比個股訊號更早也更有效。
+
+### UI 位置
+
+| 區塊 | 位置 | 功能 |
+|------|------|------|
+| 側邊欄「📌 持倉觀察」 | 自選股清單**之上** | 只顯示（旗標／天數／毛淨損益／停損價），不放操作按鈕（空間有限） |
+| 進場登錄 | 投資策略頁「符合進場條件」清單第 5 欄 📌 | 點擊展開表單，代號/名稱/進場價（預設最新收盤）/股數/停損價（×0.92）預填 |
+| 持倉管理 | 投資策略頁，退場警示之後 | 每檔一列 + 🔄 續抱、📤 出場；到期時自動依評分給建議 |
+| 退場警示列 📤 | 退場警示清單第 4 欄 | 該股若在持倉中直接出現，不用另外找 |
+| 歷史交易紀錄 | 持倉管理區下方 expander | 勝率、平均損益、累計淨損益，與回測基準對照 |
+
+**續抱機制（策略 C）：** `renew_position()` 把 `entry_date` 重設為今天並 `renew_count +1`，天數重新起算 10 日。注意這會讓「進場日」欄位變成「本輪起算日」，原始進場日不保留——若未來需要完整持有期分析，要改成另存 `original_entry_date` 欄位。
+
+**到期建議來源：** 讀 `st.session_state['_wl_scores']`（自選股頁計算的評分快取）。若使用者沒先進過自選股頁，建議文字會顯示「請先計算評分」而不是給錯誤建議。
+
+**零股支援：** `shares` 欄位以「股」為單位（1 張 = 1000 股），表單預設 1000 但可填任意值。淨損益計算會套用 `FEE_MIN` 低消，小額零股交易的成本比例明顯較高（實測：10 股台積電來回成本約佔 0.65%，100 股約 0.49%，1000 股整張則降到 0.4% 以下）。
+
+**毛/淨損益的用途區隔：** 毛損益（純價差）與 `backtest_stocks.py` 的回測基準同基礎，可直接對照；淨損益是實際入袋金額。歷史紀錄區兩者都顯示，避免拿淨損益去跟回測數字比較而誤判策略失效。

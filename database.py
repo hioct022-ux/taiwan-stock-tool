@@ -286,6 +286,26 @@ def init_db():
         )
     ''')
 
+    # ── 持倉部位（本機專屬個人交易紀錄，不同步雲端）──
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS positions (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            code         TEXT NOT NULL,
+            name         TEXT,
+            entry_date   TEXT NOT NULL,
+            entry_price  REAL NOT NULL,
+            shares       INTEGER DEFAULT 1000,
+            stop_price   REAL,
+            renew_count  INTEGER DEFAULT 0,
+            status       TEXT DEFAULT 'holding',
+            exit_date    TEXT,
+            exit_price   REAL,
+            pnl_pct      REAL,
+            note         TEXT DEFAULT '',
+            created_at   TEXT DEFAULT (datetime('now','localtime'))
+        )
+    ''')
+
     # ── 欄位 migration（舊版 DB 相容）──
     migrations = [
         'ALTER TABLE exdividend ADD COLUMN is_confirmed INTEGER DEFAULT 0',
@@ -850,6 +870,90 @@ def get_market_margin_last_date():
     row = conn.execute('SELECT MAX(date) FROM market_margin').fetchone()
     conn.close()
     return row[0] if row and row[0] else None
+
+# ── 持倉部位（本機專屬，不匯出 JSON）──────────
+_POS_COLS = ['id', 'code', 'name', 'entry_date', 'entry_price', 'shares',
+             'stop_price', 'renew_count', 'status', 'exit_date', 'exit_price',
+             'pnl_pct', 'note', 'created_at']
+
+def add_position(code, name, entry_date, entry_price, shares=1000,
+                 stop_price=None, note='') -> int:
+    """新增持倉，回傳 id。stop_price 未給則自動 = entry_price × STOP_LOSS_RATIO"""
+    from config import STOP_LOSS_RATIO
+    if stop_price is None:
+        stop_price = round(entry_price * STOP_LOSS_RATIO, 2)
+    conn = get_conn()
+    cur = conn.execute('''
+        INSERT INTO positions (code, name, entry_date, entry_price, shares,
+                               stop_price, renew_count, status, note)
+        VALUES (?, ?, ?, ?, ?, ?, 0, 'holding', ?)
+    ''', (code, name, entry_date, entry_price, int(shares), stop_price, note))
+    conn.commit()
+    pid = cur.lastrowid
+    conn.close()
+    return pid
+
+def get_positions(status='holding') -> list:
+    """status='holding' | 'closed' | None(全部)，依進場日排序"""
+    conn = get_conn()
+    if status:
+        rows = conn.execute(
+            f'SELECT {",".join(_POS_COLS)} FROM positions WHERE status=? '
+            'ORDER BY entry_date DESC, id DESC', (status,)).fetchall()
+    else:
+        rows = conn.execute(
+            f'SELECT {",".join(_POS_COLS)} FROM positions '
+            'ORDER BY entry_date DESC, id DESC').fetchall()
+    conn.close()
+    return [dict(zip(_POS_COLS, r)) for r in rows]
+
+def get_position_by_code(code, status='holding'):
+    """回傳該代號目前的持倉（多筆取最新一筆），無則 None"""
+    rows = [p for p in get_positions(status) if p['code'] == code]
+    return rows[0] if rows else None
+
+def renew_position(pid, new_entry_date=None) -> None:
+    """策略 C 續抱：renew_count +1，並把持有期起算日重設為 new_entry_date（預設今天）"""
+    from datetime import datetime as _dt
+    d = new_entry_date or _dt.now().strftime('%Y-%m-%d')
+    conn = get_conn()
+    conn.execute('UPDATE positions SET renew_count = renew_count + 1, entry_date = ? '
+                 'WHERE id = ? AND status = ?', (d, pid, 'holding'))
+    conn.commit()
+    conn.close()
+
+def close_position(pid, exit_date, exit_price) -> None:
+    """出場：記錄出場價與價差損益%（毛），狀態轉 closed"""
+    conn = get_conn()
+    row = conn.execute('SELECT entry_price FROM positions WHERE id=?', (pid,)).fetchone()
+    if not row:
+        conn.close()
+        return
+    entry = row[0] or 0
+    pnl = round((exit_price - entry) / entry * 100, 2) if entry else 0
+    conn.execute('''UPDATE positions SET status='closed', exit_date=?, exit_price=?, pnl_pct=?
+                    WHERE id=?''', (exit_date, exit_price, pnl, pid))
+    conn.commit()
+    conn.close()
+
+def update_position(pid, **fields) -> None:
+    """更新任意欄位（entry_price/shares/stop_price/note 等）"""
+    allowed = {'entry_date', 'entry_price', 'shares', 'stop_price', 'note',
+               'exit_date', 'exit_price', 'status'}
+    sets = {k: v for k, v in fields.items() if k in allowed}
+    if not sets:
+        return
+    conn = get_conn()
+    conn.execute(f'UPDATE positions SET {",".join(f"{k}=?" for k in sets)} WHERE id=?',
+                 (*sets.values(), pid))
+    conn.commit()
+    conn.close()
+
+def delete_position(pid) -> None:
+    conn = get_conn()
+    conn.execute('DELETE FROM positions WHERE id=?', (pid,))
+    conn.commit()
+    conn.close()
 
 # ── 選擇權 P/C 比率 ─────────────────────
 def save_options_pc(date: str, call_oi: int, put_oi: int, pc_ratio: float) -> None:
