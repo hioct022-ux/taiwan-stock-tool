@@ -85,6 +85,13 @@ FEE_DISCOUNT = 0.6          # 券商折扣（6 折；無折扣填 1.0）
 FEE_MIN      = 20           # 單筆手續費低消（元）；零股小額交易常卡此門檻
 TAX_RATE     = 0.003        # 證交稅 0.3%（僅賣出）
 
+# ── 持倉資料雲端同步（2026-08新增）─────────
+# True：export_to_json() 會把 positions 匯出成 JSON、隨其他資料一起 git push；
+#       雲端版讀到後只做「唯讀顯示」（側邊欄持倉觀察，需輸入密碼解鎖），不提供編輯/新增/出場等寫入操作。
+# 個人交易紀錄，開啟前務必確認 GitHub repo 已設為 Private，並在 Streamlit Cloud
+# 的 Secrets 設定 POSITIONS_PASSWORD，否則等同公開你的持倉資料。
+SYNC_POSITIONS_TO_CLOUD = True
+
 # ── 評分等級 ────────────────────────────
 GRADE = {
     80: '強力買進',

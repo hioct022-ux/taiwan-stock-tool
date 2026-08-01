@@ -996,6 +996,19 @@ def delete_position(pid) -> None:
     conn.commit()
     conn.close()
 
+def import_positions(rows) -> None:
+    """雲端唯讀匯入專用（2026-08新增）：清空後依JSON內容整批寫入，保留原始id。
+    只給 init_cloud_data() 呼叫，本機端不應使用（本機永遠用 add_position 等CRUD函式）。"""
+    conn = get_conn()
+    conn.execute('DELETE FROM positions')
+    for r in rows:
+        conn.execute(f'''
+            INSERT INTO positions ({",".join(_POS_COLS)})
+            VALUES ({",".join(["?"] * len(_POS_COLS))})
+        ''', tuple(r.get(c) for c in _POS_COLS))
+    conn.commit()
+    conn.close()
+
 # ── 選擇權 P/C 比率 ─────────────────────
 def save_options_pc(date: str, call_oi: int, put_oi: int, pc_ratio: float) -> None:
     conn = get_conn()

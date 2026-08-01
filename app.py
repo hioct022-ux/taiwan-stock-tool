@@ -225,6 +225,32 @@ def _latest_close(code):
     except Exception:
         return None
 
+def _positions_unlocked():
+    """雲端版持倉區塊的密碼關卡（2026-08新增）。
+    本機一律視為已解鎖（自己的電腦不需要密碼）；雲端需輸入 Streamlit Secrets
+    裡設定的 POSITIONS_PASSWORD 才能看到持倉觀察（唯讀，不提供新增/編輯）。
+    未設定 POSITIONS_PASSWORD 時，保守起見直接不顯示，避免資料誤公開。"""
+    if IS_LOCAL:
+        return True
+    if st.session_state.get('_pos_unlocked'):
+        return True
+    try:
+        _pw_correct = st.secrets.get('POSITIONS_PASSWORD', '')
+    except Exception:
+        _pw_correct = ''
+    if not _pw_correct:
+        return False
+    with st.sidebar.expander('🔒 持倉觀察（輸入密碼查看）', expanded=False):
+        _pw_in = st.text_input('密碼', type='password', key='_pos_pw_input',
+                               label_visibility='collapsed', placeholder='輸入密碼')
+        if st.button('解鎖', key='_pos_pw_btn', use_container_width=True):
+            if _pw_in == _pw_correct:
+                st.session_state['_pos_unlocked'] = True
+                st.rerun()
+            else:
+                st.error('密碼錯誤')
+    return False
+
 def _check_consolidation_pattern(prices):
     """
     量縮整理型態掃描（三條件同時成立才回傳 True）：
@@ -617,8 +643,8 @@ def render_sidebar():
 
         st.markdown('---')
 
-        # ── 持倉觀察（本機專屬個人交易紀錄）──────────
-        if IS_LOCAL:
+        # ── 持倉觀察（本機唯讀寫；雲端唯讀，需密碼解鎖）──────────
+        if IS_LOCAL or _positions_unlocked():
             _sb_hold = get_positions('holding')
             if _sb_hold:
                 from config import HOLD_DAYS as _SB_HOLD_DAYS
@@ -649,7 +675,10 @@ def render_sidebar():
                     else:
                         st.markdown(f'<div style="font-size:11px;margin:-8px 0 8px 6px;'
                                     f'color:{_sfc}">{_sft}</div>', unsafe_allow_html=True)
-                st.caption('續抱／出場操作請至「💡 投資策略」頁的持倉管理區')
+                if IS_LOCAL:
+                    st.caption('續抱／出場操作請至「💡 投資策略」頁的持倉管理區')
+                else:
+                    st.caption('雲端僅供唯讀檢視，新增／編輯／出場請回本機操作')
                 st.markdown('---')
 
         # 自選股清單
@@ -5382,33 +5411,36 @@ def render_market():
             _t86_trust   = _t86_latest.get('trust_net_total',   0) or 0
             _t86_date    = _t86_latest.get('date', '')
 
-            # 外資現貨（單位：張）
-            if _t86_foreign >= 150000:
+            # 外資現貨（單位：張，全市場 1300+ 檔加總）
+            # 門檻依實際分布校準（2026-07）：資料來源從「T86前15名」改為「全市場chips彙總」後，
+            # 數值放大約100倍，舊門檻(15萬/5萬/1萬)導致 80%+ 天數觸發滿分，訊號失去鑑別度。
+            # 新門檻對應百分位：±3分≈p95(5%天數)、±2分≈p85(15%)、±1分≈p70(30%)
+            if _t86_foreign >= 1050000:
                 _bull_score += 3
                 _bull_msgs.append(('🟢', f'外資現貨大買超 **+{_t86_foreign:,} 張**（{_t86_date}），現貨大量流入'))
-            elif _t86_foreign >= 50000:
+            elif _t86_foreign >= 800000:
                 _bull_score += 2
                 _bull_msgs.append(('🟢', f'外資現貨買超 +{_t86_foreign:,} 張（{_t86_date}），籌碼偏多'))
-            elif _t86_foreign >= 10000:
+            elif _t86_foreign >= 650000:
                 _bull_score += 1
                 _bull_msgs.append(('🟢', f'外資現貨小幅買超 +{_t86_foreign:,} 張（{_t86_date}），偏多'))
-            elif _t86_foreign <= -150000:
+            elif _t86_foreign <= -1050000:
                 _bear_score += 3
                 _bear_msgs.append(('🔴', f'外資現貨大賣超 **{_t86_foreign:,} 張**（{_t86_date}），現貨大量流出'))
-            elif _t86_foreign <= -50000:
+            elif _t86_foreign <= -800000:
                 _bear_score += 2
                 _bear_msgs.append(('🔴', f'外資現貨賣超 {_t86_foreign:,} 張（{_t86_date}），籌碼偏空'))
-            elif _t86_foreign <= -10000:
+            elif _t86_foreign <= -650000:
                 _bear_score += 1
                 _bear_msgs.append(('🟡', f'外資現貨小幅賣超 {_t86_foreign:,} 張（{_t86_date}），偏空'))
             else:
                 _bull_msgs.append(('⚪', f'外資現貨買賣超 {_t86_foreign:+,} 張（{_t86_date}），中性'))
 
             # 投信方向（輔助訊號）
-            if _t86_trust >= 50000:
+            if _t86_trust >= 100000:
                 _bull_score += 1
                 _bull_msgs.append(('🟢', f'投信買超 +{_t86_trust:,} 張（{_t86_date}），法人偏多'))
-            elif _t86_trust <= -50000:
+            elif _t86_trust <= -100000:
                 _bear_score += 1
                 _bear_msgs.append(('🟡', f'投信賣超 {_t86_trust:,} 張（{_t86_date}），法人調節'))
 

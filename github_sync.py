@@ -216,6 +216,21 @@ def export_to_json(code=None):
     except Exception as e:
         print(f'匯出台指期未平倉失敗：{e}')
 
+    # ── 持倉部位（2026-08新增，需 SYNC_POSITIONS_TO_CLOUD=True 才匯出）──
+    # 個人交易紀錄，僅供雲端唯讀顯示（側邊欄持倉觀察，需密碼解鎖）。
+    try:
+        from config import SYNC_POSITIONS_TO_CLOUD
+        if SYNC_POSITIONS_TO_CLOUD:
+            from database import get_positions
+            pos_rows = get_positions(None)   # None = 全部（含holding與closed）
+            with open(os.path.join(JSON_DIR, 'positions.json'), 'w', encoding='utf-8') as f:
+                json.dump({'rows': pos_rows,
+                           'exported_at': datetime.now().strftime('%Y-%m-%d %H:%M')},
+                          f, ensure_ascii=False)
+            print(f'匯出持倉部位：{len(pos_rows)} 筆')
+    except Exception as e:
+        print(f'匯出持倉部位失敗：{e}')
+
     try:
         from database import get_market_pe
         pe_rows = get_market_pe(days=250)
@@ -575,6 +590,19 @@ def init_cloud_data():
     except Exception as e:
         print(f'  TAIEX 匯入失敗：{e}')
 
+    # ── 持倉部位（2026-08新增，唯讀顯示用；本機端不會執行到這段）──
+    try:
+        pos_path = os.path.join(JSON_DIR, 'positions.json')
+        if os.path.exists(pos_path):
+            with open(pos_path, encoding='utf-8') as f:
+                pos_json = json.load(f)
+            rows = pos_json.get('rows', [])
+            from database import import_positions
+            import_positions(rows)
+            print(f'  持倉部位：{len(rows)} 筆')
+    except Exception as e:
+        print(f'  持倉部位匯入失敗：{e}')
+
     # ── 法人排行 T86（每次更新）──
     try:
         with open(os.path.join(JSON_DIR, 't86.json'), encoding='utf-8') as f:
@@ -743,7 +771,7 @@ def init_cloud_data():
         if code in ('stocks', 'watchlist', 'meta', 't86', 'exdividend', 'TAIEX',
                     'market_margin', 'futures_institutional', 'market_pe', 'chips_market_agg',
                     'watchlist_tags', 'options_pc', 'dram_prices',
-                    'quarterly_financials', 'segment_revenue'):
+                    'quarterly_financials', 'segment_revenue', 'positions'):
             continue
         try:
             with open(os.path.join(JSON_DIR, fname), encoding='utf-8') as f:
