@@ -5,9 +5,44 @@
 
 import os
 import json
+import base64
 import requests as _req
 from datetime import datetime
 from config import GITHUB_TOKEN, GITHUB_REPO, GITHUB_BRANCH, JSON_DIR
+
+
+# ── 持倉資料輕量加密（2026-08新增）─────────
+# 只做「防君子」等級的遮蔽，不是真正的密碼學強加密：repo 是 Public 的，
+# positions.json 內容若不處理就是明文，任何人都能在 GitHub 上直接看到你的交易紀錄。
+# 用 XOR + base64 把內容變成亂碼，搭配金鑰只放在 config_local.py（本機）與
+# Streamlit Secrets（雲端）兩處、不進 git，達到「repo公開但看不懂內容」的效果。
+def _xor_bytes(data: bytes, key: bytes) -> bytes:
+    if not key:
+        return data
+    return bytes(b ^ key[i % len(key)] for i, b in enumerate(data))
+
+def _encrypt_json(obj, key: str) -> str:
+    raw = json.dumps(obj, ensure_ascii=False).encode('utf-8')
+    return base64.b64encode(_xor_bytes(raw, key.encode('utf-8'))).decode('ascii')
+
+def _decrypt_json(token: str, key: str):
+    raw = _xor_bytes(base64.b64decode(token.encode('ascii')), key.encode('utf-8'))
+    return json.loads(raw.decode('utf-8'))
+
+def _get_positions_enc_key():
+    """雲端優先讀 Streamlit Secrets，本機讀 config.py（來自 config_local.py）。"""
+    try:
+        import streamlit as st
+        _k = st.secrets.get('POSITIONS_ENC_KEY', '')
+        if _k:
+            return _k
+    except Exception:
+        pass
+    try:
+        from config import POSITIONS_ENC_KEY
+        return POSITIONS_ENC_KEY
+    except Exception:
+        return None
 
 
 # ── 從公開 repo 直接讀取（不需要 Token）───
@@ -217,17 +252,22 @@ def export_to_json(code=None):
         print(f'匯出台指期未平倉失敗：{e}')
 
     # ── 持倉部位（2026-08新增，需 SYNC_POSITIONS_TO_CLOUD=True 才匯出）──
-    # 個人交易紀錄，僅供雲端唯讀顯示（側邊欄持倉觀察，需密碼解鎖）。
+    # 個人交易紀錄，repo是Public的，一定要加密才寫入，否則等同公開你的交易明細。
+    # 雲端讀到後解密、只做唯讀顯示（側邊欄持倉觀察，需密碼解鎖）。
     try:
-        from config import SYNC_POSITIONS_TO_CLOUD
+        from config import SYNC_POSITIONS_TO_CLOUD, POSITIONS_ENC_KEY
         if SYNC_POSITIONS_TO_CLOUD:
-            from database import get_positions
-            pos_rows = get_positions(None)   # None = 全部（含holding與closed）
-            with open(os.path.join(JSON_DIR, 'positions.json'), 'w', encoding='utf-8') as f:
-                json.dump({'rows': pos_rows,
-                           'exported_at': datetime.now().strftime('%Y-%m-%d %H:%M')},
-                          f, ensure_ascii=False)
-            print(f'匯出持倉部位：{len(pos_rows)} 筆')
+            if not POSITIONS_ENC_KEY:
+                print('匯出持倉部位跳過：config_local.py 未設定 POSITIONS_ENC_KEY')
+            else:
+                from database import get_positions
+                pos_rows = get_positions(None)   # None = 全部（含holding與closed）
+                _enc = _encrypt_json(pos_rows, POSITIONS_ENC_KEY)
+                with open(os.path.join(JSON_DIR, 'positions.json'), 'w', encoding='utf-8') as f:
+                    json.dump({'enc': _enc,
+                               'exported_at': datetime.now().strftime('%Y-%m-%d %H:%M')},
+                              f, ensure_ascii=False)
+                print(f'匯出持倉部位（已加密）：{len(pos_rows)} 筆')
     except Exception as e:
         print(f'匯出持倉部位失敗：{e}')
 
@@ -596,10 +636,16 @@ def init_cloud_data():
         if os.path.exists(pos_path):
             with open(pos_path, encoding='utf-8') as f:
                 pos_json = json.load(f)
-            rows = pos_json.get('rows', [])
-            from database import import_positions
-            import_positions(rows)
-            print(f'  持倉部位：{len(rows)} 筆')
+            _enc_token = pos_json.get('enc')
+            if _enc_token:
+                _key = _get_positions_enc_key()
+                if _key:
+                    rows = _decrypt_json(_enc_token, _key)
+                    from database import import_positions
+                    import_positions(rows)
+                    print(f'  持倉部位（已解密）：{len(rows)} 筆')
+                else:
+                    print('  持倉部位跳過：未設定 POSITIONS_ENC_KEY（Streamlit Secrets）')
     except Exception as e:
         print(f'  持倉部位匯入失敗：{e}')
 

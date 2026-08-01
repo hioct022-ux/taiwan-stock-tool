@@ -86,11 +86,19 @@ FEE_MIN      = 20           # 單筆手續費低消（元）；零股小額交�
 TAX_RATE     = 0.003        # 證交稅 0.3%（僅賣出）
 
 # ── 持倉資料雲端同步（2026-08新增）─────────
-# True：export_to_json() 會把 positions 匯出成 JSON、隨其他資料一起 git push；
-#       雲端版讀到後只做「唯讀顯示」（側邊欄持倉觀察，需輸入密碼解鎖），不提供編輯/新增/出場等寫入操作。
-# 個人交易紀錄，開啟前務必確認 GitHub repo 已設為 Private，並在 Streamlit Cloud
-# 的 Secrets 設定 POSITIONS_PASSWORD，否則等同公開你的持倉資料。
+# True：export_to_json() 會把 positions 加密後匯出成 JSON、隨其他資料一起 git push；
+#       雲端版讀到後解密、只做「唯讀顯示」（側邊欄持倉觀察，需輸入密碼解鎖），不提供編輯/新增/出場等寫入操作。
+# repo 保持 Public 沒關係——positions.json 內容本身是加密過的亂碼，不是明文；
+# 但一定要在 Streamlit Cloud 的 Secrets 設定 POSITIONS_PASSWORD 與 POSITIONS_ENC_KEY
+# （POSITIONS_ENC_KEY 要跟 config_local.py 裡的值完全一樣），兩者缺一都無法在雲端看到持倉資料。
 SYNC_POSITIONS_TO_CLOUD = True
+
+# 持倉資料加密金鑰（本機端讀 config_local.py；雲端端讀 Streamlit Secrets，見 github_sync.py）
+try:
+    from config_local import POSITIONS_ENC_KEY as _POS_ENC_KEY
+except ImportError:
+    _POS_ENC_KEY = None
+POSITIONS_ENC_KEY = _POS_ENC_KEY
 
 # ── 評分等級 ────────────────────────────
 GRADE = {
