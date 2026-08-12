@@ -2060,3 +2060,26 @@ def _decrypt_json(token: str, key: str):
 3. 回填時比照陷阱 27／33 的模式寫一次性腳本，而不是手動改 DB
 
 **通則：** 涉及「報酬率／漲跌幅」的欄位，若該欄位是**寫入時計算好存起來**（而非用時現算），要對「是否可能存在計算失敗但仍寫入預設值 0」保持警覺——0 在這類欄位常常是「正常收盤持平」與「計算錯誤」兩種情況的疊加，光看數值分不出來，只能對照原始價格資料交叉驗證。
+
+---
+
+### 36. git reset --hard 誤把本機新資料退回 8 天前（2026-08 發生）
+
+**現象：** 推送波動度標示功能時，本機 git 分支與遠端分岔（本機領先 8 個 commit、落後遠端 344 個 commit），`git pull --rebase` 對上百個 `data/json/*.json` 檔案炸出衝突。改用 `git reset --hard origin/main` 再 `cherry-pick` 程式碼 commit 的方式解決分岔後，雲端版資料日期卻倒退回 **8/4**，即使本機資料庫明明已經更新到 8/12。
+
+**根本原因：**
+1. 本機這幾天（8/7～8/12）透過某個沙盒／掛載環境執行的 git 操作，累積了一串自己的「sync data」commit，但這些 commit **從未真正 push 上 GitHub**——只存在本機端的 git 歷史裡。
+2. 與此同時，GitHub 遠端 repo 自己有一條獨立的「更新資料」commit 鏈，數量雖多（344個），但內容**沒有比本機新**——實際最新的一筆資料是 8/4。兩條歷史各自往前走、互不相通，才會出現「commit數量遠端領先很多、但內容反而更舊」這種反直覺情況。
+3. 為了解決分岔，執行 `git reset --hard origin/main` 把本機分支重設到遠端最新狀態——這個指令**只重設 git 版本控制的歷史**，不會動到 SQLite 資料庫本身，但會讓「已經 commit 進 git、但還沒 push 的本機資料快照」（8/7～8/12 那幾筆）憑空消失，改成接上遠端那個較舊（8/4）的版本。
+
+**修復：** 因為 SQLite 資料庫（`data/stock.db`）完全沒受 git 操作影響，本機重新按一次「🚀 更新並同步到雲端」（`export_to_json()` + `sync_via_git()`），直接從資料庫當下最新狀態（8/12）重新匯出 JSON 並推送，就把遺失的資料補回來了，不需要額外復原步驟。
+
+**過程中的其他插曲：**
+- 本機沙盒／掛載環境對這個 repo 的檔案操作權限有限，`git rebase --abort` 執行到一半因為 `unable to unlink ... Operation not permitted` 失敗，留下半殘的 rebase 狀態，最後只能請使用者回到自己 Mac 的真實 Terminal 處理，沙盒環境不適合對這個 repo 做涉及大量檔案增刪的 git 操作（rebase / checkout 大範圍切換）。
+- rebase 卡住時本機 Streamlit App 還開著，搶 `.git/index.lock` 導致 `Another git process seems to be running` 錯誤——處理 git 分岔問題前，應先關閉本機執行中的 App（或至少確認沒有背景排程正在跑同步）。
+- zsh 互動模式預設不支援貼上帶 `#` 開頭註解的指令行（跟 bash 不同），會噴 `command not found: #`；之後提供指令給使用者貼到 Terminal 時，一律不夾帶註解行。
+
+**通則：**
+1. `git reset --hard <remote>` 之前，不能只看「領先/落後幾個 commit」就假設遠端內容比較新——一定要先看遠端最新 commit 的**實際內容日期**（例如 `git log -1 origin/main` 的 commit 訊息或內容），數量多不代表內容新，尤其像本專案這種「有兩個獨立環境可能各自對同一個 repo 做過 git 操作」的狀況。
+2. 這個專案的資料流是「SQLite DB（本機權威來源）→ export_to_json() → git commit/push」單向流程；git 歷史再怎麼亂，只要 DB 沒壞，永遠可以重新 export 一次補回最新狀態，不用著急用 git 手法硬救資料。真正需要小心保護的是**程式碼 commit**（人工寫的邏輯改動），資料類 commit 遺失了可以重造。
+3. 沙盒／遠端掛載環境若對倉庫做 git rebase/reset/checkout 之類需要大量檔案 unlink 的操作卡住失敗，不要在同一個環境裡反覆重試——直接請使用者到本機真實 Terminal 處理，那裡才有完整檔案系統權限。
