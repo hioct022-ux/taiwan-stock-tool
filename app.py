@@ -2514,6 +2514,14 @@ def render_score(result, code, name, prices=None, fund_data=None, chips_all=None
         unsafe_allow_html=True
     )
 
+    # 波動度標示（2026-08新增，純資訊揭露，不影響評分）
+    # 分數只反映「體質/方向」，不反映「平常會動多少」，兩者是獨立的維度——
+    # 分數再高，若波動度低，短期內也可能不會有明顯漲幅；分數普通但波動度高，短期振幅可能反而更大。
+    _vol20 = ind.get('vol20')
+    if _vol20 is not None:
+        st.caption(f'📊 近20日波動度：{_vol20:.1f}（20日日報酬標準差，越大代表平常漲跌幅越劇烈；'
+                   f'純資訊參考，不計入評分，高分不代表短期漲幅一定大，低分也不代表不會大幅波動）')
+
     # ── 評分歷史走勢：個股 + 大盤同圖（總分正下方）──
     if prices and fund_data is not None and chips_all is not None and ownership:
         import plotly.graph_objects as go
@@ -8215,14 +8223,29 @@ def render_strategy():
                 except Exception:
                     return None
 
+            # 近20日波動度（2026-08新增，純資訊揭露，不影響評分/門檻）
+            # 定義：20日日報酬標準差，算法見 indicators.py calc_all() 的 vol20
+            def _vol20_for(code):
+                try:
+                    if IS_LOCAL:
+                        _vp = get_prices(code, days=30)
+                    else:
+                        _vp, _, _, _ = _read_stock_json(code)
+                        _vp = _vp[-30:] if _vp else _vp
+                    if not _vp:
+                        return None
+                    return calc_all(_vp).get('vol20')
+                except Exception:
+                    return None
+
             _held_cnt = {}
             if IS_LOCAL:
                 for _hp0 in get_positions('holding'):
                     _held_cnt[_hp0['code']] = _held_cnt.get(_hp0['code'], 0) + 1
 
-            _hc1, _hc2, _hc3, _hc4, _hc5 = st.columns([2.6, 0.9, 1.5, 1.2, 0.7])
-            _hc1.caption('股票'); _hc2.caption('評分')
-            _hc3.caption('參考停損價'); _hc4.caption('標籤'); _hc5.caption('登錄')
+            _hc1, _hc2, _hc3, _hc4, _hc5, _hc6 = st.columns([2.2, 0.8, 0.9, 1.4, 1.0, 0.7])
+            _hc1.caption('股票'); _hc2.caption('評分'); _hc3.caption('波動度')
+            _hc4.caption('參考停損價'); _hc5.caption('標籤'); _hc6.caption('登錄')
             for w, sc in qualified:
                 if   sc >= 85: _sc_c = '#22c55e'
                 elif sc >= 70: _sc_c = '#4ade80'
@@ -8238,7 +8261,11 @@ def render_strategy():
                                   f'<span style="color:#475569">　(現 {_close_str})</span></div>')
                 else:
                     _stop_html = '<div style="padding:6px 0;font-size:12px;color:#475569">—</div>'
-                _c1, _c2, _c3, _c4, _c5 = st.columns([2.6, 0.9, 1.5, 1.2, 0.7])
+                _vol = _vol20_for(w['code'])
+                _vol_html = (f'<div style="padding:6px 0;font-size:12px;color:#94a3b8">{_vol:.1f}</div>'
+                             if _vol is not None else
+                             '<div style="padding:6px 0;font-size:12px;color:#475569">—</div>')
+                _c1, _c2, _c3, _c4, _c5, _c6 = st.columns([2.2, 0.8, 0.9, 1.4, 1.0, 0.7])
                 with _c1:
                     if st.button(f'{w["code"]} {w["name"]}',
                                  key=f'strat_q_{w["code"]}', use_container_width=True):
@@ -8247,11 +8274,12 @@ def render_strategy():
                         st.rerun()
                 _c2.markdown(f'<div style="padding:6px 0;font-weight:800;color:{_sc_c}">{sc}</div>',
                              unsafe_allow_html=True)
-                _c3.markdown(_stop_html, unsafe_allow_html=True)
-                _c4.markdown(f'<div style="padding:6px 0;font-size:12px;color:#64748b">'
+                _c3.markdown(_vol_html, unsafe_allow_html=True)
+                _c4.markdown(_stop_html, unsafe_allow_html=True)
+                _c5.markdown(f'<div style="padding:6px 0;font-size:12px;color:#64748b">'
                              f'{"、".join(w.get("tags", [])) or "—"}</div>',
                              unsafe_allow_html=True)
-                with _c5:
+                with _c6:
                     if not IS_LOCAL:
                         st.caption('—')
                     else:
@@ -8265,6 +8293,7 @@ def render_strategy():
                             st.session_state['_pos_add_name'] = w['name']
                             st.session_state['_pos_add_score'] = sc
                             st.rerun()
+            st.caption('波動度＝近20日日報酬標準差，數字越大代表平常漲跌幅越劇烈。純資訊參考，不影響評分或進場門檻。')
 
             # ── 進場登錄表單（點 📌 後展開）──
             _add_code = st.session_state.get('_pos_add_code')

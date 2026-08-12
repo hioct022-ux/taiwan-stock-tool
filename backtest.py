@@ -81,17 +81,18 @@ def score_signals(tpx_window, fut_window, mm_window, t86_prev):
         elif f_trend <=-2000: bear += 1; used.append('S3 期5日空')
 
     # ── Signal 4：T86 外資現貨 ──
+    # 門檻 2026-07 校準：全市場加總量級，舊門檻(15萬)導致 80% 天數觸發滿分
     if t86_prev:
         fg = t86_prev.get('foreign_net_total', 0) or 0
         tr = t86_prev.get('trust_net_total',   0) or 0
-        if   fg >=  150000: bull += 3; used.append(f'S4 T86外資+{fg:,}(u+3)')
-        elif fg >=   50000: bull += 2; used.append(f'S4 T86外資+{fg:,}(u+2)')
-        elif fg >=   10000: bull += 1; used.append(f'S4 T86外資+{fg:,}(u+1)')
-        elif fg <= -150000: bear += 3; used.append(f'S4 T86外資{fg:,}(b+3)')
-        elif fg <=  -50000: bear += 2; used.append(f'S4 T86外資{fg:,}(b+2)')
-        elif fg <=  -10000: bear += 1; used.append(f'S4 T86外資{fg:,}(b+1)')
-        if tr >=  50000: bull += 1; used.append(f'S4 投信+{tr:,}(u+1)')
-        elif tr <= -50000: bear += 1; used.append(f'S4 投信{tr:,}(b+1)')
+        if   fg >= 1050000: bull += 3; used.append(f'S4 T86外資+{fg:,}(u+3)')
+        elif fg >=  800000: bull += 2; used.append(f'S4 T86外資+{fg:,}(u+2)')
+        elif fg >=  650000: bull += 1; used.append(f'S4 T86外資+{fg:,}(u+1)')
+        elif fg <= -1050000: bear += 3; used.append(f'S4 T86外資{fg:,}(b+3)')
+        elif fg <=  -800000: bear += 2; used.append(f'S4 T86外資{fg:,}(b+2)')
+        elif fg <=  -650000: bear += 1; used.append(f'S4 T86外資{fg:,}(b+1)')
+        if tr >=  100000: bull += 1; used.append(f'S4 投信+{tr:,}(u+1)')
+        elif tr <= -100000: bear += 1; used.append(f'S4 投信{tr:,}(b+1)')
 
     # ── Signal 5：BIAS5 / BIAS20 ──
     if len(tpx_window) >= 6:

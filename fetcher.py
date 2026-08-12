@@ -277,6 +277,20 @@ def fetch_fundamentals():
 
 # ── 抓三大法人 ───────────────────────────
 def fetch_chips():
+    """
+    抓取 T86 個股三大法人買賣超，存入 chips 表。
+    欄位對照（與 fetch_t86() 相同，2026-07 修正）：
+      [2][3][4]   外陸資 買進/賣出/買賣超（不含外資自營商）
+      [5][6][7]   外資自營商 買進/賣出/買賣超
+      [8][9][10]  投信 買進/賣出/買賣超
+      [11]        自營商買賣超（合計）
+      [12][13][14] 自營商 買進/賣出/買賣超（自行買賣）
+      [15][16][17] 自營商 買進/賣出/買賣超（避險）
+    單位為股，除以 1000 轉張。
+    ⚠️ 舊版誤用 [11][12][13] 當投信、[5][6][7] 當自營商，
+       導致 trust_net 實際存的是「自營商賣出股數」（永遠正值）、
+       dealer_net 存的是「外資自營商買賣超」（多數為 0）。
+    """
     print('抓取三大法人資料...')
     count = 0
     try:
@@ -294,12 +308,12 @@ def fetch_chips():
                         'foreign_buy':  round(clean_num(row[2]) / 1000),
                         'foreign_sell': round(clean_num(row[3]) / 1000),
                         'foreign_net':  round(clean_num(row[4]) / 1000),
-                        'trust_buy':    round(clean_num(row[11]) / 1000),
-                        'trust_sell':   round(clean_num(row[12]) / 1000),
-                        'trust_net':    round(clean_num(row[13]) / 1000),
-                        'dealer_buy':   round(clean_num(row[5]) / 1000),
-                        'dealer_sell':  round(clean_num(row[6]) / 1000),
-                        'dealer_net':   round(clean_num(row[7]) / 1000),
+                        'trust_buy':    round(clean_num(row[8]) / 1000),
+                        'trust_sell':   round(clean_num(row[9]) / 1000),
+                        'trust_net':    round(clean_num(row[10]) / 1000),
+                        'dealer_buy':   round((clean_num(row[12]) + clean_num(row[15])) / 1000),
+                        'dealer_sell':  round((clean_num(row[13]) + clean_num(row[16])) / 1000),
+                        'dealer_net':   round(clean_num(row[11]) / 1000),
                         'margin_balance': 0,
                         'short_balance':  0,
                     }
@@ -334,12 +348,12 @@ def fetch_chips():
                             'foreign_buy':  round(clean_num(row[2]) / 1000),
                             'foreign_sell': round(clean_num(row[3]) / 1000),
                             'foreign_net':  round(clean_num(row[4]) / 1000),
-                            'trust_buy':    round(clean_num(row[11]) / 1000),
-                            'trust_sell':   round(clean_num(row[12]) / 1000),
-                            'trust_net':    round(clean_num(row[13]) / 1000),
-                            'dealer_buy':   round(clean_num(row[5]) / 1000),
-                            'dealer_sell':  round(clean_num(row[6]) / 1000),
-                            'dealer_net':   round(clean_num(row[7]) / 1000),
+                            'trust_buy':    round(clean_num(row[8]) / 1000),
+                            'trust_sell':   round(clean_num(row[9]) / 1000),
+                            'trust_net':    round(clean_num(row[10]) / 1000),
+                            'dealer_buy':   round((clean_num(row[12]) + clean_num(row[15])) / 1000),
+                            'dealer_sell':  round((clean_num(row[13]) + clean_num(row[16])) / 1000),
+                            'dealer_net':   round(clean_num(row[11]) / 1000),
                             'margin_balance': 0,
                             'short_balance':  0,
                         }
@@ -2355,12 +2369,12 @@ def fetch_chips_history(code, months=3):
                             'foreign_buy':  round(clean_num(row[2])  / 1000),
                             'foreign_sell': round(clean_num(row[3])  / 1000),
                             'foreign_net':  round(clean_num(row[4])  / 1000),
-                            'trust_buy':    round(clean_num(row[11]) / 1000),
-                            'trust_sell':   round(clean_num(row[12]) / 1000),
-                            'trust_net':    round(clean_num(row[13]) / 1000),
-                            'dealer_buy':   round(clean_num(row[5])  / 1000),
-                            'dealer_sell':  round(clean_num(row[6])  / 1000),
-                            'dealer_net':   round(clean_num(row[7])  / 1000),
+                            'trust_buy':    round(clean_num(row[8]) / 1000),
+                            'trust_sell':   round(clean_num(row[9]) / 1000),
+                            'trust_net':    round(clean_num(row[10]) / 1000),
+                            'dealer_buy':   round((clean_num(row[12]) + clean_num(row[15])) / 1000),
+                            'dealer_sell':  round((clean_num(row[13]) + clean_num(row[16])) / 1000),
+                            'dealer_net':   round(clean_num(row[11]) / 1000),
                             'margin_balance': 0,
                             'short_balance':  0,
                         }

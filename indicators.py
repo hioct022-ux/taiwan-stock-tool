@@ -143,6 +143,16 @@ def calc_all(prices):
     result['pos_65']  = _pos(close_now, result['high_65'],  result['low_65'])
     result['pos_250'] = _pos(close_now, result['high_250'], result['low_250'])
 
+    # ── 波動度（20日日報酬標準差，2026-08新增）──
+    # 用收盤價逐日反推報酬率計算，不依賴資料庫 change_pct 欄位（該欄位有資料錯誤，見陷阱記錄）
+    # 母體標準差（ddof=0），跟 backtest_stocks.py 的驗證分析算法一致，數字才能互相對照
+    if n >= 21:
+        daily_ret = df['close'].pct_change().dropna() * 100
+        vol_val = daily_ret.tail(20).std(ddof=0)
+        result['vol20'] = round(vol_val, 2) if not pd.isna(vol_val) else None
+    else:
+        result['vol20'] = None
+
     # ── 乖離率（BIAS）────────────────────
     ma5_val  = result.get('ma5')
     ma20_val = result.get('ma20')

@@ -338,10 +338,10 @@ positions (id PK, code, name, entry_date, entry_price, shares, stop_price,
 ```python
 if code in ('stocks', 'watchlist', 'meta', 't86', 'exdividend', 'TAIEX',
             'market_margin', 'futures_institutional', 'market_pe', 'chips_market_agg',
-            'watchlist_tags', 'options_pc'):
+            'watchlist_tags', 'options_pc', 'positions'):
     continue
 ```
-**每新增一個大盤層級的 JSON 檔，都必須加到這個 skip 名單**，否則會被誤當成股票代號解析。
+**每新增一個大盤層級的 JSON 檔，都必須加到這個 skip 名單**，否則會被誤當成股票代號解析。（`positions.json` 2026-08新增，內容是加密過的持倉資料，見十八章「雲端唯讀同步與密碼／加密保護」）
 
 ---
 
@@ -721,6 +721,42 @@ def render_score(result, code, name, prices=None, fund_data=None, chips_all=None
 - 參考線：橘色 65（個股進場門檻）、綠色 70（大盤偏多）、紅色 45（大盤偏空）
 - 可選顯示分項走勢（技術面紫、基本面藍、籌碼面橘）
 - Caption：「近90日走勢，每3日計算一次；最後一點為今日即時評分。綠點 ≥65分，紅點 ＜65分。」
+
+**波動度標示（2026-08 新增，純資訊顯示）：**
+
+等級框（grade-box）正下方新增一行 caption：
+
+```python
+_vol20 = ind.get('vol20')
+if _vol20 is not None:
+    st.caption(f'📊 近20日波動度：{_vol20:.1f}（20日日報酬標準差，越大代表平常漲跌幅越劇烈；'
+               f'純資訊參考，不計入評分，高分不代表短期漲幅一定大，低分也不代表不會大幅波動）')
+```
+
+**緣起：** 使用者觀察到國泰金（2882）評分持續偏高，但進場後 10 天股價幾乎不動，質疑「評分系統沒有討論到波動性」。**先驗證再動手**：用 `backtest_stocks.py` 策略 C 的 404 筆實際交易，逐筆用進場前 20 日收盤價算波動度（`statistics.pstdev`），與交易損益、進場評分做相關性分析。
+
+**驗證結果（404 筆交易）：**
+- corr(波動度, 損益) = 0.053、corr(評分, 波動度) = 0.036 —— 兩者幾乎無關，評分高低本來就不代表波動大小，這是預期之內、非系統缺陷
+- 波動度三分位（低/中/高）平均報酬相近（+4.52% / +5.41% / +4.93%），但勝率差異明顯（50.4% / 53.3% / 44.0%），高波動組呈現「大賺大賠」分佈更分散
+- **結論：** 波動度影響的是離散度/風險，不影響期望報酬，不構成「評分系統有缺陷」；但使用者確實需要這個資訊來判斷「這檔股票平常是穩健盤還是劇烈震盪」，尤其在決定願不願意持有到 10 天到期。因此只做**資訊顯示**，不改評分邏輯、不做篩選或排序，避免用一個與損益無關的指標去干擾已驗證有效的評分系統。
+
+**中途發現的資料問題（未修復，僅繞開）：** 驗證過程中發現 DB 的 `change_pct` 欄位在約 4.7%（7,095/150,332）的價格列上被誤存為 `0.0`，即使當日 `close` 實際上與前一日不同。範圍橫跨 1,496 檔股票、2025-03 至 2026-08 全時間段（非單次批次匯入造成），根本原因未查。因此波動度計算刻意不依賴 `change_pct`，改由 `close` 價格逐日反推報酬率（見下方 `indicators.py` 說明），此問題已記錄於「已知陷阱」第 35 則，尚待日後排查 `fetcher.py` 寫入路徑。
+
+**`_vol20_for(code)` — 投資策略頁「進場符合」清單同步顯示：**
+
+```python
+def _vol20_for(code):
+    if IS_LOCAL:
+        _vp = get_prices(code, days=30)
+    else:
+        _vp, _, _, _ = _read_stock_json(code)
+        _vp = _vp[-30:] if _vp else _vp
+    if not _vp:
+        return None
+    return calc_all(_vp).get('vol20')
+```
+
+清單欄位由 4 欄 `[3,1,1.6,1.4]` 改為 6 欄 `[2.2,0.8,0.9,1.4,1.0,0.7]`（股票/評分/波動度/參考停損價/標籤/登錄），波動度欄用中性灰色顯示（刻意不用紅綠色階，因驗證顯示波動度沒有「好/壞」之分，避免使用者誤讀為風險警示或加分項）。清單下方附 caption：「波動度＝近20日日報酬標準差，數字越大代表平常漲跌幅越劇烈。純資訊參考，不影響評分或進場門檻。」
 
 **評分走勢圖今日即時補點（2026-07 新增）：**
 歷史快取（`_hist`）最後一點是前幾天；每次渲染時動態計算今日 `full_score()` 並補入 `_hist_display`（不存快取），確保圖表最右端永遠是今日即時評分。
@@ -1586,9 +1622,11 @@ python3 -c "from database import get_market_pe; [print(r) for r in get_market_pe
 
 ```python
 # config_local.py — 此檔不上傳 Git（已在 .gitignore）
-IS_LOCAL      = True
-GITHUB_TOKEN  = 'ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'  # GitHub Personal Access Token
-FINMIND_TOKEN = 'your_finmind_token'  # FinMind API，用於 ETF 成分股
+IS_LOCAL         = True
+GITHUB_TOKEN     = 'ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'  # GitHub Personal Access Token
+FINMIND_TOKEN    = 'your_finmind_token'  # FinMind API，用於 ETF 成分股
+POSITIONS_ENC_KEY = 'random_long_string'  # 2026-08新增，持倉資料加密金鑰，
+                                           # 需與 Streamlit Cloud Secrets 的同名值完全一致
 ```
 
 ---
@@ -1785,7 +1823,7 @@ _quadrant(ratio, moment) -> (str, str)
 
 **定位：** 與「自選股」分工——自選股是**候選池**（還沒買），持倉追蹤是**已進場部位**（追蹤策略 C 的 10 日持有週期）。
 
-**本機專屬：** `positions` 是個人交易紀錄，**不匯出 JSON、不同步雲端**（`github_sync.py` 完全未涉及）。所有 UI 區塊都用 `if IS_LOCAL:` 包住，雲端版不顯示。
+**本機為主，雲端唯讀（2026-08 起）：** `positions` 本質上是個人交易紀錄，寫入操作（新增/續抱/出場/編輯）**永遠只能在本機做**。雲端版原本完全不處理這張表，2026-08 新增了「雲端唯讀檢視」——側邊欄持倉觀察可以在雲端看，但需要密碼解鎖，且資料本身是加密過的，詳見下方新增小節。
 
 ### config.py 交易成本參數
 
@@ -1876,3 +1914,149 @@ _position_status(pos, cur_price, market_net) -> (旗標, 顏色, 文字)
 | 樣本 | 數百筆，統計意義高 | 累積慢，但真實 |
 
 兩者**都要保留、並排對照**。差距本身就是資訊：實際明顯差於回測時，通常是執行落差（未照規則出場、追高進場、手續費侵蝕），而非策略失效。日後重跑回測仍以整體歷史資料為準，不因實際紀錄而改變回測邏輯。
+
+### 雲端唯讀同步與密碼／加密保護（2026-08 新增）
+
+**動機：** 使用者想在外面（非本機電腦）也能看側邊欄的持倉觀察，但 positions 是個人交易紀錄，不能像大盤分析一樣直接公開。設計目標：雲端只能「看」，不能「寫」；就算資料被同步上 GitHub，沒有密碼也看不到內容。
+
+**範圍刻意收斂：** 只有側邊欄「📌 持倉觀察」這個唯讀清單會出現在雲端；投資策略頁的持倉管理（續抱/出場/編輯表單）維持 `if IS_LOCAL:`，雲端完全不顯示。原因：雲端 DB 是暫時性的（每次重新部署就重建），寫入操作在雲端做了也留不住，還會誤導使用者以為真的改到了本機資料。
+
+**原本想法（已放棄）：把 GitHub repo 設為 Private。**
+流程上這是最乾淨的做法——repo 私有後，就算同步了明文 JSON，外人也看不到。但實際操作卡在 Streamlit Community Cloud 的 GitHub 連接方式：這個帳號是用**舊式 OAuth App**（GitHub → Settings → Applications → *Authorized OAuth Apps* 裡的「Streamlit」，不是 *Installed GitHub Apps*）連接的，repo 改 Private 後 App 直接壞掉（log 顯示 `Cloning repository... Failed` / `Failed to download the sources`）。嘗試「Revoke 舊授權 → 重新連接」也沒有觸發預期中的重新授權畫面，反覆 Reboot 仍是同樣的錯誤。折騰約 40 分鐘後放棄，**改回 Public**，App 立刻恢復正常——這證實問題確實出在 Private 化後的授權銜接，不是程式碼或別的原因。
+
+**教訓：** 如果之後想再試一次 Private repo，要先確認 Streamlit Cloud 的 GitHub 連接方式是新版 GitHub App（有 Repository access 清單可以勾選 repo，像 Vercel 那樣）還是舊版 OAuth App（只有整包授權/撤銷，沒有細部設定）。是舊版 OAuth 的話，靠「Revoke + 期待自動跳出新同意畫面」不可靠，得先在 Streamlit Cloud 自己的介面裡找到明確的「重新連接 GitHub」按鈕主動觸發，不能只在 GitHub 那側操作。
+
+**最終做法：repo 保持 Public，資料本身加密。**
+
+三層防護疊起來：
+
+| 層 | 做法 | 防的對象 |
+|---|---|---|
+| 1. 資料加密 | `positions.json` 內容用 XOR + base64 打亂，不是明文 | 直接逛 GitHub repo 的人 |
+| 2. App 密碼關卡 | 雲端側邊欄持倉觀察需輸入密碼解鎖 | 打開 App 網址亂看的人 |
+| 3. 唯讀 | 雲端完全沒有寫入 UI | 就算密碼外流，頂多看到資料，改不了 |
+
+**明確定位：這是「防君子」等級，不是真加密。** XOR 不是密碼學安全的演算法，只是讓內容從「一眼看懂的 JSON」變成「看不懂的亂碼」，擋的是「剛好逛到你 repo 的路人」，擋不住「刻意想破解、寫程式硬爆的人」。使用者已明確認可這個防護等級（原話：「防君子的做法就可以」），不需要為了做到更強的加密再引入額外套件或服務。
+
+**加解密實作（`github_sync.py`）：**
+```python
+def _xor_bytes(data: bytes, key: bytes) -> bytes:
+    return bytes(b ^ key[i % len(key)] for i, b in enumerate(data))
+
+def _encrypt_json(obj, key: str) -> str:
+    raw = json.dumps(obj, ensure_ascii=False).encode('utf-8')
+    return base64.b64encode(_xor_bytes(raw, key.encode('utf-8'))).decode('ascii')
+
+def _decrypt_json(token: str, key: str):
+    raw = _xor_bytes(base64.b64decode(token.encode('ascii')), key.encode('utf-8'))
+    return json.loads(raw.decode('utf-8'))
+```
+只依賴標準函式庫（`base64`），沒有加新的 pip 套件——刻意選擇，避免 Streamlit Cloud 部署時多一個套件安裝失敗的風險點。
+
+**金鑰存放：** `POSITIONS_ENC_KEY` 本機存在 `config_local.py`（不上傳 Git），雲端存在 Streamlit Cloud 的 Secrets，兩邊要完全一致，否則雲端解密會直接噴例外（`_decrypt_json` 沒有 try/except，錯誤金鑰產生的 bytes 通常不是合法 JSON，`json.loads` 會丟 `JSONDecodeError`，外層 `init_cloud_data()` 的 try/except 會吞掉並印「持倉部位匯入失敗」，畫面上就是雲端持倉區塊沒有資料——排查時先確認這把金鑰兩邊有沒有貼一致）。`_get_positions_enc_key()` 統一處理「雲端讀 `st.secrets`、本機讀 `config.py`（來自 `config_local.py`）」的分支，其他程式碼不用關心來源。
+
+**密碼關卡（`app.py` `_positions_unlocked()`）：** 本機一律回傳 `True`（自己的電腦不需要密碼）；雲端檢查 `st.session_state['_pos_unlocked']`，沒解鎖就在側邊欄畫一個密碼輸入框，`POSITIONS_PASSWORD` 沒設定時直接回傳 `False` 且不顯示任何輸入框（保守預設：沒設密碼視同還沒準備好，不會意外曝光）。呼叫端寫法：`if IS_LOCAL or _positions_unlocked():`——`IS_LOCAL` 為真時靠短路求值直接跳過函式呼叫，本機完全不受這段邏輯影響。
+
+**資料流（`export_to_json()` → `init_cloud_data()`）：**
+1. 本機 `export_to_json()`：`SYNC_POSITIONS_TO_CLOUD=True` 且 `POSITIONS_ENC_KEY` 有值時，才把 `get_positions(None)`（全部，含 holding 與 closed）加密寫入 `positions.json`，格式 `{'enc': <密文>, 'exported_at': ...}`；金鑰未設定時直接跳過匯出並印警告，不會意外寫出明文。
+2. 雲端 `init_cloud_data()`：讀到 `positions.json` 後解密、呼叫 `database.import_positions(rows)` 整批覆寫雲端暫存 DB 的 `positions` 表（先 `DELETE FROM positions` 再逐筆 `INSERT`，保留原始 `id`）。
+3. `positions` 已加入個股 JSON 迴圈的 skip 名單，避免被誤判成股票代號。
+
+**`database.py` 新函式：** `import_positions(rows)`——雲端唯讀匯入專用，本機端不應呼叫（本機一律用 `add_position` 等既有 CRUD 函式）。
+
+---
+
+### 33. fetch_chips() 投信/自營商欄位索引錯誤（2026-07 修正）
+
+**現象：** 大盤評分某日跳到 100 分。追查 S4（法人現貨）時發現 `chips_market_agg` 的數字不合理：
+- 自營商淨額**每天都是 0**
+- 投信**每天都是大幅買超**（3.8萬～12萬張），連續 15 個交易日沒有一天賣超
+- 單日檢查：7/30 共 1344 檔，投信買超 988 家、**賣超 0 家**（不可能）
+- 外資偶爾出現 ±127 萬張的離譜值
+
+**根本原因：** `fetch_chips()` 的 T86 欄位索引抄錯。T86 正確欄位順序（`fetch_t86()` 的註解有正確版本，但 `fetch_chips()` 沒沿用）：
+
+```
+[2][3][4]    外陸資 買進/賣出/買賣超（不含外資自營商）
+[5][6][7]    外資自營商 買進/賣出/買賣超
+[8][9][10]   投信 買進/賣出/買賣超
+[11]         自營商買賣超（合計）
+[12][13][14] 自營商 買進/賣出/買賣超（自行買賣）
+[15][16][17] 自營商 買進/賣出/買賣超（避險）
+```
+
+舊版誤用：
+| 欄位 | 舊版索引 | 實際抓到的內容 | 後果 |
+|------|---------|--------------|------|
+| `trust_net` | `[13]` | 自營商**賣出股數**（自行買賣） | 永遠是正值 → 投信永遠「買超」 |
+| `trust_buy` | `[11]` | 自營商買賣超（合計） | 語意錯亂 |
+| `dealer_net` | `[7]` | **外資自營商**買賣超 | 多數股票為 0 → 自營商全空 |
+
+**影響範圍：** S4（法人現貨）長期給出偏多的假訊號——投信那項幾乎永遠 +1 分。個股籌碼頁的投信/自營商欄位同樣失真。
+
+**修正：** `fetch_chips()` 主路徑、備援路徑、歷史補抓共 3 處改為：
+```python
+'trust_buy':    row[8],  'trust_sell': row[9],  'trust_net': row[10],
+'dealer_buy':   row[12] + row[15],   # 自行買賣 + 避險
+'dealer_sell':  row[13] + row[16],
+'dealer_net':   row[11],             # 自營商合計
+```
+並在函式 docstring 補上完整欄位對照與此錯誤的說明。
+
+**歷史資料回填：** 既有 chips 資料全部受污染，提供 `backfill_chips_fix.py`（一次性腳本）重新向 TWSE 抓取近 N 個交易日並用正確索引覆寫（預設 60 日，可傳參數）。腳本結尾會自動驗證「投信賣超家數 > 0」「自營商合計 ≠ 0」。
+
+**通則：** 同一支 API 在專案內被多處解析時（本例 T86 被 `fetch_t86()` 與 `fetch_chips()` 各自解析一次），欄位對照應集中在一個地方或至少互相引用註解。`fetch_t86()` 的註解寫著「依診斷確認」，代表當初有人踩過坑並修正，但 `fetch_chips()` 沒同步。**發現某支 API 的欄位定義後，要搜尋全專案是否有第二處解析同一支 API。**
+
+---
+
+### 34. Signal 4 門檻未隨資料來源改版而校準（2026-07 修正）
+
+**現象：** 大盤評分連續多日接近 100 分，即使市場處於明顯空頭。追查發現 S4（法人現貨）幾乎每天都給滿分偏多。
+
+**根本原因（延續陷阱 10 的後遺症）：** 陷阱 10（2026-06）為了讓頁面上下數字一致，把 S4 的資料來源從 `get_t86_market_aggregate()`（只加總 T86 排行**前 15 名**，數值幾千張）改為 `chips_market_agg`（**全市場 1300+ 檔**加總，數值數十萬張），**但門檻沒有跟著改**。
+
+**實測觸發頻率（近 51 個交易日）：**
+
+| 舊門檻 | 觸發天數 | 佔比 |
+|---|---|---|
+| 外資 \|net\| ≥ 150,000（±3分） | 41/51 | **80.4%** |
+| 外資 \|net\| ≥ 50,000（±2分） | 45/51 | 88.2% |
+| 投信 \|net\| ≥ 50,000（±1分） | 30/51 | 58.8% |
+
+實際分布：外資絕對值中位數 **374,801 張**、投信 **59,393 張**。等於 S4 退化成「今天合計是正的就 +3、負的就 -3」，完全沒有強弱鑑別度。
+
+**新門檻（比照 S3 台指期的校準原則：±3分約5%天數、±2分約15%、±1分約30%）：**
+
+| 訊號 | 舊 | 新 | 對應百分位 |
+|---|---|---|---|
+| 外資 ±3分 | 150,000 | **1,050,000** | p95 |
+| 外資 ±2分 | 50,000 | **800,000** | p85 |
+| 外資 ±1分 | 10,000 | **650,000** | p70 |
+| 投信 ±1分 | 50,000 | **100,000** | p70 |
+
+**同步修改處：** `app.py` Signal 4 區塊、`backtest.py`、`backtest_stocks.py`（後兩者原本用更舊的 3,000/1,000/2,000，是三份不同步的門檻）。
+
+**回測影響（452 交易日）：** 有方向準確率 51.4%（不變）、強訊號準確率 60.0% → **60.6%**（略升）。準確率無顯著變化，但強訊號天數從 89 天降到 79 天，代表訊號變得更有選擇性。
+
+**實例（2026-07-30）：** 外資 +177,761 張、投信 +36,381 張 —— 舊門檻給 +3 分偏多，新門檻給 **0 分**。大盤評分因此從 100 降到合理區間。
+
+**通則：** 修改訊號的**資料來源**時（尤其是換成不同涵蓋範圍的資料表），必須同步重新校準門檻。判斷方法：抓 50–250 日的實際分布算百分位，確認「強訊號」的觸發頻率落在 5–10%，而不是 80%。這類 bug 不會報錯，只會讓訊號安靜地失去作用。**專案內有多份實作同一訊號時（app.py / backtest.py / backtest_stocks.py），三處門檻要一起改。**
+
+---
+
+### 35. prices.change_pct 欄位約 4.7% 資料被誤存為 0（2026-08 發現，尚未修復）
+
+**現象：** 驗證「波動度是否影響策略績效」時，用 `change_pct` 欄位算個股近 20 日日報酬標準差，發現 404 筆回測交易中有 140 筆波動度剛好等於 `0.00`——機率上不可能。
+
+**排查：** 直接查該股當期 `close` 序列（例如 6274：257.44→256.45→251.49→259.42…），收盤價逐日確實在變動，但同期 `change`／`change_pct` 卻是字面上的 `0.0`。確認是資料寫入錯誤，不是市場真的沒有變化。
+
+**規模：** 全表掃描後，`prices` 表約 **7,095 / 150,332 筆（4.7%）**受影響，涵蓋 **1,496 檔股票**，時間分布平均橫跨 2025-03 至 2026-08 全區間（不是單次批次匯入造成的一次性瑕疵，較可能是某條抓取路徑持續性地在特定情況下漏算）。根本原因（是哪個 `fetcher.py` 路徑、什麼條件觸發）**尚未查明**。
+
+**目前處置（繞開，非修復）：** 任何需要「日報酬率」的新計算一律**不信任 `change_pct` 欄位**，改由 `close` 價格逐日反推：`(close_today - close_yesterday) / close_yesterday * 100`。`indicators.py` 新增的 `vol20`（見四、database.py 章節下方 indicators 說明）即採此作法，程式內有對應註解。
+
+**尚待辦：** 這則只是記錄發現，**尚未排查 `fetcher.py` 寫入 `change`/`change_pct` 的邏輯**、也**尚未回填既有錯誤資料**。日後若有人要處理，建議：
+1. 先確認受影響筆數是否還在增加（如果新抓的資料也中招，代表 bug 還活著，要優先修 `fetcher.py`；如果只在舊資料，回填一次即可）
+2. 全表掃描邏輯：`SELECT code, date FROM prices WHERE change_pct = 0` 再逐筆比對前一日 `close` 是否真的相同，排除真正平盤的正常案例
+3. 回填時比照陷阱 27／33 的模式寫一次性腳本，而不是手動改 DB
+
+**通則：** 涉及「報酬率／漲跌幅」的欄位，若該欄位是**寫入時計算好存起來**（而非用時現算），要對「是否可能存在計算失敗但仍寫入預設值 0」保持警覺——0 在這類欄位常常是「正常收盤持平」與「計算錯誤」兩種情況的疊加，光看數值分不出來，只能對照原始價格資料交叉驗證。

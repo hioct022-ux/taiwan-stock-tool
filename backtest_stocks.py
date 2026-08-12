@@ -94,14 +94,14 @@ def _build_market_signals():
         if t86_prev:
             fg = t86_prev.get('foreign_net_total', 0) or 0
             tr = t86_prev.get('trust_net_total',   0) or 0
-            if   fg >=  150000: bull += 3
-            elif fg >=   50000: bull += 2
-            elif fg >=   10000: bull += 1
-            elif fg <= -150000: bear += 3
-            elif fg <=  -50000: bear += 2
-            elif fg <=  -10000: bear += 1
-            if   tr >=  50000: bull += 1
-            elif tr <= -50000: bear += 1
+            if   fg >= 1050000: bull += 3
+            elif fg >=  800000: bull += 2
+            elif fg >=  650000: bull += 1
+            elif fg <= -1050000: bear += 3
+            elif fg <=  -800000: bear += 2
+            elif fg <=  -650000: bear += 1
+            if   tr >=  100000: bull += 1
+            elif tr <= -100000: bear += 1
 
         # Signal 5-8：TAIEX 技術指標
         if len(tpx_win) >= 6:
