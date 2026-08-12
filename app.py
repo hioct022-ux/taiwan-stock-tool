@@ -332,6 +332,25 @@ def _check_short_squeeze(prices, chips_list):
     return None
 
 
+# 波動度文字標籤門檻（2026-08新增）
+# 依據：backtest_stocks.py 策略C 404筆實際交易，逐筆算進場前20日波動度後三分位切點
+# 低：<2.4　中：2.4~3.9　高：≥3.9
+# ⚠️ 若日後重新驗證（見CLAUDE.md「波動度標示」段落），此門檻要一併更新，不要留舊數字
+VOL20_LOW_CUT  = 2.4
+VOL20_HIGH_CUT = 3.9
+
+def _vol20_label(vol20):
+    """回傳 (文字, 顏色) 或 (None, None)。純敘述性標籤，不帶好壞判斷。"""
+    if vol20 is None:
+        return None, None
+    if vol20 < VOL20_LOW_CUT:
+        return '低波動', '#64748b'
+    elif vol20 < VOL20_HIGH_CUT:
+        return '中波動', '#64748b'
+    else:
+        return '高波動', '#64748b'
+
+
 def show_chart(fig, key=None, date_xaxis=True):
     fig.update_layout(dragmode=False)
     if date_xaxis:
@@ -2519,8 +2538,10 @@ def render_score(result, code, name, prices=None, fund_data=None, chips_all=None
     # 分數再高，若波動度低，短期內也可能不會有明顯漲幅；分數普通但波動度高，短期振幅可能反而更大。
     _vol20 = ind.get('vol20')
     if _vol20 is not None:
-        st.caption(f'📊 近20日波動度：{_vol20:.1f}（20日日報酬標準差，越大代表平常漲跌幅越劇烈；'
-                   f'純資訊參考，不計入評分，高分不代表短期漲幅一定大，低分也不代表不會大幅波動）')
+        _vlabel, _ = _vol20_label(_vol20)
+        st.caption(f'📊 近20日波動度：{_vol20:.1f}（{_vlabel}）（20日日報酬標準差，越大代表平常漲跌幅越劇烈；'
+                   f'純資訊參考，不計入評分，高分不代表短期漲幅一定大，低分也不代表不會大幅波動。'
+                   f'低/中/高分級依 {VOL20_LOW_CUT}／{VOL20_HIGH_CUT} 門檻，取自404筆歷史交易驗證，日後重新驗證會更新）')
 
     # ── 評分歷史走勢：個股 + 大盤同圖（總分正下方）──
     if prices and fund_data is not None and chips_all is not None and ownership:
@@ -8262,9 +8283,12 @@ def render_strategy():
                 else:
                     _stop_html = '<div style="padding:6px 0;font-size:12px;color:#475569">—</div>'
                 _vol = _vol20_for(w['code'])
-                _vol_html = (f'<div style="padding:6px 0;font-size:12px;color:#94a3b8">{_vol:.1f}</div>'
-                             if _vol is not None else
-                             '<div style="padding:6px 0;font-size:12px;color:#475569">—</div>')
+                if _vol is not None:
+                    _vlabel, _ = _vol20_label(_vol)
+                    _vol_html = (f'<div style="padding:6px 0;font-size:12px;color:#94a3b8">'
+                                 f'{_vol:.1f}　<span style="color:#64748b">{_vlabel}</span></div>')
+                else:
+                    _vol_html = '<div style="padding:6px 0;font-size:12px;color:#475569">—</div>'
                 _c1, _c2, _c3, _c4, _c5, _c6 = st.columns([2.2, 0.8, 0.9, 1.4, 1.0, 0.7])
                 with _c1:
                     if st.button(f'{w["code"]} {w["name"]}',
@@ -8293,7 +8317,8 @@ def render_strategy():
                             st.session_state['_pos_add_name'] = w['name']
                             st.session_state['_pos_add_score'] = sc
                             st.rerun()
-            st.caption('波動度＝近20日日報酬標準差，數字越大代表平常漲跌幅越劇烈。純資訊參考，不影響評分或進場門檻。')
+            st.caption(f'波動度＝近20日日報酬標準差，數字越大代表平常漲跌幅越劇烈。純資訊參考，不影響評分或進場門檻。'
+                       f'低/中/高分級門檻（{VOL20_LOW_CUT}／{VOL20_HIGH_CUT}）依404筆歷史交易驗證，日後重新驗證會更新。')
 
             # ── 進場登錄表單（點 📌 後展開）──
             _add_code = st.session_state.get('_pos_add_code')
