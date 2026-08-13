@@ -2116,3 +2116,30 @@ def _decrypt_json(token: str, key: str):
 1. `git reset --hard <remote>` 之前，不能只看「領先/落後幾個 commit」就假設遠端內容比較新——一定要先看遠端最新 commit 的**實際內容日期**（例如 `git log -1 origin/main` 的 commit 訊息或內容），數量多不代表內容新，尤其像本專案這種「有兩個獨立環境可能各自對同一個 repo 做過 git 操作」的狀況。
 2. 這個專案的資料流是「SQLite DB（本機權威來源）→ export_to_json() → git commit/push」單向流程；git 歷史再怎麼亂，只要 DB 沒壞，永遠可以重新 export 一次補回最新狀態，不用著急用 git 手法硬救資料。真正需要小心保護的是**程式碼 commit**（人工寫的邏輯改動），資料類 commit 遺失了可以重造。
 3. 沙盒／遠端掛載環境若對倉庫做 git rebase/reset/checkout 之類需要大量檔案 unlink 的操作卡住失敗，不要在同一個環境裡反覆重試——直接請使用者到本機真實 Terminal 處理，那裡才有完整檔案系統權限。
+
+---
+
+### 37. .git/refs/.DS_Store 造成 push 500 Internal Server Error（2026-08 發生）
+
+**現象：** 解決陷阱 36 的分岔問題、本機 commit 都正常之後，`git push origin main` 卻連續失敗，錯誤是 `remote: Internal Server Error`（HTTP 層有收到 200，但 git-receive-pack 的回應內容本身回報伺服器端錯誤）。GitHub 官方狀態頁當下顯示一切正常，排除是大範圍事故。
+
+**排查：** 用 `GIT_CURL_VERBOSE=1 git push` 確認連線、認證都正常（object 有成功上傳），問題出在 GitHub 收到 push 之後、處理 receive-pack 這一步。改用 `git fsck --full` 檢查本機倉庫完整性，發現兩個問題：
+1. `error: refs/.DS_Store: badRefName`——macOS Finder 瀏覽 `.git/refs/` 資料夾時自動產生的 `.DS_Store` 隱藏檔，被 git 誤判成一個命名不合法的 ref。
+2. 367 個 `garbage found: .git/objects/.../tmp_obj_*`——先前沙盒環境權限不足（見陷阱 36）導致 git 操作中斷，留下大量寫壞的暫存物件檔案。
+
+fsck 沒有回報任何正式物件 `missing` 或 `corrupt`，代表倉庫實際內容是完整的，問題出在這兩類「垃圾檔案」上。
+
+**修復：**
+```bash
+rm -f .git/refs/.DS_Store
+find .git/objects -name "tmp_*" -delete
+git fsck --full   # 確認乾淨（不再有 badRefName / garbage found）
+git push origin main   # 這次成功
+```
+
+清乾淨後 push 立刻成功，證實問題就是這兩類垃圾檔案干擾了 GitHub 端處理 push 的邏輯（`.DS_Store` 那個假 ref 最可疑，push 時 git 要向遠端「廣告」本機所有 ref 狀態，一個格式不合法的 ref 很可能讓遠端解析邏輯出錯而回報 500）。
+
+**通則：**
+1. `.git/refs/.DS_Store` 這類問題通常是因為曾經用 macOS Finder（而非純指令列）瀏覽過 `.git` 內部資料夾，Finder 會自動在造訪過的資料夾留下 `.DS_Store`。**不要用 Finder 打開 `.git` 資料夾**，如果不小心打開過，之後可以順手檢查一下 `.git/refs/`、`.git/objects/` 底下有沒有意外出現 `.DS_Store`。
+2. GitHub push 回報 `Internal Server Error` 但連線/認證都正常時，先懷疑本機倉庫本身有異常內容（垃圾 ref、殘留暫存物件），`git fsck --full` 是第一個該跑的診斷指令，比一直重試 push 更有效率。
+3. 這類「垃圾檔案」清理是安全操作（`tmp_*` 只是未完成寫入的暫存物件，不是任何 commit 實際引用到的內容），不需要擔心誤刪正式資料；但 `.DS_Store` 這種非標準檔案在動手刪之前，還是先用 `git fsck --full` 確認過它真的只是垃圾、不是被哪個 ref 正常引用。
