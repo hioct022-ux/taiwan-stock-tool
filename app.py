@@ -670,6 +670,8 @@ def render_sidebar():
                 _sb_net = st.session_state.get('_market_net')
                 st.markdown(f'#### 📌 持倉觀察　<span style="font-size:12px;color:#64748b">'
                             f'({len(_sb_hold)})</span>', unsafe_allow_html=True)
+                # 持倉成本佔比（2026-08新增）：分母＝目前所有持倉成本總和，非帳戶總資金
+                _sb_total_cost = sum((p['entry_price'] or 0) * (p['shares'] or 0) for p in _sb_hold)
                 for _sp in _sb_hold:
                     _sc_cur = _latest_close(_sp['code'])
                     _sd     = _trading_days_since(_sp['entry_date'])
@@ -680,13 +682,16 @@ def render_sidebar():
                         st.session_state['page'] = 'stock'
                         st.rerun()
                     if _sc_cur:
-                        _sg, _sn, _sgm, _snm, _ = _position_pnl(_sp['entry_price'], _sc_cur,
+                        _sg, _sn, _sgm, _snm, _s_cost = _position_pnl(_sp['entry_price'], _sc_cur,
                                                                 _sp['shares'])
                         _spc = '#ef4444' if _sg >= 0 else '#22c55e'
+                        _s_wt = (_sp['entry_price'] * _sp['shares'] / _sb_total_cost * 100
+                                 if _sb_total_cost > 0 else 0)
                         st.markdown(
                             f'<div style="font-size:11px;margin:-8px 0 8px 6px;line-height:1.5">'
                             f'<span style="color:{_spc};font-weight:700">{_sg:+.2f}%</span>'
-                            f'<span style="color:#64748b">（淨{_sn:+.2f}%／{_snm:+,}元）</span><br>'
+                            f'<span style="color:#64748b">（淨{_sn:+.2f}%／{_snm:+,}元）'
+                            f'　佔比{_s_wt:.1f}%</span><br>'
                             f'<span style="color:#ef4444">停損 {(_sp.get("stop_price") or 0):,.2f}</span>'
                             f'<span style="color:#475569">　現 {_sc_cur:,.2f}</span>'
                             f'　<span style="color:{_sfc}">{_sft}</span></div>',
@@ -7762,6 +7767,36 @@ def _render_position_manager():
     if not _hold:
         st.info('目前無持倉紀錄。在上方「符合進場條件」清單按 📌 即可登錄。')
     else:
+        # ── 資金配置警示（2026-08新增）──────────────────────
+        # 分母＝目前所有持倉成本總和（entry_price×shares 加總），不是帳戶總資金／現金水位，
+        # 系統目前沒有記錄使用者的總資金，這是刻意的簡化，見CLAUDE.md「資金配置警示」段落。
+        _cost_by_code = {}
+        _total_cost = 0.0
+        for _p in _hold:
+            _c = (_p['entry_price'] or 0) * (_p['shares'] or 0)
+            _total_cost += _c
+            _e = _cost_by_code.setdefault(_p['code'], {'name': _p['name'], 'cost': 0.0})
+            _e['cost'] += _c
+        _alloc_warns = []
+        if _total_cost > 0:
+            for _code, _v in sorted(_cost_by_code.items(), key=lambda kv: -kv[1]['cost']):
+                _pct = _v['cost'] / _total_cost * 100
+                if _pct > 20:
+                    _alloc_warns.append(f'{_code} {_v["name"]} 佔目前持倉成本 <b>{_pct:.1f}%</b>（單檔上限 20%）')
+        if _uniq_codes > 5:
+            _alloc_warns.append(f'目前同時持有 <b>{_uniq_codes} 檔</b>（上限 5 檔）')
+        if _alloc_warns:
+            st.markdown(
+                f'<div style="background:#1a1505;border-left:5px solid #f59e0b;'
+                f'border-radius:8px;padding:10px 14px;margin:0 0 14px 0">'
+                f'<div style="font-size:13px;font-weight:700;color:#f59e0b;margin-bottom:4px">'
+                f'⚠️ 資金配置警示</div>'
+                f'<div style="font-size:12px;color:#d4b483;line-height:1.8">'
+                + '<br>'.join(_alloc_warns) +
+                f'</div>'
+                f'<div style="font-size:11px;color:#94a3b8;margin-top:6px">'
+                f'分母為目前所有持倉成本總和，非帳戶總資金／現金水位，僅供集中度參考</div>'
+                f'</div>', unsafe_allow_html=True)
         _ph1, _ph2, _ph3, _ph4, _ph5 = st.columns([2.1, 1.0, 1.4, 1.6, 1.9])
         _ph1.caption('股票'); _ph2.caption('持有天數'); _ph3.caption('損益（毛/淨）')
         _ph4.caption('停損價 / 現價'); _ph5.caption('操作')
