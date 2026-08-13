@@ -7797,6 +7797,34 @@ def _render_position_manager():
                 f'<div style="font-size:11px;color:#94a3b8;margin-top:6px">'
                 f'分母為目前所有持倉成本總和，非帳戶總資金／現金水位，僅供集中度參考</div>'
                 f'</div>', unsafe_allow_html=True)
+
+        # ── 持倉成本佔比圖（2026-08新增）──────────────────────
+        if _total_cost > 0:
+            with st.expander('📊 持倉成本佔比圖', expanded=True):
+                _pie_items = sorted(_cost_by_code.items(), key=lambda kv: kv[1]['cost'])
+                _pie_labels = [f'{c} {v["name"]}' for c, v in _pie_items]
+                _pie_costs  = [v['cost'] for _, v in _pie_items]
+                _pie_pcts   = [v['cost'] / _total_cost * 100 for _, v in _pie_items]
+                _pie_colors = ['#f59e0b' if p > 20 else '#3b82f6' for p in _pie_pcts]
+                _fig_alloc = go.Figure(go.Bar(
+                    x=_pie_pcts, y=_pie_labels, orientation='h',
+                    marker_color=_pie_colors,
+                    text=[f'{p:.1f}%' for p in _pie_pcts],
+                    textposition='outside',
+                    customdata=_pie_costs,
+                    hovertemplate='%{y}<br>佔比 %{x:.1f}%<br>成本 %{customdata:,.0f} 元<extra></extra>'
+                ))
+                _fig_alloc.add_vline(x=20, line_dash='dash', line_color='#f59e0b',
+                                      annotation_text='單檔上限 20%', annotation_font_color='#f59e0b')
+                _fig_alloc.update_layout(
+                    height=max(160, 40 * len(_pie_labels)),
+                    margin=dict(l=10, r=30, t=10, b=10),
+                    xaxis_title='佔目前持倉成本比重 (%)', yaxis_title=None,
+                    showlegend=False, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)'
+                )
+                show_chart(_fig_alloc, key='pos_alloc_bar', date_xaxis=False)
+                st.caption('橘色＝佔比超過單檔上限 20%；藍色＝正常範圍。分母同上方警示框，為目前所有持倉成本總和。')
+
         _ph1, _ph2, _ph3, _ph4, _ph5 = st.columns([2.1, 1.0, 1.4, 1.6, 1.9])
         _ph1.caption('股票'); _ph2.caption('持有天數'); _ph3.caption('損益（毛/淨）')
         _ph4.caption('停損價 / 現價'); _ph5.caption('操作')
