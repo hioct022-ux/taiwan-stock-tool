@@ -2182,3 +2182,37 @@ git push origin main   # 這次成功
 1. `.git/refs/.DS_Store` 這類問題通常是因為曾經用 macOS Finder（而非純指令列）瀏覽過 `.git` 內部資料夾，Finder 會自動在造訪過的資料夾留下 `.DS_Store`。**不要用 Finder 打開 `.git` 資料夾**，如果不小心打開過，之後可以順手檢查一下 `.git/refs/`、`.git/objects/` 底下有沒有意外出現 `.DS_Store`。
 2. GitHub push 回報 `Internal Server Error` 但連線/認證都正常時，先懷疑本機倉庫本身有異常內容（垃圾 ref、殘留暫存物件），`git fsck --full` 是第一個該跑的診斷指令，比一直重試 push 更有效率。
 3. 這類「垃圾檔案」清理是安全操作（`tmp_*` 只是未完成寫入的暫存物件，不是任何 commit 實際引用到的內容），不需要擔心誤刪正式資料；但 `.DS_Store` 這種非標準檔案在動手刪之前，還是先用 `git fsck --full` 確認過它真的只是垃圾、不是被哪個 ref 正常引用。
+
+---
+
+### 38. csv_with_date 逾時直接落到過時備援，晚間更新常卡在前一日資料（2026-08 修正）
+
+**現象：** 2026-08-18 當天大盤大跌（-549點），晚上 21 點多連續按了好幾次「🔄 手動更新資料」，結果都顯示「TWSE 尚未發布今日(2026-08-18)收盤資料，目前最新為2026-08-17」，但實際上 TWSE 官方當時已經有 8/18 的資料了（用其他管道直接查證過）。
+
+**排查：** 看實際錯誤訊息才發現真相——不是資料沒發布，是三層來源全部沒抓到當天資料，但原因各自不同：
+1. `csv_with_date`（最可靠、優先使用的來源）：`Read timed out. (read timeout=20)`——真的是連線逾時，不是沒資料
+2. `json_no_date`（備援一）：`Expecting value: line 1 column 1 (char 0)`——收到空白回應（陷阱21 也記錄過 TWSE 偶爾回傳空 body 的狀況，這不是單一端點的個案，TWSE 好幾支 API 都有這毛病）
+3. `openapi`（備援二）：正常回應，但這個來源**本身更新就比較慢**，回傳的是 8/17 的資料
+
+三層備援雖然有做，但 `csv_with_date` 逾時後直接放棄、falls through 到下一層，而下一層的資料本來就比較舊，等於「最準的來源一逾時，就必然拿到舊資料」。大跌當天 TWSE 網站流量大、回應變慢，正好放大了這個問題。
+
+**修復（`fetcher.py` `fetch_today_prices()`）：** 比照陷阱21修 T86 的做法，`csv_with_date` 這一段改成失敗後隔 5 秒重試，最多 3 次，都失敗才真的落到 `json_no_date`／`openapi` 備援：
+```python
+if src_type == 'csv_with_date':
+    r = None
+    last_err = None
+    for _attempt in range(3):
+        try:
+            r = requests.get(twse_url, headers=HEADERS, timeout=20, verify=False)
+            break
+        except Exception as _e:
+            last_err = _e
+            r = None
+            if _attempt < 2:
+                time.sleep(5)
+    if r is None:
+        raise last_err if last_err else ValueError('csv_with_date 重試3次均失敗')
+    ...
+```
+
+**通則：** 多層備援設計（見陷阱14）解決的是「來源A沒有資料」，但沒有解決「來源A暫時連不上」——這是兩種不同的失敗模式，若不分開處理，會讓系統在最需要重試的時候（網站正忙、暫時性逾時）反而最快放棄最準確的來源、退而求其次用比較舊的備援，产生「明明資料已經有了，程式卻說沒有」的誤導訊息。**排查「資料抓不到」類問題時，一定要看實際的錯誤訊息內容**（逾時 vs 空回應 vs 格式錯誤 vs 真的沒資料），不能只看「失敗了」就假設是同一種原因。

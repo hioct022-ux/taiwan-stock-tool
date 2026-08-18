@@ -140,9 +140,23 @@ def fetch_today_prices():
     ]
     for src_type, twse_url in twse_sources:
         try:
-            r = requests.get(twse_url, headers=HEADERS, timeout=20, verify=False)
-
             if src_type == 'csv_with_date':
+                # 最可靠的來源，但晚間流量大時偶爾逾時（見陷阱記錄）：
+                # 失敗先隔幾秒重試最多 3 次，都失敗才真的落到下一個備援來源
+                r = None
+                last_err = None
+                for _attempt in range(3):
+                    try:
+                        r = requests.get(twse_url, headers=HEADERS, timeout=20, verify=False)
+                        break
+                    except Exception as _e:
+                        last_err = _e
+                        r = None
+                        if _attempt < 2:
+                            time.sleep(5)
+                if r is None:
+                    raise last_err if last_err else ValueError('csv_with_date 重試3次均失敗')
+
                 # CSV 格式（帶日期參數時 response=json 無效，一律返回 CSV）
                 parsed_rows, actual_date = _parse_twse_csv_all(r.content)
                 if not parsed_rows:
@@ -152,6 +166,7 @@ def fetch_today_prices():
                     count += 1
                 twse_actual_date = actual_date
             else:
+                r = requests.get(twse_url, headers=HEADERS, timeout=20, verify=False)
                 resp = r.json()
                 if isinstance(resp, dict) and resp.get('stat') == 'OK':
                     # 網頁端 JSON 格式
