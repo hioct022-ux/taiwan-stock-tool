@@ -80,6 +80,30 @@ def fetch_stock_list():
 
     return results
 
+# ── 智慧補齊：偵測漏更新的交易日 ───────────
+def _missing_weekdays(last_date_str, today=None):
+    """
+    回傳 last_date_str（不含）到今天（不含）之間的平日日期字串 list，由舊到新。
+    只排除週末，國定假日/颱風假等非交易日會在逐日抓取時因該日無資料自然略過（不報錯中斷）。
+    last_date_str 為 None 或空字串時回傳空 list（沒有基準點，不做補齊，避免抓出離譜的長區間）。
+    """
+    if not last_date_str:
+        return []
+    if today is None:
+        today = datetime.now()
+    try:
+        last = datetime.strptime(last_date_str[:10], '%Y-%m-%d')
+    except Exception:
+        return []
+    dates = []
+    d = last + timedelta(days=1)
+    while d.date() < today.date():
+        if d.weekday() < 5:   # 0-4 = 週一到週五
+            dates.append(d.strftime('%Y-%m-%d'))
+        d += timedelta(days=1)
+    return dates
+
+
 # ── 抓當日全市場收盤價 ───────────────────
 def _parse_twse_csv_all(content_bytes):
     """
@@ -123,6 +147,35 @@ def _parse_twse_csv_all(content_bytes):
     return rows_out, actual_date
 
 
+def _fetch_twse_csv_prices_for_date(date_str_yyyymmdd, retries=3):
+    """
+    抓取指定日期（YYYYMMDD）的上市收盤價，存入 prices 表。
+    回傳 (count, actual_date)；查無資料（假日/尚未發布）或連線失敗回傳 (0, None)。
+    失敗先隔5秒重試最多 retries 次（晚間流量大時偶爾逾時，見陷阱38）。
+    """
+    url = f'https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?date={date_str_yyyymmdd}'
+    r = None
+    last_err = None
+    for _attempt in range(retries):
+        try:
+            r = requests.get(url, headers=HEADERS, timeout=20, verify=False)
+            break
+        except Exception as _e:
+            last_err = _e
+            r = None
+            if _attempt < retries - 1:
+                time.sleep(5)
+    if r is None:
+        raise last_err if last_err else ValueError(f'{date_str_yyyymmdd} 重試{retries}次均失敗')
+
+    parsed_rows, actual_date = _parse_twse_csv_all(r.content)
+    if not parsed_rows:
+        return 0, None
+    for row in parsed_rows:
+        save_prices(row['code'], [row])
+    return len(parsed_rows), actual_date
+
+
 def fetch_today_prices():
     """抓取今日全市場收盤價，回傳實際資料日期（TWSE 回傳的交易日，非今天）或 None。"""
     print('抓取今日收盤價...')
@@ -130,7 +183,33 @@ def fetch_today_prices():
     twse_actual_date = None   # 記錄 TWSE API 回傳的實際交易日，供上櫃使用
     today_str = datetime.now().strftime('%Y%m%d')
 
-    # 上市
+    # ── 智慧補齊：先補上次更新到今天之間漏掉的交易日（2026-08新增）──
+    # 只補「上市」部分，因為只有帶日期參數的CSV端點支援查任意歷史日期；
+    # 上櫃（TPEx）API 沒有日期參數、只能查當下快照，這裡無法回補，是已知限制。
+    try:
+        from database import get_latest_price_date
+        _last_date = get_latest_price_date('2330')
+        _missing = _missing_weekdays(_last_date)
+        if _missing:
+            print(f'偵測到 {len(_missing)} 個可能漏掉的交易日（{_missing[0]}～{_missing[-1]}），開始補齊...')
+            _backfilled = 0
+            for _d in _missing:
+                try:
+                    _c, _ad = _fetch_twse_csv_prices_for_date(_d.replace('-', ''))
+                    if _c > 0:
+                        _backfilled += _c
+                        print(f'  [補齊] {_d}：{_c} 筆')
+                    else:
+                        print(f'  [補齊] {_d}：無資料（可能是假日，略過）')
+                except Exception as _e:
+                    print(f'  [補齊] {_d} 失敗：{_e}')
+                time.sleep(0.5)
+            if _backfilled:
+                print(f'上市收盤價補齊完成：共 {_backfilled} 筆')
+    except Exception as e:
+        print(f'補齊漏掉交易日時發生錯誤（不影響今日抓取）：{e}')
+
+    # 上市（今日）
     # 優先策略：帶日期參數的 CSV 端點（最可靠，即使無日期版本返回舊資料也能取到正確日期）
     # 備援：無日期 JSON 端點（有時返回舊資料）、OpenAPI（有時延遲）
     twse_sources = [
@@ -141,30 +220,11 @@ def fetch_today_prices():
     for src_type, twse_url in twse_sources:
         try:
             if src_type == 'csv_with_date':
-                # 最可靠的來源，但晚間流量大時偶爾逾時（見陷阱記錄）：
-                # 失敗先隔幾秒重試最多 3 次，都失敗才真的落到下一個備援來源
-                r = None
-                last_err = None
-                for _attempt in range(3):
-                    try:
-                        r = requests.get(twse_url, headers=HEADERS, timeout=20, verify=False)
-                        break
-                    except Exception as _e:
-                        last_err = _e
-                        r = None
-                        if _attempt < 2:
-                            time.sleep(5)
-                if r is None:
-                    raise last_err if last_err else ValueError('csv_with_date 重試3次均失敗')
-
-                # CSV 格式（帶日期參數時 response=json 無效，一律返回 CSV）
-                parsed_rows, actual_date = _parse_twse_csv_all(r.content)
-                if not parsed_rows:
-                    raise ValueError('CSV 解析結果為空')
-                for row in parsed_rows:
-                    save_prices(row['code'], [row])
-                    count += 1
-                twse_actual_date = actual_date
+                _c, _ad = _fetch_twse_csv_prices_for_date(today_str)
+                if _c == 0:
+                    raise ValueError('CSV 解析結果為空（今日資料可能尚未發布）')
+                count += _c
+                twse_actual_date = _ad
             else:
                 r = requests.get(twse_url, headers=HEADERS, timeout=20, verify=False)
                 resp = r.json()
@@ -291,6 +351,53 @@ def fetch_fundamentals():
         print(f'抓取基本面失敗：{e}')
 
 # ── 抓三大法人 ───────────────────────────
+def _fetch_t86_chips_for_date(date_str_yyyymmdd):
+    """
+    抓取指定日期（YYYYMMDD）的 T86 個股三大法人買賣超，存入 chips 表。
+    回傳 (count, actual_date_std)；查無資料（假日/尚未發布）回傳 (0, None)。
+    欄位對照見 fetch_chips() docstring。
+    """
+    url = f'https://www.twse.com.tw/rwd/zh/fund/T86?date={date_str_yyyymmdd}&selectType=ALLBUT0999&response=json'
+    r = requests.get(url, headers=HEADERS, timeout=15, verify=False)
+    data = r.json()
+    if data.get('stat') != 'OK':
+        return 0, None
+
+    raw_date = str(data.get('date', date_str_yyyymmdd)).strip()
+    try:
+        if len(raw_date) == 7 and raw_date[0] == '1':
+            date_str = f'{int(raw_date[:3])+1911}-{raw_date[3:5]}-{raw_date[5:7]}'
+        elif len(raw_date) == 8 and raw_date[0] == '2':
+            date_str = f'{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:8]}'
+        else:
+            date_str = f'{date_str_yyyymmdd[:4]}-{date_str_yyyymmdd[4:6]}-{date_str_yyyymmdd[6:8]}'
+    except Exception:
+        date_str = f'{date_str_yyyymmdd[:4]}-{date_str_yyyymmdd[4:6]}-{date_str_yyyymmdd[6:8]}'
+
+    count = 0
+    for row in data.get('data', []):
+        try:
+            code = row[0].strip()
+            chips = {
+                'foreign_buy':  round(clean_num(row[2]) / 1000),
+                'foreign_sell': round(clean_num(row[3]) / 1000),
+                'foreign_net':  round(clean_num(row[4]) / 1000),
+                'trust_buy':    round(clean_num(row[8]) / 1000),
+                'trust_sell':   round(clean_num(row[9]) / 1000),
+                'trust_net':    round(clean_num(row[10]) / 1000),
+                'dealer_buy':   round((clean_num(row[12]) + clean_num(row[15])) / 1000),
+                'dealer_sell':  round((clean_num(row[13]) + clean_num(row[16])) / 1000),
+                'dealer_net':   round(clean_num(row[11]) / 1000),
+                'margin_balance': 0,
+                'short_balance':  0,
+            }
+            save_chips(code, date_str, chips)
+            count += 1
+        except Exception:
+            pass
+    return count, date_str
+
+
 def fetch_chips():
     """
     抓取 T86 個股三大法人買賣超，存入 chips 表。
@@ -308,74 +415,42 @@ def fetch_chips():
     """
     print('抓取三大法人資料...')
     count = 0
+
+    # ── 智慧補齊：先補上次更新到今天之間漏掉的交易日（2026-08新增）──
+    try:
+        _conn = __import__('database').get_conn()
+        _row = _conn.execute("SELECT MAX(date) FROM chips").fetchone()
+        _conn.close()
+        _last_chips_date = _row[0] if _row else None
+        _missing = _missing_weekdays(_last_chips_date)
+        if _missing:
+            print(f'三大法人：偵測到 {len(_missing)} 個可能漏掉的交易日，開始補齊...')
+            _backfilled = 0
+            for _d in _missing:
+                try:
+                    _c, _ad = _fetch_t86_chips_for_date(_d.replace('-', ''))
+                    if _c > 0:
+                        _backfilled += _c
+                        print(f'  [補齊] {_d}：{_c} 筆')
+                except Exception as _e:
+                    print(f'  [補齊] {_d} 失敗：{_e}')
+                time.sleep(0.5)
+            if _backfilled:
+                print(f'三大法人補齊完成：共 {_backfilled} 筆')
+    except Exception as e:
+        print(f'三大法人補齊漏掉交易日時發生錯誤（不影響今日抓取）：{e}')
+
     try:
         today = datetime.now().strftime('%Y%m%d')
-        url = f'https://www.twse.com.tw/rwd/zh/fund/T86?date={today}&selectType=ALLBUT0999&response=json'
-        r = requests.get(url, headers=HEADERS, timeout=15, verify=False)
-        data = r.json()
-        date_str = datetime.now().strftime('%Y-%m-%d')
+        count, date_str = _fetch_t86_chips_for_date(today)
 
-        if data.get('stat') == 'OK':
-            for row in data.get('data', []):
-                try:
-                    code = row[0].strip()
-                    chips = {
-                        'foreign_buy':  round(clean_num(row[2]) / 1000),
-                        'foreign_sell': round(clean_num(row[3]) / 1000),
-                        'foreign_net':  round(clean_num(row[4]) / 1000),
-                        'trust_buy':    round(clean_num(row[8]) / 1000),
-                        'trust_sell':   round(clean_num(row[9]) / 1000),
-                        'trust_net':    round(clean_num(row[10]) / 1000),
-                        'dealer_buy':   round((clean_num(row[12]) + clean_num(row[15])) / 1000),
-                        'dealer_sell':  round((clean_num(row[13]) + clean_num(row[16])) / 1000),
-                        'dealer_net':   round(clean_num(row[11]) / 1000),
-                        'margin_balance': 0,
-                        'short_balance':  0,
-                    }
-                    save_chips(code, date_str, chips)
-                    count += 1
-                except:
-                    pass
+        if count > 0:
             print(f'三大法人：{count} 筆')
         else:
-            # 今日資料未發布，嘗試抓前一個交易日
-            from datetime import timedelta
+            # 今日資料未發布，嘗試抓前一個交易日（若上面的智慧補齊已經補過，這裡通常會是重複、無害的覆寫）
             yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y%m%d')
-            url2 = f'https://www.twse.com.tw/rwd/zh/fund/T86?date={yesterday}&selectType=ALLBUT0999&response=json'
-            r2 = requests.get(url2, headers=HEADERS, timeout=15)
-            data2 = r2.json()
-            if data2.get('stat') == 'OK':
-                # 取得實際日期
-                date_str2 = str(data2.get('date', yesterday)).strip()
-                try:
-                    if len(date_str2) == 7 and date_str2[0] == '1':  # 民國年 1YYMMDD
-                        date_str = f'{int(date_str2[:3])+1911}-{date_str2[3:5]}-{date_str2[5:7]}'
-                    elif len(date_str2) == 8 and date_str2[0] == '2':  # 西元年 YYYYMMDD
-                        date_str = f'{date_str2[:4]}-{date_str2[4:6]}-{date_str2[6:8]}'
-                    else:
-                        date_str = datetime.now().strftime('%Y-%m-%d')
-                except:
-                    date_str = datetime.now().strftime('%Y-%m-%d')
-                for row in data2.get('data', []):
-                    try:
-                        code = row[0].strip()
-                        chips = {
-                            'foreign_buy':  round(clean_num(row[2]) / 1000),
-                            'foreign_sell': round(clean_num(row[3]) / 1000),
-                            'foreign_net':  round(clean_num(row[4]) / 1000),
-                            'trust_buy':    round(clean_num(row[8]) / 1000),
-                            'trust_sell':   round(clean_num(row[9]) / 1000),
-                            'trust_net':    round(clean_num(row[10]) / 1000),
-                            'dealer_buy':   round((clean_num(row[12]) + clean_num(row[15])) / 1000),
-                            'dealer_sell':  round((clean_num(row[13]) + clean_num(row[16])) / 1000),
-                            'dealer_net':   round(clean_num(row[11]) / 1000),
-                            'margin_balance': 0,
-                            'short_balance':  0,
-                        }
-                        save_chips(code, date_str, chips)
-                        count += 1
-                    except:
-                        pass
+            count, date_str = _fetch_t86_chips_for_date(yesterday)
+            if count > 0:
                 print(f'三大法人（前一交易日）：{count} 筆')
             else:
                 print('三大法人資料尚未發布')
@@ -476,12 +551,93 @@ def fetch_market_margin_history(months=3):
     return count
 
 
+def _parse_date_tw_generic(s, fallback):
+    s = str(s).strip()
+    try:
+        if len(s) == 7 and s[0] == '1':
+            return f'{int(s[:3])+1911}-{s[3:5]}-{s[5:7]}'
+        if len(s) == 8 and s[0] == '2':
+            return f'{s[:4]}-{s[4:6]}-{s[6:8]}'
+    except Exception:
+        pass
+    return fallback
+
+
+def _fetch_market_margin_for_date(date_yyyymmdd, date_std_fb):
+    """
+    抓取指定日期的大盤融資融券彙總，成功寫入 DB 回傳實際日期字串，
+    查無資料/解析失敗回傳 None（不拋例外，由呼叫端決定要不要繼續嘗試下一天）。
+    """
+    from database import save_market_margin
+    url = (f'https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN'
+           f'?date={date_yyyymmdd}&selectType=MS&response=json')
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=15, verify=False)
+        data = r.json()
+    except Exception as e:
+        print(f'大盤融資融券請求失敗（{date_yyyymmdd}）：{e}')
+        return None
+
+    if data.get('stat') != 'OK':
+        return None
+
+    date_str = _parse_date_tw_generic(data.get('date', ''), date_std_fb)
+
+    tables = data.get('tables', []) or []
+    if not tables and data.get('data'):
+        tables = [data]
+
+    # API 欄位：['項目','買進','賣出','現金(券)償還','前日餘額','今日餘額']
+    # vals 索引：  0      1      2        3            4         5  （row[1:]）
+    margin_lots = margin_buy = margin_sell = 0   # 融資（張）
+    margin_amount = 0                             # 融資金額（千元）
+    short_balance = short_buy = short_sell = 0   # 融券（張）
+
+    for tbl in tables:
+        for row in tbl.get('data', []):
+            if not row:
+                continue
+            label = str(row[0]).strip()
+            vals  = [clean_num(v) for v in row[1:]]
+            if len(vals) < 5:
+                continue
+            try:
+                if label == '融資(交易單位)':
+                    margin_buy   = int(vals[0])
+                    margin_sell  = int(vals[1])
+                    margin_lots  = int(vals[4])   # 今日餘額（張）
+                elif '融資金額' in label:
+                    margin_amount = int(vals[4])  # 今日餘額（千元）
+                elif label == '融券(交易單位)':
+                    short_sell    = int(vals[0])
+                    short_buy     = int(vals[1])
+                    short_balance = int(vals[4])  # 今日餘額（張）
+            except Exception:
+                pass
+
+    # margin_balance 儲存為億元（整數），融資金額仟元 ÷ 100000
+    margin_balance = round(margin_amount / 100000) if margin_amount > 0 else margin_lots
+
+    if margin_balance > 0 or short_balance > 0:
+        save_market_margin(date_str, {
+            'margin_balance': margin_balance,   # 億元
+            'margin_buy':     margin_buy,       # 張
+            'margin_sell':    margin_sell,       # 張
+            'margin_lots':    margin_lots,      # 張（融資餘額，供比例計算，勿與 margin_balance 億元混用）
+            'short_balance':  short_balance,    # 張
+            'short_buy':      short_buy,        # 張
+            'short_sell':     short_sell,       # 張
+        })
+        return date_str
+    return None
+
+
 def fetch_market_margin():
     """
     抓取全市場融資融券彙總資料（MI_MARGN selectType=MS）。
     儲存到 market_margin 表。
     """
-    from database import save_market_margin, get_market_margin_last_date, get_latest_price_date
+    from database import get_market_margin_last_date, get_latest_price_date
 
     twse_date = get_latest_price_date('2330') or datetime.now().strftime('%Y-%m-%d')
     last = get_market_margin_last_date()
@@ -496,18 +652,18 @@ def fetch_market_margin():
         fetch_market_margin_history(months=3)
         return
 
-    def parse_date_tw(s, fallback):
-        s = str(s).strip()
-        try:
-            if len(s) == 7 and s[0] == '1':
-                return f'{int(s[:3])+1911}-{s[3:5]}-{s[5:7]}'
-            if len(s) == 8 and s[0] == '2':
-                return f'{s[:4]}-{s[4:6]}-{s[6:8]}'
-        except Exception:
-            pass
-        return fallback
+    # ── 智慧補齊：先補上次更新到今天之間漏掉的交易日（2026-08新增）──
+    _missing = _missing_weekdays(last)
+    if _missing:
+        print(f'大盤融資融券：偵測到 {len(_missing)} 個可能漏掉的交易日，開始補齊...')
+        for _d in _missing:
+            _ad = _fetch_market_margin_for_date(_d.replace('-', ''), _d)
+            if _ad:
+                print(f'  [補齊] {_ad} 完成')
+            time.sleep(0.5)
 
-    # 最多往前找 5 天
+    # 最多往前找 5 天（處理「今天尚未發布」的情況，只取最新一天即可，
+    # 更早的缺口已經由上面的智慧補齊處理過了）
     for days_back in range(0, 6):
         try_d = (datetime.now() - timedelta(days=days_back))
         if try_d.weekday() >= 5:
@@ -515,76 +671,14 @@ def fetch_market_margin():
         date_yyyymmdd = try_d.strftime('%Y%m%d')
         date_std_fb   = try_d.strftime('%Y-%m-%d')
 
-        url = (f'https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN'
-               f'?date={date_yyyymmdd}&selectType=MS&response=json')
-        try:
-            r = requests.get(url, headers=HEADERS, timeout=15, verify=False)
-            data = r.json()
-        except Exception as e:
-            print(f'大盤融資融券請求失敗（{date_yyyymmdd}）：{e}')
-            continue
-
-        if data.get('stat') != 'OK':
-            continue
-
-        date_str = parse_date_tw(data.get('date', ''), date_std_fb)
-
-        # 已有此日資料就跳過
-        if last and date_str <= last:
-            print(f'大盤融資融券已有 {date_str}，略過')
+        _cur_last = get_market_margin_last_date()
+        if _cur_last and date_std_fb <= _cur_last:
+            print(f'大盤融資融券已有 {date_std_fb}，略過')
             return
 
-        # 解析彙總表：找包含「融資」「餘額」的 table
-        tables = data.get('tables', []) or []
-        # 有時候直接是 data key（非 tables）
-        if not tables and data.get('data'):
-            tables = [data]
-
-        margin_balance = short_balance = 0
-        margin_buy = margin_sell = short_buy = short_sell = 0
-
-        # API 欄位：['項目','買進','賣出','現金(券)償還','前日餘額','今日餘額']
-        # vals 索引：  0      1      2        3            4         5  （row[1:]）
-        margin_lots = margin_buy = margin_sell = 0   # 融資（張）
-        margin_amount = 0                             # 融資金額（千元）
-        short_balance = short_buy = short_sell = 0   # 融券（張）
-
-        for tbl in tables:
-            for row in tbl.get('data', []):
-                if not row:
-                    continue
-                label = str(row[0]).strip()
-                vals  = [clean_num(v) for v in row[1:]]
-                if len(vals) < 5:
-                    continue
-                try:
-                    if label == '融資(交易單位)':
-                        margin_buy   = int(vals[0])
-                        margin_sell  = int(vals[1])
-                        margin_lots  = int(vals[4])   # 今日餘額（張）
-                    elif '融資金額' in label:
-                        margin_amount = int(vals[4])  # 今日餘額（千元）
-                    elif label == '融券(交易單位)':
-                        short_sell    = int(vals[0])
-                        short_buy     = int(vals[1])
-                        short_balance = int(vals[4])  # 今日餘額（張）
-                except Exception:
-                    pass
-
-        # margin_balance 儲存為億元（整數），融資金額仟元 ÷ 100000
-        margin_balance = round(margin_amount / 100000) if margin_amount > 0 else margin_lots
-
-        if margin_balance > 0 or short_balance > 0:
-            save_market_margin(date_str, {
-                'margin_balance': margin_balance,   # 億元
-                'margin_buy':     margin_buy,       # 張
-                'margin_sell':    margin_sell,       # 張
-                'margin_lots':    margin_lots,      # 張（融資餘額，供比例計算，勿與 margin_balance 億元混用）
-                'short_balance':  short_balance,    # 張
-                'short_buy':      short_buy,        # 張
-                'short_sell':     short_sell,       # 張
-            })
-            print(f'大盤融資融券儲存完成（{date_str}）：融資={margin_balance:,} 億元，融券={short_balance:,} 張')
+        date_str = _fetch_market_margin_for_date(date_yyyymmdd, date_std_fb)
+        if date_str:
+            print(f'大盤融資融券儲存完成（{date_str}）')
             return
         else:
             print(f'大盤融資融券無法解析（{date_yyyymmdd}），嘗試前一天...')
@@ -2218,14 +2312,15 @@ def fetch_t86():
         print(f'T86 排行資料已是最新（{last}），略過')
         return
 
-    # 從上次日期+1天逐日往後補，最多試5個交易日
+    # 從上次日期+1天逐日往後補，最多試30個交易日
+    # （2026-08 從 5 天拉高到 30 天：5 天上限在使用者出門超過一週沒更新時會補不完整）
     from_date = datetime.strptime(last, '%Y-%m-%d') + timedelta(days=1) if last else datetime.strptime(twse_date, '%Y-%m-%d')
     to_date   = datetime.strptime(twse_date, '%Y-%m-%d')
 
-    # 列出需要嘗試的日期（只取週一~週五，最多5天）
+    # 列出需要嘗試的日期（只取週一~週五，最多30天）
     candidates = []
     d = from_date
-    while d <= to_date and len(candidates) < 5:
+    while d <= to_date and len(candidates) < 30:
         if d.weekday() < 5:  # 非週末
             candidates.append(d.strftime('%Y-%m-%d'))
         d += timedelta(days=1)
