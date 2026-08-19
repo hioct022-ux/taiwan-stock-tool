@@ -1278,10 +1278,10 @@ def render_technical(result, name):
             lower_pct   = round(lower_wick / total_range * 100, 1) if total_range else 0
             vol_ratio   = round(vol / avg_vol, 2) if avg_vol else 0
 
-            # ── K 線圖（近20日）＋ 均線 ＋ 數值指標並排 ──
+            # ── K 線圖（近3個月，約60個交易日）＋ 均線 ＋ 數值指標並排 ──
             _kl_col, _km_col = st.columns([1, 1])
             with _kl_col:
-                _n = min(20, len(_dates))
+                _n = min(60, len(_dates))
                 _ma5s  = ind.get('ma5_series',  [])
                 _ma20s = ind.get('ma20_series', [])
                 _ma60s = ind.get('ma60_series', [])
@@ -6783,10 +6783,10 @@ def render_market():
 
             st.markdown('#### 🕯️ 大盤今日 K 線解讀')
 
-            # ── K 線圖（近20日）＋ 均線 ＋ 數值並排 ──
+            # ── K 線圖（近3個月，約60個交易日）＋ 均線 ＋ 數值並排 ──
             _mk_col, _mm_col = st.columns([1, 1])
             with _mk_col:
-                _n = min(20, len(prices))
+                _n = min(60, len(prices))
                 _mk_dates  = [p['date']  for p in prices[-_n:]]
                 _mk_opens  = [p['open']  for p in prices[-_n:]]
                 _mk_highs  = [p['high']  for p in prices[-_n:]]
