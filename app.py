@@ -401,6 +401,20 @@ def _vol20_label(vol20):
         return '高波動', '#64748b'
 
 
+def _market_advice(ms):
+    """
+    依大盤評分回傳操作建議文字。大盤分析頁與投資策略頁共用同一份文字。
+
+    2026-08：原本這段字串只寫在 render_market() 內，投資策略頁的評分卡只有
+    「個股門檻」而沒有操作建議——但投資策略頁才是使用者實際決定要做什麼的地方。
+    抽成共用函式後兩頁一致，日後改文字也不會只改一邊而漂移。
+    """
+    if   ms >= 70: return '大盤條件良好，個股 ≥65 分可積極進場；多頭不追高，逢回檔分批佈局'
+    elif ms >= 55: return '大盤偏多，個股門檻提高至 70 分；買點挑回檔日（量縮、不破前低），不追漲'
+    elif ms >= 45: return '大盤中性，個股門檻提高至 75 分；輕倉試單，進場即掛停損單'
+    else:          return '大盤偏空，暫停進場；持股逢反彈減碼（不恐慌殺低），停損單守最後底線'
+
+
 def show_chart(fig, key=None, date_xaxis=True):
     fig.update_layout(dragmode=False)
     if date_xaxis:
@@ -5934,10 +5948,7 @@ def render_market():
         elif _ms >= 20: _ms_grade = '偏空';     _ms_c = '#f97316'; _ms_bg = '#2d1500'
         else:           _ms_grade = '強烈偏空'; _ms_c = '#ef4444'; _ms_bg = '#2d0a0a'
 
-        if   _ms >= 70: _ms_rec = '大盤條件良好，個股 ≥65 分可積極進場；多頭不追高，逢回檔分批佈局'
-        elif _ms >= 55: _ms_rec = '大盤偏多，個股門檻提高至 70 分；買點挑回檔日（量縮、不破前低），不追漲'
-        elif _ms >= 45: _ms_rec = '大盤中性，個股門檻提高至 75 分；輕倉試單，進場即掛停損單'
-        else:           _ms_rec = '大盤偏空，暫停進場；持股逢反彈減碼（不恐慌殺低），停損單守最後底線'
+        _ms_rec = _market_advice(_ms)   # 與投資策略頁共用同一份文字
 
         # 趨勢標籤：從上次載入的歷史評分取前一點作比較
         _ms_prev_hist = st.session_state.get('_market_score_history_v3', [])
@@ -8422,7 +8433,9 @@ def render_strategy():
             f'<div style="border-left:1px solid #2d3748;padding-left:20px;flex:1">'
             f'<div style="font-size:18px;font-weight:700;color:{_ms_c}">{_ms_grade}</div>'
             f'<div style="font-size:13px;color:#94a3b8;margin-top:6px">個股門檻：{_th_note}</div>'
-            f'<div style="font-size:11px;color:#475569;margin-top:4px">'
+            f'<div style="font-size:12px;color:{_ms_c};margin-top:6px;line-height:1.6">'
+            f'💡 {_market_advice(_ms)}</div>'
+            f'<div style="font-size:11px;color:#475569;margin-top:6px">'
             f'空方 +{_bear} ／ 多方 +{_bull}　｜　淨值 {_net:+d}</div>'
             f'</div></div></div>',
             unsafe_allow_html=True)
