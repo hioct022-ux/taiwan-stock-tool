@@ -274,6 +274,56 @@ def _check_consolidation_pattern(prices):
     return True
 
 
+def _scan_watchlist_patterns():
+    """
+    掃描自選股，回傳 {'consol': [(code,name),...], 'breakout': [(code,name),...]}。
+
+    存在理由（2026-08）：大盤評分的操作建議會寫「買點挑回檔日（量縮、不破前低）」，
+    但使用者看完不知道**哪幾檔**符合，得自己一檔一檔翻。而 _check_consolidation_pattern()
+    的判斷條件（站上月線＋近3日量縮＋低點不破底）其實就是那句建議的具體化，
+    功能早就存在、只是沒接到看得到的地方。這個 helper 把掃描結果集中算一次，
+    供大盤評分卡與投資策略頁共用。
+
+    ⚠️ 純資訊揭露：不影響評分、不影響進場門檻、不是進出場規則。
+    快取於 session_state，key 帶 TAIEX 最新日期，資料更新後自動失效。
+    """
+    try:
+        _wl = get_watchlist()
+        if not _wl:
+            return {'consol': [], 'breakout': []}
+
+        if IS_LOCAL:
+            _ref = get_prices('TAIEX', days=1)
+            _rd  = _ref[-1]['date'] if _ref else 'na'
+        else:
+            _rd = _get_meta_version()
+        _ck = f'_wl_patterns_{_rd}'
+        if _ck in st.session_state:
+            return st.session_state[_ck]
+
+        _res = {'consol': [], 'breakout': []}
+        for _w in _wl:
+            try:
+                if IS_LOCAL:
+                    _p = get_prices(_w['code'], days=25)
+                else:
+                    _p, _, _, _ = _read_stock_json(_w['code'])
+                    _p = _p[-25:] if _p else _p
+                if not _p:
+                    continue
+                # 兩者互斥，🔥 優先（判斷順序與側邊欄旗標一致）
+                if _check_volume_breakout(_p):
+                    _res['breakout'].append((_w['code'], _w['name']))
+                elif _check_consolidation_pattern(_p):
+                    _res['consol'].append((_w['code'], _w['name']))
+            except Exception:
+                continue
+        st.session_state[_ck] = _res
+        return _res
+    except Exception:
+        return {'consol': [], 'breakout': []}
+
+
 def _check_volume_breakout(prices):
     """
     量縮後放量突破掃描（四條件同時成立才回傳 True）：
@@ -5920,6 +5970,44 @@ def render_market():
             f'</div></div></div>',
             unsafe_allow_html=True)
 
+        # ── 把「買點挑回檔日」的建議接上實際符合的個股（2026-08）──
+        # 上面 _ms_rec 只給了原則（量縮、不破前低），使用者看完仍要自己一檔一檔找；
+        # 這裡直接把 🎯/🔥 掃描結果附上，讓建議變成可執行的。純資訊，不改任何規則。
+        if _ms >= 45:      # 偏空時暫停進場，不需要顯示買點掃描
+            _pat = _scan_watchlist_patterns()
+            _nc, _nb = len(_pat['consol']), len(_pat['breakout'])
+            def _names(lst, k=4):
+                _s = '、'.join(f'{c} {n}' for c, n in lst[:k])
+                return _s + (f' 等 {len(lst)} 檔' if len(lst) > k else '')
+            if _nc or _nb:
+                _pat_lines = []
+                if _nc:
+                    _pat_lines.append(f'<span style="color:#22c55e;font-weight:700">🎯 量縮整理 '
+                                      f'{_nc} 檔</span>　<span style="color:#94a3b8">'
+                                      f'{_names(_pat["consol"])}</span>')
+                if _nb:
+                    _pat_lines.append(f'<span style="color:#f59e0b;font-weight:700">🔥 量縮後放量 '
+                                      f'{_nb} 檔</span>　<span style="color:#94a3b8">'
+                                      f'{_names(_pat["breakout"])}</span>')
+                st.markdown(
+                    f'<div style="background:#101520;border-left:4px solid #38bdf8;'
+                    f'border-radius:6px;padding:10px 14px;margin-bottom:14px;font-size:12px;'
+                    f'line-height:1.8">'
+                    f'<span style="color:#38bdf8;font-weight:700">📍 目前符合上述買點型態的自選股'
+                    f'</span><br>' + '<br>'.join(_pat_lines) +
+                    f'<div style="color:#475569;font-size:11px;margin-top:6px">'
+                    f'🎯＝站上月線＋近3日量縮＋低點不破底（即「回檔日」條件）；'
+                    f'🔥＝量縮後今日放量突破。仍須確認個股評分達門檻才進場，'
+                    f'型態本身不是進場理由。</div></div>',
+                    unsafe_allow_html=True)
+            else:
+                st.markdown(
+                    f'<div style="background:#101520;border-left:4px solid #334155;'
+                    f'border-radius:6px;padding:9px 14px;margin-bottom:14px;font-size:12px;'
+                    f'color:#64748b">📍 目前自選股中<b>沒有</b>符合「量縮、不破前低」的回檔型態'
+                    f'（🎯 0 檔、🔥 0 檔）——不必勉強找標的，等型態出現再說。</div>',
+                    unsafe_allow_html=True)
+
         # ── 多殺多 / 斷頭警告框 ──────────────────────────────
         if _s10_alert_level >= 2:
             _al_bg = '#2d0a0a'; _al_bc = '#ef4444'
@@ -8442,9 +8530,20 @@ def render_strategy():
                 for _hp0 in get_positions('holding'):
                     _held_cnt[_hp0['code']] = _held_cnt.get(_hp0['code'], 0) + 1
 
-            _hc1, _hc2, _hc3, _hc4, _hc5, _hc6 = st.columns([2.2, 0.8, 0.9, 1.4, 1.0, 0.7])
-            _hc1.caption('股票'); _hc2.caption('評分'); _hc3.caption('波動度')
-            _hc4.caption('參考停損價'); _hc5.caption('標籤'); _hc6.caption('登錄')
+            # 型態掃描（2026-08）：讓「評分達標」與「現在是不是好買點」兩件事同框呈現。
+            # 原本評分達標的清單看不出該股是在回檔量縮、還是正在追高，得自己去側邊欄比對。
+            _pat_all = _scan_watchlist_patterns()
+            _pat_map = {}
+            for _pc, _ in _pat_all['breakout']:
+                _pat_map[_pc] = ('🔥', '#f59e0b', '量縮後放量')
+            for _pc, _ in _pat_all['consol']:
+                _pat_map.setdefault(_pc, ('🎯', '#22c55e', '量縮整理'))
+
+            _hc1, _hc2, _hc3, _hc4, _hc5, _hc6, _hc7 = st.columns(
+                [2.0, 0.7, 0.9, 0.9, 1.3, 0.9, 0.6])
+            _hc1.caption('股票'); _hc2.caption('評分'); _hc3.caption('型態')
+            _hc4.caption('波動度'); _hc5.caption('參考停損價')
+            _hc6.caption('標籤'); _hc7.caption('登錄')
             for w, sc in qualified:
                 if   sc >= 85: _sc_c = '#22c55e'
                 elif sc >= 70: _sc_c = '#4ade80'
@@ -8467,7 +8566,14 @@ def render_strategy():
                                  f'{_vol:.1f}　<span style="color:#64748b">{_vlabel}</span></div>')
                 else:
                     _vol_html = '<div style="padding:6px 0;font-size:12px;color:#475569">—</div>'
-                _c1, _c2, _c3, _c4, _c5, _c6 = st.columns([2.2, 0.8, 0.9, 1.4, 1.0, 0.7])
+                _pf = _pat_map.get(w['code'])
+                if _pf:
+                    _pat_html = (f'<div style="padding:6px 0;font-size:12px;color:{_pf[1]}">'
+                                 f'{_pf[0]} {_pf[2]}</div>')
+                else:
+                    _pat_html = '<div style="padding:6px 0;font-size:12px;color:#475569">—</div>'
+                _c1, _c2, _c3, _c4, _c5, _c6, _c7 = st.columns(
+                    [2.0, 0.7, 0.9, 0.9, 1.3, 0.9, 0.6])
                 with _c1:
                     if st.button(f'{w["code"]} {w["name"]}',
                                  key=f'strat_q_{w["code"]}', use_container_width=True):
@@ -8476,12 +8582,13 @@ def render_strategy():
                         st.rerun()
                 _c2.markdown(f'<div style="padding:6px 0;font-weight:800;color:{_sc_c}">{sc}</div>',
                              unsafe_allow_html=True)
-                _c3.markdown(_vol_html, unsafe_allow_html=True)
-                _c4.markdown(_stop_html, unsafe_allow_html=True)
-                _c5.markdown(f'<div style="padding:6px 0;font-size:12px;color:#64748b">'
+                _c3.markdown(_pat_html, unsafe_allow_html=True)
+                _c4.markdown(_vol_html, unsafe_allow_html=True)
+                _c5.markdown(_stop_html, unsafe_allow_html=True)
+                _c6.markdown(f'<div style="padding:6px 0;font-size:12px;color:#64748b">'
                              f'{"、".join(w.get("tags", [])) or "—"}</div>',
                              unsafe_allow_html=True)
-                with _c6:
+                with _c7:
                     if not IS_LOCAL:
                         st.caption('—')
                     else:
@@ -8495,6 +8602,10 @@ def render_strategy():
                             st.session_state['_pos_add_name'] = w['name']
                             st.session_state['_pos_add_score'] = sc
                             st.rerun()
+            st.caption(f'型態：🎯＝站上月線＋近3日量縮＋低點不破底（大盤建議說的「回檔日」條件）；'
+                       f'🔥＝量縮後今日放量突破；— ＝兩者皆非（可能正在追高，不代表不能買）。'
+                       f'兩者互斥、🔥 優先，與側邊欄旗標同一套判斷。**型態純供挑進場時點，'
+                       f'不是進場理由，也不影響評分或門檻。**')
             st.caption(f'波動度＝近20日日報酬標準差，數字越大代表平常漲跌幅越劇烈。純資訊參考，不影響評分或進場門檻。'
                        f'低/中/高分級門檻（{VOL20_LOW_CUT}／{VOL20_HIGH_CUT}）依404筆歷史交易驗證，日後重新驗證會更新。')
 
