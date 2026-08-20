@@ -687,6 +687,12 @@ def render_sidebar():
                         _spc = '#ef4444' if _sg >= 0 else '#22c55e'
                         _s_wt = (_sp['entry_price'] * _sp['shares'] / _sb_total_cost * 100
                                  if _sb_total_cost > 0 else 0)
+                        # 評分衰退提示（2026-08）：把個股頁的「買入訊號衰退警告」搬到這裡，
+                        # 避免偵測到了卻埋在個股頁而沒被看見。純資訊，不改出場規則。
+                        _s_alert, _s_alert_c = _position_score_alert(
+                            _position_score_trend(_sp['code']))
+                        _s_alert_html = (f'<br><span style="color:{_s_alert_c}">📉 {_s_alert}</span>'
+                                         if _s_alert else '')
                         st.markdown(
                             f'<div style="font-size:11px;margin:-8px 0 8px 6px;line-height:1.5">'
                             f'<span style="color:{_spc};font-weight:700">{_sg:+.2f}%</span>'
@@ -694,7 +700,8 @@ def render_sidebar():
                             f'　佔比{_s_wt:.1f}%</span><br>'
                             f'<span style="color:#ef4444">停損 {(_sp.get("stop_price") or 0):,.2f}</span>'
                             f'<span style="color:#475569">　現 {_sc_cur:,.2f}</span>'
-                            f'　<span style="color:{_sfc}">{_sft}</span></div>',
+                            f'　<span style="color:{_sfc}">{_sft}</span>'
+                            f'{_s_alert_html}</div>',
                             unsafe_allow_html=True)
                     else:
                         st.markdown(f'<div style="font-size:11px;margin:-8px 0 8px 6px;'
@@ -7732,6 +7739,83 @@ def render_ranking():
             st.caption('💡 殖利率 = 權息值 ÷ 前收盤價　｜　✅ 正式 = TWSE 已確認　📋 預告 = 早期公告')
 
 # ── 投資策略頁 ──────────────────────────
+def _position_score_trend(code):
+    """
+    回傳 {'curr','peak','decline'} 或 None。
+    取最近 5 個評分點（每 3 個交易日一點，約 15 日），與個股頁「買入訊號衰退警告」
+    完全同一套判斷邏輯（峰值取「不含今日」的前 4 點最大值）。
+
+    存在理由（2026-08）：買入訊號衰退警告原本只畫在個股頁的「⭐綜合評分」分頁，
+    必須主動點進該股才看得到；但使用者每天實際會看的是側邊欄持倉觀察與持倉管理。
+    微星 2026-08-18 那天評分自峰值 88 掉到 69（-19 分）確實有觸發警告，卻因為埋在
+    個股頁而沒被看見，兩天後才以停損收場。這個 helper 只是把既有偵測結果搬到會被
+    看到的位置，**不改任何進出場規則、不影響評分本身、不影響回測結論**。
+
+    效能：單檔算 5 點約 0.6 秒，故以 session_state 快取，key 帶最新價格日期，
+    資料更新（日期變動）後自動失效重算。持倉通常僅數檔，首次渲染成本可接受。
+    """
+    try:
+        if IS_LOCAL:
+            _p   = get_prices(code, days=250)
+            _f   = get_fundamentals(code, days=250)
+            _c   = get_chips(code, days=250)
+            _own = get_ownership(code)
+        else:
+            _p, _f, _c, _own = _read_stock_json(code)
+            _p = _p[-250:] if _p else _p
+        if not _p or len(_p) < 65:
+            return None
+
+        # full_score() 要的是正規化後的持股結構 dict，不是 get_ownership() 的原始列，
+        # 這裡必須與自選股評分（render_sidebar 內）用完全相同的組法，否則同一檔股票
+        # 會在持倉列與自選股頁算出不一樣的分數。
+        _fpct = round(_own['foreign_pct'], 1) if _own else 52
+        _o = {'foreign': _fpct, 'trust': 5, 'dealer': 2, 'director': 12,
+              'retail': max(0, 100 - _fpct - 5 - 2 - 12)}
+
+        _ck = f'_pos_trend_{code}_{_p[-1]["date"]}'
+        if _ck in st.session_state:
+            return st.session_state[_ck]
+
+        _dates = [x['date'] for x in _p]
+        _pts   = []
+        for _off in (12, 9, 6, 3, 0):        # 由舊到新，每3個交易日一點
+            _i = len(_p) - 1 - _off
+            if _i < 60:
+                continue
+            _d = _dates[_i]
+            _r = full_score(_p[:_i+1],
+                            [x for x in _f if x['date'] <= _d],
+                            [x for x in _c if x['date'] <= _d][-65:], _o)
+            if _r:
+                _pts.append(_r['total_score'])
+
+        if len(_pts) < 3:
+            return None
+        _curr = _pts[-1]
+        _peak = max(_pts[:-1])               # 峰值不含今日，與個股頁邏輯一致
+        _res  = {'curr': _curr, 'peak': _peak, 'decline': _curr - _peak}
+        st.session_state[_ck] = _res
+        return _res
+    except Exception:
+        return None
+
+
+def _position_score_alert(trend):
+    """
+    把 _position_score_trend() 的結果轉成 (文字, 顏色) 或 (None, None)。
+    觸發條件與個股頁「買入訊號衰退警告」相同：近期峰值 ≥65 且今日回落 ≥5 分。
+    純資訊提示，不構成出場指令（出場仍依停損／到期評分／大盤警報三項既有規則）。
+    """
+    if not trend:
+        return None, None
+    _peak, _curr, _dec = trend['peak'], trend['curr'], trend['decline']
+    if _peak < 65 or _dec > -5:
+        return None, None
+    _txt = f'評分 {_curr}（近期峰值 {_peak}，{_dec:+d}）'
+    return (_txt, '#ef4444') if _curr < 65 else (_txt, '#f59e0b')
+
+
 def _position_status(pos, cur_price, market_net=None):
     """
     回傳 (旗標emoji, 顏色, 狀態文字)。優先序：停損 > 大盤轉空 > 到期 > 接近停損 > 正常
@@ -7880,6 +7964,18 @@ def _render_position_manager():
                               help='修正這筆的進場資料', use_container_width=True):
                     st.session_state['_pos_edit_id'] = _p['id']
                     st.rerun()
+
+            # 評分衰退提示（2026-08）：與個股頁「買入訊號衰退警告」同邏輯，
+            # 搬到持倉列表讓它出現在每天會看的地方。純資訊，不是出場指令。
+            _pm_alert, _pm_alert_c = _position_score_alert(
+                _position_score_trend(_p['code']))
+            if _pm_alert:
+                st.markdown(f'<div style="border-left:3px solid {_pm_alert_c};padding:4px 10px;'
+                            f'margin:0 0 8px 0;font-size:12px;color:{_pm_alert_c}">'
+                            f'📉 {_pm_alert}　'
+                            f'<span style="color:#94a3b8">評分動能轉弱，出場仍依停損／到期評分／'
+                            f'大盤警報三項規則，此列僅供提早留意</span></div>',
+                            unsafe_allow_html=True)
 
             # 到期自動判定建議（策略 C：≥65 續抱、<65 出場）
             if _days >= HOLD_DAYS:
