@@ -7952,6 +7952,122 @@ def _position_status(pos, cur_price, market_net=None):
     return '🟢', '#22c55e', '持有中'
 
 
+def _score_for_code(code):
+    """算某檔股票「今日」的綜合評分，回傳 int 或 None。與自選股評分同一套組法。"""
+    try:
+        if IS_LOCAL:
+            _p   = get_prices(code, days=400)
+            _f   = get_fundamentals(code)
+            _c   = get_chips(code, days=65)
+            _own = get_ownership(code)
+        else:
+            _p, _f, _c_raw, _own = _read_stock_json(code)
+            _c = _c_raw[-65:] if _c_raw and len(_c_raw) > 65 else _c_raw
+        if not _p:
+            return None
+        _fpct = round(_own['foreign_pct'], 1) if _own else 52
+        _o = {'foreign': _fpct, 'trust': 5, 'dealer': 2, 'director': 12,
+              'retail': max(0, 100 - _fpct - 5 - 2 - 12)}
+        _r = full_score(_p, _f, _c, _o)
+        return _r['total_score'] if _r else None
+    except Exception:
+        return None
+
+
+def _render_manual_add_position():
+    """
+    手動登錄任一檔持倉（2026-08 新增）。
+
+    存在理由：原本唯一的登錄入口是投資策略頁「符合進場條件」清單的 📌 按鈕，
+    而那份清單每天會隨資料更新變動。使用者實際買進後若再跑一次更新，
+    該股可能因為評分下滑、或大盤評分下降導致門檻提高，而從清單中消失——
+    於是**已經成交的部位反而無法登錄**。交易紀錄是既成事實，
+    不應該取決於系統當下推不推薦這檔股票。
+
+    與 📌 按鈕的差異：這裡可輸入任意代號（含非自選股），
+    進場評分改為「可自動帶入今日評分、也可手動修正」——因為使用者往往是
+    買進後隔一兩天才補登錄，此時的評分未必等於當初進場那天的評分。
+    """
+    with st.expander('➕ 手動登錄持倉（任一檔，不受進場清單限制）', expanded=False):
+        _mc1, _mc2 = st.columns([1, 2])
+        _m_code = _mc1.text_input('股票代號', key='_manual_pos_code',
+                                  placeholder='例如 2330').strip()
+        if not _m_code:
+            st.caption('輸入代號後會自動帶出名稱、最新收盤價與今日評分。')
+            return
+
+        _m_name = ''
+        try:
+            _hit = search_stock(_m_code)
+            for _h in _hit:
+                if _h['code'] == _m_code:
+                    _m_name = _h['name']
+                    break
+            if not _m_name and _hit:
+                _m_name = _hit[0]['name']
+        except Exception:
+            pass
+        if not _m_name:
+            _mc2.warning(f'查無代號 {_m_code}，仍可手動輸入名稱後登錄')
+        _m_name = _mc2.text_input('名稱', value=_m_name, key='_manual_pos_name')
+
+        _m_close = _latest_close(_m_code) or 0.0
+        _m_score = _score_for_code(_m_code)
+        _m_exist = get_positions_by_code(_m_code)
+
+        if _m_close:
+            st.caption(f'最新收盤 {_m_close:,.2f}　｜　今日評分 '
+                       f'{_m_score if _m_score is not None else "—"}')
+        else:
+            st.caption('查無價格資料（可能是新上市或代號有誤），仍可手動輸入進場價登錄。')
+        if _m_exist:
+            _et = '、'.join('{}@{:,.2f}'.format(e['entry_date'], e['entry_price'])
+                            for e in _m_exist)
+            st.caption(f'⚠️ 此檔已有 {len(_m_exist)} 筆未平倉部位（{_et}）　'
+                       f'本次為加碼，將獨立計時與獨立停損')
+
+        with st.form(f'manual_pos_form_{_m_code}'):
+            _g1, _g2, _g3 = st.columns(3)
+            _m_date   = _g1.date_input('進場日', value=datetime.now())
+            _m_price  = _g2.number_input('進場價', value=float(_m_close) or 0.01,
+                                         min_value=0.01, step=0.05, format='%.2f')
+            _m_shares = _g3.number_input('股數（1張=1000股，零股填實際股數）',
+                                         value=1000, min_value=1, step=1)
+            _h1, _h2, _h3 = st.columns(3)
+            _m_stop  = _h1.number_input('停損價（進場價×0.92）',
+                                        value=round((float(_m_close) or 0.01) * 0.92, 2),
+                                        min_value=0.0, step=0.05, format='%.2f')
+            _m_es    = _h2.number_input('進場時個股評分', min_value=0, max_value=100,
+                                        value=int(_m_score) if _m_score is not None else 65,
+                                        step=1)
+            _m_ms    = _h3.number_input('進場時大盤評分', min_value=0, max_value=100,
+                                        value=int(st.session_state.get('_market_ms') or 50),
+                                        step=1)
+            _m_note  = st.text_input('備註（選填）', value='')
+            st.caption('⚠️ 兩個評分欄位預設帶入**今日**數值。若你是買進後隔幾天才補登錄，'
+                       '請改成當初進場那天的評分——策略驗證的分組統計會用到這兩個欄位，'
+                       '填錯會讓「評分門檻是否有效」的驗證失真。')
+            _mok = st.form_submit_button('✅ 確認登錄', use_container_width=True)
+
+        if _mok:
+            if not _m_name:
+                st.error('請輸入名稱')
+            else:
+                add_position(_m_code, _m_name, _m_date.strftime('%Y-%m-%d'),
+                             float(_m_price), int(_m_shares), float(_m_stop),
+                             entry_score=int(_m_es), entry_ms=int(_m_ms))
+                if _m_note:
+                    try:
+                        _new = get_positions_by_code(_m_code)
+                        if _new:
+                            update_position(sorted(_new, key=lambda x: x['id'])[-1]['id'],
+                                            note=_m_note)
+                    except Exception:
+                        pass
+                st.success(f'已登錄 {_m_code} {_m_name} 進場')
+                st.rerun()
+
+
 def _render_position_manager():
     """持倉管理區：到期建議、續抱/出場操作、歷史交易紀錄（僅本機）"""
     from config import HOLD_DAYS
@@ -7966,8 +8082,16 @@ def _render_position_manager():
     st.markdown(f'### 📌 持倉管理　<span style="font-size:14px;color:#64748b">'
                 f'{_hd_extra}</span>', unsafe_allow_html=True)
 
+    # ── 手動登錄任一檔（2026-08 新增）──────────────────────
+    # 問題：原本唯一的登錄入口是「符合進場條件」清單的 📌 按鈕，
+    # 但那份清單會隨每日更新而變動——買進後若該股評分掉到門檻以下、
+    # 或大盤評分下降使門檻提高，它就會從清單消失，導致**實際已成交的部位無法登錄**。
+    # 交易紀錄是既成事實，不該取決於系統當下推不推薦這檔股票。
+    _render_manual_add_position()
+
     if not _hold:
-        st.info('目前無持倉紀錄。在上方「符合進場條件」清單按 📌 即可登錄。')
+        st.info('目前無持倉紀錄。可用上方「➕ 手動登錄持倉」，'
+                '或在「符合進場條件」清單按 📌 登錄。')
     else:
         # ── 資金配置警示（2026-08新增）──────────────────────
         # 分母＝目前所有持倉成本總和（entry_price×shares 加總），不是帳戶總資金／現金水位，
