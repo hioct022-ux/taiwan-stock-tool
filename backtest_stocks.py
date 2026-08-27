@@ -3,7 +3,7 @@
 策略 A（無大盤過濾）：個股 ≥ 65 分 → 隔日進場
 策略 B（有大盤過濾）：個股 ≥ 65 分 + 大盤訊號非偏空 → 隔日進場
 策略 C（策略 B + 到期續抱）：到期時重新評分，≥65 則再抱一輪
-持有 10 個交易日出場，或跌破 8% 停損
+持有 10 個交易日出場，或跌破 10% 停損
 """
 import sys, os
 sys.path.insert(0, os.path.dirname(__file__))
@@ -17,7 +17,8 @@ from indicators import calc_all
 # ── 參數 ────────────────────────────────
 SCORE_THRESHOLD  = 65      # 進場門檻
 HOLD_DAYS        = 10      # 持有天數（交易日）
-STOP_LOSS_RATIO  = 0.92    # 停損：進場價 × 0.92（跌 8%）
+STOP_LOSS_RATIO  = 0.90    # 停損：進場價 × 0.90（跌 10%）
+                           # 2026-08-27 由 0.92 改為 0.90，依據見 config.py 同名常數註解
 TRAILING_PCT     = None    # 移動停利：從波段高點回落幅度（None=不啟用）
 MIN_HISTORY      = 90      # 最少需要幾筆歷史才開始評分
 

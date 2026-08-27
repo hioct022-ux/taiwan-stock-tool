@@ -186,7 +186,7 @@ def calc_all(prices):
     if ma20:
         result['buy_low']  = round(ma20 * 0.99, 2)   # 買進區間下緣
         result['buy_high'] = round(ma20 * 1.01, 2)   # 買進區間上緣
-        result['stop_loss'] = round(ma20 * 0.99 * 0.92, 2)  # 停損價
+        result['stop_loss'] = round(ma20 * 0.99 * 0.90, 2)  # 停損價（10%，2026-08-27 由0.92改）
 
     if result['bb_upper']:
         # 目標價：近3個月前高 和 布林上軌 取較低者

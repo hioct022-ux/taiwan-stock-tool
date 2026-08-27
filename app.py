@@ -2972,7 +2972,7 @@ def render_score(result, code, name, prices=None, fund_data=None, chips_all=None
         if stop_loss:
             loss_pct = round((stop_loss - close) / close * 100, 1) if close else 0
             st.metric('停損參考價', f'{stop_loss}元', delta=f'{loss_pct}%')
-            st.error(f'計算方式：買進區間下緣（{buy_low}元）× 0.92。'
+            st.error(f'計算方式：買進區間下緣（{buy_low}元）× 0.90（10%）。'
                      f'跌到此價位代表原先判斷可能是錯的，'
                      f'建議出場保護資金，等待下次機會。')
 
@@ -4900,7 +4900,7 @@ BIAS 乖離率、布林通道位置、自選股強弱、外部市場（美股/VI
 **正式規則＝策略 C**，基於回測結果（157 筆，勝率 60.6%，期望值 +10.2%）：
 
 - **進場**：大盤評分達標 + 個股評分達門檻，隔日買入
-- **停損**：跌破進場價 8%，立即出場（**買進當日即在券商預掛停損單**）
+- **停損**：跌破進場價 10%，立即出場（**買進當日即在券商預掛停損單**）
 - **持有**：標準 10 個交易日
 - **到期決策**：重新評分 ≥65 分續抱，否則出場
 - **停利**：不設固定停利，讓評分和持有時間決定
@@ -5004,6 +5004,7 @@ BIAS 乖離率、布林通道位置、自選股強弱、外部市場（美股/VI
 | v3.2 | 2026/07/29 | 空頭段回測驗證、轉折觀察清單（大盤+個股）、參考停損價、全面減碼警報 |
 | v3.3 | 2026/08/20 | 波動度標示、持倉成本佔比與資金配置警示、評分衰退提示搬到持倉列表、K線圖延伸為3個月、資料智慧補齊（漏更新自動補回） |
 | v3.4 | 2026/08/21 | 策略 E/F 驗證（皆不採用）、**進場型態回測後移除「不追漲」等未驗證建議**、C/D 規則明確標示、手動登錄持倉入口 |
+| v3.5 | 2026/08/27 | **停損距離由 8% 校準為 10%**（依 alpha 見頂位置，非原始報酬）、波動度調整停損與趨勢過濾皆驗證後否決、報酬拆解為 beta/alpha |
     ''')
 
 # ── 頁籤七：匯出分析 ────────────────────
@@ -8092,8 +8093,8 @@ def _render_manual_add_position():
             _m_shares = _g3.number_input('股數（1張=1000股，零股填實際股數）',
                                          value=1000, min_value=1, step=1)
             _h1, _h2, _h3 = st.columns(3)
-            _m_stop  = _h1.number_input('停損價（進場價×0.92）',
-                                        value=round((float(_m_close) or 0.01) * 0.92, 2),
+            _m_stop  = _h1.number_input('停損價（進場價×0.90）',
+                                        value=round((float(_m_close) or 0.01) * 0.90, 2),
                                         min_value=0.0, step=0.05, format='%.2f')
             _m_es    = _h2.number_input('進場時個股評分', min_value=0, max_value=100,
                                         value=int(_m_score) if _m_score is not None else 65,
@@ -8713,7 +8714,7 @@ def render_strategy():
         if qualified:
             st.markdown(f'**✅ 符合進場條件（評分 ≥{_threshold}）　共 {len(qualified)} 檔**')
 
-            # 取最新收盤價，計算建議停損價（收盤 × 0.92）
+            # 取最新收盤價，計算建議停損價（收盤 × 0.90，2026-08-27 由0.92改，依據見 config.py）
             def _latest_close_for(code):
                 try:
                     if IS_LOCAL:
@@ -8765,7 +8766,7 @@ def render_strategy():
                 else:          _sc_c = '#94a3b8'
                 _close = _latest_close_for(w['code'])
                 if _close:
-                    _stop  = _close * 0.92
+                    _stop  = _close * 0.90
                     _stop_str = f'{_stop:,.0f}' if _stop >= 500 else f'{_stop:,.2f}'
                     _close_str = f'{_close:,.0f}' if _close >= 500 else f'{_close:,.2f}'
                     _stop_html = (f'<div style="padding:6px 0;font-size:12px">'
@@ -8844,8 +8845,8 @@ def render_strategy():
                                                  min_value=0.01, step=0.05, format='%.2f')
                     _in_shares = _f3.number_input('股數（1張=1000股，零股填實際股數）',
                                                   value=1000, min_value=1, step=1)
-                    _in_stop = st.number_input('停損價（預設進場價 ×0.92，可自行調整）',
-                                               value=round(float(_add_close) * 0.92, 2),
+                    _in_stop = st.number_input('停損價（預設進場價 ×0.90，可自行調整）',
+                                               value=round(float(_add_close) * 0.90, 2),
                                                min_value=0.0, step=0.05, format='%.2f')
                     _amt = _in_price * _in_shares
                     _bcost = _trade_cost(_amt, False)
@@ -8872,8 +8873,8 @@ def render_strategy():
 
             st.caption('進場時機：確認訊號後隔日買入（回測即以隔日收盤價模擬，'
                        '不需要另外等回檔——型態對期望報酬無正面影響，見型態欄說明）。'
-                       '**買進當日立即在券商 App 預掛停損單**（表列價格以最新收盤 ×0.92 估算，'
-                       '實際請以你的成交價 ×0.92 為準）。'
+                       '**買進當日立即在券商 App 預掛停損單**（表列價格以最新收盤 ×0.90 估算，'
+                       '實際請以你的成交價 ×0.90 為準）。'
                        '預掛停損單是即時價格觸發，可避免「盤後警示 + 隔日才能動作」的延遲。'
                        '成交後按 📌 登錄部位，即可在側邊欄追蹤 10 日持有週期。')
         else:
@@ -8961,8 +8962,8 @@ def render_strategy():
     with col2:
         st.markdown('''
 **持有管理（正式規則＝策略 C）**
-- 停損：跌 8% 立即出場（最優先）
-- **買進當日即預掛停損單**（成交價×0.92），即時觸發不等盤後
+- 停損：跌 10% 立即出場（最優先）
+- **買進當日即預掛停損單**（成交價×0.90），即時觸發不等盤後
 - 標準持有：10 個交易日
 - 到期重新評分：≥65 續抱，<65 出場
 - 不設固定停利

@@ -84,7 +84,7 @@ import backtest_stocks as bs
 
 SCORE_THRESHOLD = bs.SCORE_THRESHOLD    # 65
 HOLD_DAYS       = bs.HOLD_DAYS          # 10
-STOP_LOSS_RATIO = bs.STOP_LOSS_RATIO    # 0.92
+STOP_LOSS_RATIO = bs.STOP_LOSS_RATIO    # 2026-08-27 起為 0.90（跌10%）
 MIN_HISTORY     = bs.MIN_HISTORY        # 90
 
 # 空頭段窗口（與策略E腳本同一個日期，方便兩份結果互相對照）
