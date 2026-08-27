@@ -1,0 +1,26 @@
+# 資料庫（本機資料，不上傳；含個人持倉紀錄 positions 表）
+data/stock.db
+data/stock.db-wal
+data/stock.db-shm
+# data/json/ 需要上傳供雲端版讀取，請勿加回此行
+
+# Log 檔
+data/*.log
+
+# Python 暫存
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# macOS 系統檔
+.DS_Store
+
+# 環境設定（含敏感資訊，不上傳）
+.env
+secrets.toml
+config_local.py
+
+# Streamlit 本機 cache
+.streamlit/secrets.toml

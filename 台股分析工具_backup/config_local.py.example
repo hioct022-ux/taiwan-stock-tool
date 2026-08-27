@@ -1,0 +1,18 @@
+# ════════════════════════════════════════
+# config_local.py.example　本機設定範本
+#
+# 使用方式：
+# 1. 複製此檔案，改名為 config_local.py
+# 2. 填入你的 GitHub Token
+# 3. config_local.py 不會上傳到 GitHub（已在 .gitignore）
+# ════════════════════════════════════════
+
+# GitHub Personal Access Token（Classic，有 repo 權限）
+# 產生方式：GitHub → Settings → Developer settings → Tokens (classic)
+GITHUB_TOKEN = '貼上你的_ghp_開頭的token'
+
+# 持倉資料加密金鑰（2026-08新增，隨便一串夠長的亂數字串即可，例如用
+# python3 -c "import secrets; print(secrets.token_urlsafe(32))" 產生）
+# 同一把金鑰要另外貼到 Streamlit Cloud 的 Secrets 設定（key名：POSITIONS_ENC_KEY），
+# 兩邊要完全一樣，雲端才能把 positions.json 解密顯示。
+POSITIONS_ENC_KEY = '貼上你產生的亂數字串'
