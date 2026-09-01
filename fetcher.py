@@ -915,7 +915,12 @@ def fetch_history_tpex(code, months=15):
         if hist.empty:
             print(f'{code} yfinance 無資料')
             return []
+        # ⚠️ 2026-09-01 修正（陷阱35 主要來源）：
+        # 舊版把 change / change_pct 直接寫死為 0，導致所有走過上櫃歷史回補的股票
+        # 漲跌幅全部歸零（全表約 4.7%、涵蓋 1,496 檔）。
+        # 改為用相鄰收盤價計算；第一筆沒有前一日可比，才留 0。
         all_rows = []
+        _prev = None
         for ts, row in hist.iterrows():
             try:
                 date_str = ts.strftime('%Y-%m-%d')
@@ -925,11 +930,14 @@ def fetch_history_tpex(code, months=15):
                 low   = round(float(row['Low']),   2)
                 vol   = int(row['Volume'] / 1000)  # 股→張
                 if close > 0:
+                    chg = round(close - _prev, 2) if _prev else 0
+                    pct = round(chg / _prev * 100, 2) if _prev else 0
                     all_rows.append({
                         'date': date_str, 'open': open_, 'high': high,
                         'low': low, 'close': close, 'volume': vol,
-                        'value': 0, 'change': 0, 'change_pct': 0
+                        'value': 0, 'change': chg, 'change_pct': pct
                     })
+                    _prev = close
             except Exception:
                 pass
         if all_rows:
@@ -2786,11 +2794,36 @@ def fetch_taiex(months=6, force=False):
         if hist.empty:
             raise ValueError('yfinance 回傳空資料')
 
-        prev_close = None
+        # ⚠️ 2026-09-01 修正（陷阱35 根因）：
+        # 舊版用一個迴圈內遞推的 prev_close 變數算漲跌幅。只要 yfinance 回傳的 hist
+        # 少了某個交易日（延遲或暫時性缺漏），prev_close 就會停在更早的日期，
+        # 算出錯的 change_pct 卻不會報錯——實測 TAIEX 400筆中有 3 筆中招
+        # （8/04、8/18、8/31），每次隱含前收都剛好是「前兩個交易日」的收盤。
+        # 改為：先把整份 hist 收成 {date: close} 對照表，
+        # 再用「該日在對照表中的前一個交易日」計算；對照表查不到就退而用 DB 的前一日收盤。
+        # 兩者都查不到才給 0（真正的資料起點），而不是靜默用錯誤的基準。
+        from database import get_prices as _gp_taiex
+        _hist_closes = {}
+        for ts, row in hist.iterrows():
+            try:
+                _hist_closes[ts.strftime('%Y-%m-%d')] = float(row['Close'])
+            except Exception:
+                pass
+        _hist_dates = sorted(_hist_closes)
+
+        # DB 既有收盤（供 hist 有缺漏時回補基準用）
+        _db_closes = {r['date']: r['close'] for r in _gp_taiex('TAIEX', days=800)}
+
+        def _prev_close_for(dstr):
+            i = _hist_dates.index(dstr) if dstr in _hist_closes else -1
+            if i > 0:
+                return _hist_closes[_hist_dates[i - 1]]
+            _earlier = [d for d in _db_closes if d < dstr]
+            return _db_closes[max(_earlier)] if _earlier else None
+
         for ts, row in hist.iterrows():
             date_str = ts.strftime('%Y-%m-%d')
             if not force and last_date and date_str <= last_date:
-                prev_close = float(row['Close'])
                 continue
             close = round(float(row['Close']), 2)
             open_ = round(float(row['Open']),  2)
@@ -2799,9 +2832,9 @@ def fetch_taiex(months=6, force=False):
             raw_v = int(row['Volume']) if row['Volume'] else 0
             # Volume 單位為股，除以 1e9 得到大約「十億股」量綱方便圖表顯示
             vol   = int(raw_v / 1_000_000) if raw_v else 0
-            chg   = round(close - prev_close, 2) if prev_close else 0
-            pct   = round(chg / prev_close * 100, 2) if prev_close else 0
-            prev_close = float(row['Close'])
+            pv    = _prev_close_for(date_str)
+            chg   = round(close - pv, 2) if pv else 0
+            pct   = round(chg / pv * 100, 2) if pv else 0
             if close > 0:
                 all_rows.append({
                     'date': date_str, 'open': open_, 'high': high,
