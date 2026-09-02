@@ -427,8 +427,8 @@
       "close": 36.1,
       "volume": 5777310,
       "value": 209107564.0,
-      "change": 0.0,
-      "change_pct": 0.0
+      "change": -0.65,
+      "change_pct": -1.77
     },
     {
       "date": "2025-06-26",
@@ -3078,8 +3078,8 @@
       "close": 52.1,
       "volume": 7033326,
       "value": 369284160.0,
-      "change": 0.0,
-      "change_pct": 0.0
+      "change": -1.9,
+      "change_pct": -3.52
     },
     {
       "date": "2026-06-24",
@@ -3619,6 +3619,17 @@
       "value": 2299743064.0,
       "change": 3.2,
       "change_pct": 4.35
+    },
+    {
+      "date": "2026-09-02",
+      "open": 80.4,
+      "high": 80.5,
+      "low": 76.7,
+      "close": 78.7,
+      "volume": 42792598,
+      "value": 3361812872.0,
+      "change": 2.0,
+      "change_pct": 2.61
     }
   ],
   "fundamentals": [
@@ -4202,23 +4213,16 @@
       "pe": 12.76,
       "pb": 1.44,
       "dividend_yield": 1.63
+    },
+    {
+      "date": "2026-09-02",
+      "eps_ttm": 5.91,
+      "pe": 13.32,
+      "pb": 1.5,
+      "dividend_yield": 1.56
     }
   ],
   "chips": [
-    {
-      "date": "2026-06-01",
-      "foreign_buy": 6341,
-      "foreign_sell": 2241,
-      "foreign_net": 4100,
-      "trust_buy": 43,
-      "trust_sell": 0,
-      "trust_net": 43,
-      "dealer_buy": 220,
-      "dealer_sell": 120,
-      "dealer_net": 100,
-      "margin_balance": 0,
-      "short_balance": 0
-    },
     {
       "date": "2026-06-02",
       "foreign_buy": 6518,
@@ -5114,11 +5118,25 @@
       "dealer_net": 463,
       "margin_balance": 10978,
       "short_balance": 259
+    },
+    {
+      "date": "2026-09-02",
+      "foreign_buy": 11155,
+      "foreign_sell": 19581,
+      "foreign_net": -8426,
+      "trust_buy": 673,
+      "trust_sell": 1,
+      "trust_net": 672,
+      "dealer_buy": 391,
+      "dealer_sell": 731,
+      "dealer_net": -340,
+      "margin_balance": 11486,
+      "short_balance": 267
     }
   ],
   "ownership": {
-    "foreign_pct": 7.09,
-    "date": "2026-09-01"
+    "foreign_pct": 7.0,
+    "date": "2026-09-02"
   },
-  "exported_at": "2026-09-01 22:12"
+  "exported_at": "2026-09-02 22:02"
 }

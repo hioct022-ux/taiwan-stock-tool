@@ -779,8 +779,8 @@
       "close": 154.0,
       "volume": 1624203,
       "value": 249402195.0,
-      "change": 0.0,
-      "change_pct": 0.0
+      "change": -6.0,
+      "change_pct": -3.75
     },
     {
       "date": "2025-07-14",
@@ -3199,8 +3199,8 @@
       "close": 156.0,
       "volume": 4093842,
       "value": 642246709.0,
-      "change": 0.0,
-      "change_pct": 0.0
+      "change": -16.0,
+      "change_pct": -9.3
     },
     {
       "date": "2026-06-10",
@@ -3839,6 +3839,17 @@
       "value": 38470896.0,
       "change": -0.5,
       "change_pct": -0.35
+    },
+    {
+      "date": "2026-09-02",
+      "open": 144.5,
+      "high": 144.5,
+      "low": 143.0,
+      "close": 143.5,
+      "volume": 215915,
+      "value": 30962343.0,
+      "change": 0.0,
+      "change_pct": 0.0
     }
   ],
   "fundamentals": [
@@ -4422,23 +4433,16 @@
       "pe": 8.86,
       "pb": 3.01,
       "dividend_yield": 8.89
+    },
+    {
+      "date": "2026-09-02",
+      "eps_ttm": 16.25,
+      "pe": 8.83,
+      "pb": 3.0,
+      "dividend_yield": 8.92
     }
   ],
   "chips": [
-    {
-      "date": "2026-06-01",
-      "foreign_buy": 244,
-      "foreign_sell": 266,
-      "foreign_net": -22,
-      "trust_buy": 0,
-      "trust_sell": 0,
-      "trust_net": 0,
-      "dealer_buy": 62,
-      "dealer_sell": 18,
-      "dealer_net": 44,
-      "margin_balance": 0,
-      "short_balance": 0
-    },
     {
       "date": "2026-06-02",
       "foreign_buy": 184,
@@ -5334,11 +5338,25 @@
       "dealer_net": 2,
       "margin_balance": 838,
       "short_balance": 6
+    },
+    {
+      "date": "2026-09-02",
+      "foreign_buy": 56,
+      "foreign_sell": 89,
+      "foreign_net": -33,
+      "trust_buy": 0,
+      "trust_sell": 0,
+      "trust_net": 0,
+      "dealer_buy": 0,
+      "dealer_sell": 1,
+      "dealer_net": -1,
+      "margin_balance": 830,
+      "short_balance": 6
     }
   ],
   "ownership": {
-    "foreign_pct": 8.5,
-    "date": "2026-09-01"
+    "foreign_pct": 8.45,
+    "date": "2026-09-02"
   },
-  "exported_at": "2026-09-01 22:12"
+  "exported_at": "2026-09-02 22:02"
 }

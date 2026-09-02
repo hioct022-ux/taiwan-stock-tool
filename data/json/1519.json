@@ -889,8 +889,8 @@
       "close": 620.0,
       "volume": 9452943,
       "value": 5822051318.0,
-      "change": 0.0,
-      "change_pct": 0.0
+      "change": -39.0,
+      "change_pct": -5.92
     },
     {
       "date": "2025-07-28",
@@ -3628,8 +3628,8 @@
       "close": 663.0,
       "volume": 1596921,
       "value": 1062955084.0,
-      "change": 0.0,
-      "change_pct": 0.0
+      "change": -50.0,
+      "change_pct": -7.01
     },
     {
       "date": "2026-08-06",
@@ -3839,6 +3839,17 @@
       "value": 2584589189.0,
       "change": 32.0,
       "change_pct": 4.39
+    },
+    {
+      "date": "2026-09-02",
+      "open": 749.0,
+      "high": 771.0,
+      "low": 741.0,
+      "close": 741.0,
+      "volume": 1693169,
+      "value": 1274999170.0,
+      "change": -20.0,
+      "change_pct": -2.63
     }
   ],
   "fundamentals": [
@@ -4422,23 +4433,16 @@
       "pe": 47.71,
       "pb": 25.02,
       "dividend_yield": 1.65
+    },
+    {
+      "date": "2026-09-02",
+      "eps_ttm": 14.88,
+      "pe": 49.8,
+      "pb": 26.12,
+      "dividend_yield": 1.58
     }
   ],
   "chips": [
-    {
-      "date": "2026-06-01",
-      "foreign_buy": 802,
-      "foreign_sell": 745,
-      "foreign_net": 56,
-      "trust_buy": 0,
-      "trust_sell": 100,
-      "trust_net": -100,
-      "dealer_buy": 75,
-      "dealer_sell": 31,
-      "dealer_net": 44,
-      "margin_balance": 0,
-      "short_balance": 0
-    },
     {
       "date": "2026-06-02",
       "foreign_buy": 779,
@@ -5334,11 +5338,25 @@
       "dealer_net": 130,
       "margin_balance": 4021,
       "short_balance": 48
+    },
+    {
+      "date": "2026-09-02",
+      "foreign_buy": 316,
+      "foreign_sell": 617,
+      "foreign_net": -301,
+      "trust_buy": 140,
+      "trust_sell": 0,
+      "trust_net": 140,
+      "dealer_buy": 37,
+      "dealer_sell": 98,
+      "dealer_net": -61,
+      "margin_balance": 4039,
+      "short_balance": 38
     }
   ],
   "ownership": {
-    "foreign_pct": 18.09,
-    "date": "2026-09-01"
+    "foreign_pct": 17.93,
+    "date": "2026-09-02"
   },
-  "exported_at": "2026-09-01 22:12"
+  "exported_at": "2026-09-02 22:02"
 }
