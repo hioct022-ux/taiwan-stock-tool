@@ -2637,7 +2637,9 @@ def render_score(result, code, name, prices=None, fund_data=None, chips_all=None
         import plotly.graph_objects as go
 
         # 個股評分歷史
-        _cache_key = f'_score_hist_{code}'
+        # ⚠️ key 需帶資料最新日期（同大盤評分歷史的修正，2026-09-02）：
+        # 否則同一 session 內按過「手動更新資料」之後，走勢圖仍停在舊資料。
+        _cache_key = f'_score_hist_{code}_{prices[-1]["date"]}'
         if _cache_key not in st.session_state:
             _hist = []
             _STEP, _WIN = 3, 90
@@ -2672,8 +2674,11 @@ def render_score(result, code, name, prices=None, fund_data=None, chips_all=None
                                       'fund':  _r_today['fund_score'],
                                       'chips': _r_today['chip_score']})
 
-        # 大盤評分歷史（重用快取，對齊個股日期區間）
-        _ms_hist     = st.session_state.get('_market_score_history_v3', [])
+        # 大盤評分歷史（重用大盤分析頁的快取，對齊個股日期區間）
+        # key 帶資料日期（見 render_market() 走勢圖區塊說明），取日期最新的一份。
+        _ms_keys     = sorted(k for k in st.session_state
+                              if k.startswith('_market_score_history_v3_'))
+        _ms_hist     = st.session_state.get(_ms_keys[-1], []) if _ms_keys else []
         _ms_by_date  = {h['date']: h['ms'] for h in _ms_hist}
 
         # ── 計算評分趨勢標籤，更新 grade-box ──
@@ -6023,7 +6028,13 @@ def render_market():
         _ms_rec = _market_advice(_ms)   # 與投資策略頁共用同一份文字
 
         # 趨勢標籤：從上次載入的歷史評分取前一點作比較
-        _ms_prev_hist = st.session_state.get('_market_score_history_v3', [])
+        # 取最近一份評分歷史快取（key 帶資料日期，見下方走勢圖區塊的說明）。
+        # 這裡跑在歷史計算之前，且資料剛更新時當日 key 還不存在，
+        # 因此掃描所有 `_market_score_history_v3_*` 取日期最新的一份——
+        # 趨勢標籤只需要「前一個評分點」，用稍舊的那份仍然正確。
+        _ms_hist_keys = sorted(k for k in st.session_state
+                               if k.startswith('_market_score_history_v3_'))
+        _ms_prev_hist = st.session_state.get(_ms_hist_keys[-1], []) if _ms_hist_keys else []
         if len(_ms_prev_hist) >= 2:
             _ms_td = _ms - _ms_prev_hist[-2]['ms']
             if   _ms_td >= 3:  _ms_trend, _ms_trend_c = '趨強', '#22c55e'
@@ -6172,7 +6183,13 @@ def render_market():
                 unsafe_allow_html=True)
 
         # ── 大盤評分歷史走勢 ──────────────────────────────
-        _ms_hist_key = '_market_score_history_v3'   # v3：250日回溯視窗（MA60 + 真正的250日位置），改版時換 key 強制重算
+        # v3：250日回溯視窗（MA60 + 真正的250日位置），改版時換 v 號強制重算
+        # ⚠️ 2026-09-02 修正：key 必須帶「資料最新日期」。
+        # 舊版 key 是固定字串，一個 session 只算一次、資料更新後不會重算；
+        # 而下方「動態補入今日」只補**一個**點（_tpx_date），
+        # 因此若快取建立後過了兩個交易日（例如快取停在 8/31、資料已到 9/2），
+        # 中間的 9/1 會整個消失在走勢圖上。帶日期後資料一更新就自動重算，缺口不再發生。
+        _ms_hist_key = f'_market_score_history_v3_{_tpx_date}'
         if _ms_hist_key not in st.session_state:
             try:
                 # 取 430 日：顯示最後 180 日，前面 250 日供回溯視窗（MA60 / pos_250）使用
