@@ -147,10 +147,102 @@ def _parse_twse_csv_all(content_bytes):
     return rows_out, actual_date
 
 
+def _fetch_mi_index_prices_for_date(date_str_yyyymmdd, retries=3):
+    """
+    用 MI_INDEX（每日收盤行情，全部不含權證）抓「指定歷史日期」的上市收盤價。
+
+    ⚠️ 2026-09-08 新增，取代 STOCK_DAY_ALL 做歷史補齊——見陷阱41：
+    `STOCK_DAY_ALL?date=YYYYMMDD` 的 **date 參數其實無效**，永遠回傳最新交易日。
+    實測要求 20260907 卻拿到 1150908（9/8）的資料，補齊迴圈因此靜默失敗
+    （印出「補齊成功 2356 筆」，實際只是把今日資料重寫一次）。
+    MI_INDEX 的 date 參數則真的有效，實測回傳「115年09月07日 每日收盤行情」。
+
+    欄位順序與 STOCK_DAY_ALL **不同**（少了日期欄、成交筆數位置也不一樣）：
+      [0]證券代號 [1]證券名稱 [2]成交股數 [3]成交筆數 [4]成交金額
+      [5]開盤價 [6]最高價 [7]最低價 [8]收盤價 [9]漲跌(+/-) [10]漲跌價差
+
+    回傳 (count, actual_date)；查無資料（假日/尚未發布）回傳 (0, None)。
+    """
+    url = (f'https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX'
+           f'?date={date_str_yyyymmdd}&type=ALLBUT0999&response=json')
+    data = None
+    last_err = None
+    for _attempt in range(retries):
+        try:
+            r = requests.get(url, headers=HEADERS, timeout=20, verify=False)
+            data = r.json()
+            break
+        except Exception as _e:
+            last_err = _e
+            data = None
+            if _attempt < retries - 1:
+                time.sleep(5)
+    if data is None:
+        raise last_err if last_err else ValueError(f'{date_str_yyyymmdd} 重試{retries}次均失敗')
+
+    if data.get('stat') != 'OK':
+        return 0, None
+
+    date_std = (f'{date_str_yyyymmdd[:4]}-{date_str_yyyymmdd[4:6]}-{date_str_yyyymmdd[6:8]}')
+
+    # MI_INDEX 回傳多張表，挑「每日收盤行情」那張（fields 以「證券代號」開頭且含「收盤價」）
+    target = None
+    for tbl in (data.get('tables') or []):
+        f = tbl.get('fields') or []
+        if f and f[0] == '證券代號' and '收盤價' in f:
+            target = tbl
+            break
+    if target is None:
+        return 0, None
+
+    # ⚠️ 日期驗證守衛：標題形如「115年09月07日 每日收盤行情(...)」，
+    # 必須確認回傳的就是要求的那一天，否則寧可當失敗也不要靜默寫錯資料。
+    _title = str(target.get('title', ''))
+    _roc = f'{int(date_str_yyyymmdd[:4]) - 1911}年{date_str_yyyymmdd[4:6]}月{date_str_yyyymmdd[6:8]}日'
+    if _roc not in _title:
+        print(f'  ⚠️ MI_INDEX 回傳日期與要求不符（要求 {date_std}，標題「{_title[:20]}」），視為失敗')
+        return 0, None
+
+    count = 0
+    for row in (target.get('data') or []):
+        try:
+            code = str(row[0]).strip()
+            if not code:
+                continue
+            close = clean_num(row[8])
+            if close <= 0:
+                continue
+            # 漲跌(+/-) 欄含 HTML（<p style=color:red>+</p>），只取正負號
+            sign = -1 if '-' in str(row[9]) else 1
+            chg  = sign * abs(clean_num(row[10]))
+            prev = close - chg
+            save_prices(code, [{
+                'date':   date_std,
+                'open':   clean_num(row[5]),
+                'high':   clean_num(row[6]),
+                'low':    clean_num(row[7]),
+                'close':  close,
+                'volume': int(clean_num(row[2])),
+                'value':  clean_num(row[4]),
+                'change': chg,
+                'change_pct': round(chg / prev * 100, 2) if prev else 0,
+            }])
+            count += 1
+        except Exception:
+            continue
+    return count, (date_std if count else None)
+
+
 def _fetch_twse_csv_prices_for_date(date_str_yyyymmdd, retries=3):
     """
-    抓取指定日期（YYYYMMDD）的上市收盤價，存入 prices 表。
-    回傳 (count, actual_date)；查無資料（假日/尚未發布）或連線失敗回傳 (0, None)。
+    抓取「最新交易日」的上市收盤價（STOCK_DAY_ALL），存入 prices 表。
+
+    ⚠️ 這支只能用來抓「當下最新交易日」，**不能用來補歷史**——
+    STOCK_DAY_ALL 的 date 參數無效（見陷阱41 與 `_fetch_mi_index_prices_for_date()`）。
+    補歷史請一律用 `_fetch_mi_index_prices_for_date()`。
+
+    回傳 (count, actual_date)；查無資料回傳 (0, None)。
+    actual_date 取自 CSV 每列的日期欄（不是參數），故不會寫錯日期。
     失敗先隔5秒重試最多 retries 次（晚間流量大時偶爾逾時，見陷阱38）。
     """
     url = f'https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?date={date_str_yyyymmdd}'
@@ -195,7 +287,8 @@ def fetch_today_prices():
             _backfilled = 0
             for _d in _missing:
                 try:
-                    _c, _ad = _fetch_twse_csv_prices_for_date(_d.replace('-', ''))
+                    # ⚠️ 必須用 MI_INDEX，不能用 STOCK_DAY_ALL（date 參數無效，見陷阱41）
+                    _c, _ad = _fetch_mi_index_prices_for_date(_d.replace('-', ''))
                     if _c > 0:
                         _backfilled += _c
                         print(f'  [補齊] {_d}：{_c} 筆')
