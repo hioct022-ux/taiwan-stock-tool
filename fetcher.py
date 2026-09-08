@@ -387,14 +387,50 @@ def fetch_today_prices():
         data = r.json()
         otc_count = 0
 
-        # 強制使用 TWSE 取得的實際交易日，不採用 TPEx API 回傳的日期欄位
-        # 原因：TPEx API 的 Date 欄位會在盤後即時更新為今日，
-        #       但 TWSE STOCK_DAY_ALL 有時會延遲更新，兩者可能出現不同日期。
-        #       以 TWSE 日期為基準，確保 DB 內所有股票使用同一個交易日。
-        if not twse_actual_date:
-            print('上櫃收盤價：跳過（無法從 TWSE 取得實際交易日）')
+        # ⚠️ 2026-09-08 重寫（陷阱42）：舊版「強制沿用 TWSE 日期、完全不看 TPEx 自己的日期」
+        # 會在「TPEx 比 TWSE 快」時造成**靜默資料汙染**——把較新的 TPEx 快照
+        # 蓋上較舊的 TWSE 日期。實測 8/04、8/14、8/20、9/08 四天，
+        # 上櫃約 970~979 檔與前一交易日「開高低收完全相同」（同期上市只有 0~6 檔），
+        # 即整個上櫃市場被寫入重複資料。
+        #
+        # TPEx 這支 API 只回傳「當下快照」，沒有日期參數，所以正確做法是：
+        #   1. 優先採用 TPEx 自己回傳的日期欄位（那才是這份資料真正的日期）
+        #   2. 取不到欄位時，只在「TWSE 日期 == 今天」時才敢存
+        #      （TWSE 已發布今日資料 ⇒ 今日已收盤 ⇒ TPEx 快照也是今日，兩者才對得起來）
+        #   3. 其餘情況一律跳過，寧可少一天資料，也不要寫錯日期
+        _today_std = datetime.now().strftime('%Y-%m-%d')
+
+        def _tpex_api_date(rows):
+            """從 TPEx 回傳資料裡找日期欄位，支援民國7碼/西元8碼/YYYY-MM-DD。"""
+            if not rows:
+                return None
+            r0 = rows[0]
+            for k in ('Date', 'date', 'TradingDate', 'DataDate'):
+                v = str(r0.get(k, '') or '').strip().replace('/', '')
+                if len(v) == 7 and v[0] == '1':
+                    return f'{int(v[:3]) + 1911}-{v[3:5]}-{v[5:7]}'
+                if len(v) == 8 and v[0] == '2':
+                    return f'{v[:4]}-{v[4:6]}-{v[6:8]}'
+                if len(v) == 10 and v[4] == '-':
+                    return v
+            return None
+
+        _api_date = _tpex_api_date(data)
+        otc_date = None
+        if _api_date:
+            otc_date = _api_date
+            if twse_actual_date and _api_date != twse_actual_date:
+                print(f'⚠️ 上櫃日期({_api_date}) 與上市日期({twse_actual_date}) 不同，'
+                      f'依 TPEx 自身日期存檔（兩市場發布時間常有落差，非錯誤）')
+        elif twse_actual_date == _today_std:
+            otc_date = twse_actual_date
         else:
-            otc_date = twse_actual_date  # 永遠沿用 TWSE 實際交易日
+            print(f'上櫃收盤價：跳過——TPEx 無日期欄位，且上市資料日期({twse_actual_date})'
+                  f'非今日({_today_std})，無法確認快照屬於哪一天（避免寫入錯誤日期）')
+
+        if not otc_date:
+            pass
+        else:
 
             for s in data:
                 code  = s.get('SecuritiesCompanyCode','').strip()
