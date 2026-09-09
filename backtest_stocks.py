@@ -78,18 +78,33 @@ def _build_market_signals():
             elif mb_pct <= -0.5: bull += 1
 
         # Signal 3：外資期貨
-        if len(fut_win) >= 2:
-            f_now  = fut_win[-1]['foreign_net']
-            f_prev = fut_win[-2]['foreign_net']
-            f_5ago = fut_win[-min(5, len(fut_win))]['foreign_net']
-            f_chg  = f_now - f_prev
-            f_trend = f_now - f_5ago
-            if   f_chg >=  3000: bull += 2
-            elif f_chg >=  1000: bull += 1
-            elif f_chg <= -3000: bear += 2
-            elif f_chg <= -1000: bear += 1
-            if   f_trend >= 2000: bull += 1
-            elif f_trend <= -2000: bear += 1
+        # ⚠️ 2026-09-08 修正（陷阱43）：兩處問題一起修
+        #  (1) 舊版用 fut_win[-2] 取「前一日」＝表裡前一列，不是前一個交易日。
+        #      台指期缺一天時會拿跨兩日的差當單日變化（中位數 2,513 vs 真正單日 1,670 口），
+        #      ±2分強訊號誤觸率由 8% 翻倍到 16%。改為用 TAIEX 交易日對齊，對不上就不計分。
+        #  (2) 門檻原本是 3000/1000/2000（舊值），與 app.py 線上邏輯的
+        #      5000/3000/8000（陷阱記錄的 TAIFEX 校準值）不同步——陷阱34 當初修 Signal 4 時
+        #      寫明「三處門檻要一起改」，但 Signal 3 只改了 app.py。這裡補上。
+        _fut_by_date = {r['date']: r['foreign_net'] for r in futures_all}
+        _tpx_dates   = [r['date'] for r in taiex_all]
+        f_chg = f_trend = None
+        if date_prev in _fut_by_date and date_prev in _tpx_dates:
+            _pi = _tpx_dates.index(date_prev)
+            _d1 = _tpx_dates[_pi - 1] if _pi >= 1 else None
+            _d5 = _tpx_dates[_pi - 5] if _pi >= 5 else None
+            _now = _fut_by_date[date_prev]
+            if _d1 in _fut_by_date:
+                f_chg = _now - _fut_by_date[_d1]
+            if _d5 in _fut_by_date:
+                f_trend = _now - _fut_by_date[_d5]
+        if f_chg is not None:
+            if   f_chg >=  5000: bull += 2
+            elif f_chg >=  3000: bull += 1
+            elif f_chg <= -5000: bear += 2
+            elif f_chg <= -3000: bear += 1
+        if f_trend is not None:
+            if   f_trend >=  8000: bull += 1
+            elif f_trend <= -8000: bear += 1
 
         # Signal 4：T86 外資現貨
         if t86_prev:

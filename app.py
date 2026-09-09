@@ -407,6 +407,130 @@ def _vol20_label(vol20):
         return '高波動', '#64748b'
 
 
+def _data_integrity_report(days=30):
+    """
+    資料完整性檢查（2026-09-08 新增，僅本機）。回傳 {'missing': [...], 'dupes': [...]}。
+
+    ═══ 為什麼需要這個 ═══
+    三天內連續發現三個**靜默失敗**（陷阱40/41/42）：程式不報錯、畫面看起來正常，
+    但資料其實缺了或錯了，全靠使用者偶然察覺。沒辦法保證每支 fetcher 永遠不出事
+    （API 改版、參數失效、逾時都可能），**但可以保證出事時會被看見**。
+
+    兩種偵測互補，缺一不可：
+
+    1. **缺漏日**：拿 TAIEX 的實際交易日當基準，比對各表少了哪幾天。
+       （TAIEX 由 yfinance 抓整段，是全專案缺口最少的資料，適合當基準）
+       → 抓得到陷阱39/41 那類「補齊機制失效」的問題。
+
+    2. **重複日**（陷阱42 的教訓）：檢查相鄰交易日「開高低收四欄全等」的檔數。
+       正常市場單日平盤股只有個位數；一旦整批相同（≥80%）就是寫入錯誤。
+       → 抓得到「缺資料檢查完全抓不到」的**資料汙染**——那比缺資料更危險，
+         因為錯資料看起來完全正常，會直接汙染評分、均線、波動度、回測。
+
+    效能：只掃最近 days 個交易日，SQL 都走 index，單次約 0.1 秒。
+    快取 key 帶 TAIEX 最新日期，資料更新後自動重算（同陷阱40 的通則）。
+    """
+    if not IS_LOCAL:
+        return {'missing': [], 'dupes': []}
+    try:
+        from database import get_conn as _gc
+        conn = _gc()
+        tdays = [r[0] for r in conn.execute(
+            "SELECT date FROM prices WHERE code='TAIEX' ORDER BY date DESC LIMIT ?",
+            (days,)).fetchall()][::-1]
+        if len(tdays) < 5:
+            conn.close()
+            return {'missing': [], 'dupes': []}
+
+        _ck = f'_integrity_{tdays[-1]}_{days}'
+        if _ck in st.session_state:
+            conn.close()
+            return st.session_state[_ck]
+
+        tset = set(tdays)
+        checks = [
+            ('個股收盤',   "SELECT DISTINCT date FROM prices WHERE code!='TAIEX' AND date>=?"),
+            ('個股籌碼',   'SELECT DISTINCT date FROM chips WHERE date>=?'),
+            ('法人排行',   'SELECT DISTINCT date FROM t86_ranking WHERE date>=?'),
+            ('融資融券',   'SELECT DISTINCT date FROM market_margin WHERE date>=?'),
+            ('台指期法人', 'SELECT DISTINCT date FROM futures_institutional WHERE date>=?'),
+            ('選擇權P/C',  'SELECT DISTINCT date FROM options_pc_ratio WHERE date>=?'),
+            ('大盤本益比', 'SELECT DISTINCT date FROM market_pe WHERE date>=?'),
+        ]
+        missing = []
+        for label, sql in checks:
+            try:
+                have = {r[0] for r in conn.execute(sql, (tdays[0],)).fetchall()}
+                miss = [d for d in tdays if d not in have]
+                if miss:
+                    missing.append((label, miss))
+            except Exception:
+                continue
+
+        # 重複日偵測（陷阱42）：分市場檢查相鄰交易日四欄全等的比例
+        dupes = []
+        for i in range(1, len(tdays)):
+            a, b = tdays[i - 1], tdays[i]
+            try:
+                rows = conn.execute('''
+                    SELECT COALESCE(s.market,'?'),
+                           SUM(CASE WHEN p1.open=p2.open AND p1.close=p2.close
+                                     AND p1.high=p2.high AND p1.low=p2.low THEN 1 ELSE 0 END),
+                           COUNT(*)
+                    FROM prices p1 JOIN prices p2 ON p1.code=p2.code
+                    LEFT JOIN stocks s ON p1.code=s.code
+                    WHERE p1.date=? AND p2.date=? AND p1.code!='TAIEX'
+                    GROUP BY 1''', (a, b)).fetchall()
+            except Exception:
+                continue
+            for mkt, same, tot in rows:
+                if tot and tot >= 100 and (same or 0) / tot >= 0.8:
+                    dupes.append((b, mkt, same, tot))
+
+        conn.close()
+        res = {'missing': missing, 'dupes': dupes}
+        st.session_state[_ck] = res
+        return res
+    except Exception:
+        return {'missing': [], 'dupes': []}
+
+
+def _render_integrity_warning():
+    """把資料完整性問題顯示在側邊欄。沒問題時完全不佔版面。"""
+    if not IS_LOCAL:
+        return
+    rep = _data_integrity_report()
+    if not rep['missing'] and not rep['dupes']:
+        return
+
+    _n_miss = sum(len(m) for _, m in rep['missing'])
+    _n_dupe = len(rep['dupes'])
+    _sev = '#ef4444' if rep['dupes'] else '#f59e0b'   # 資料汙染比缺資料嚴重
+    _bits = []
+    if _n_dupe:
+        _bits.append(f'{_n_dupe} 個重複日')
+    if _n_miss:
+        _bits.append(f'{len(rep["missing"])} 表缺 {_n_miss} 天')
+
+    st.markdown(
+        f'<div style="background:#1a1505;border-left:4px solid {_sev};border-radius:6px;'
+        f'padding:7px 10px;margin:6px 0;font-size:11px;color:{_sev};font-weight:700">'
+        f'⚠️ 資料完整性：{"、".join(_bits)}</div>', unsafe_allow_html=True)
+
+    with st.expander('查看資料問題明細', expanded=False):
+        if rep['dupes']:
+            st.markdown('**🔴 重複日（資料汙染，比缺資料嚴重）**')
+            for d, mkt, same, tot in rep['dupes']:
+                st.caption(f'{d}　{mkt}：{same}/{tot} 檔與前一交易日完全相同')
+            st.caption('→ 執行 `python3 repair_tpex_dupes.py` 修復（見陷阱42）')
+        if rep['missing']:
+            st.markdown('**🟡 缺漏交易日**')
+            for label, miss in rep['missing']:
+                _s = '、'.join(d[5:] for d in miss[-6:])
+                st.caption(f'{label}：缺 {len(miss)} 天（{_s}{"…" if len(miss) > 6 else ""}）')
+            st.caption('→ 執行 `python3 backfill_missing_days.py --apply` 補齊（見陷阱41）')
+
+
 def _market_advice(ms):
     """
     依大盤評分回傳操作建議文字。大盤分析頁與投資策略頁共用同一份文字。
@@ -681,6 +805,11 @@ def render_sidebar():
         _cur_page = st.session_state.get('page', 'stock')
         if not IS_LOCAL and _cur_page in ('market', 'ranking', 'strategy'):
             st.session_state.pop('_wl_scores', None)
+
+        # 資料完整性檢查（2026-09-08）：把靜默失敗變成看得見的失敗。
+        # 放在側邊欄更新按鈕下方——每一頁都看得到，且緊鄰「更新」這個動作。
+        # 沒問題時完全不顯示，不佔版面。
+        _render_integrity_warning()
 
         # 本機版：若 DB 有新資料（排程器在背景更新），清除舊快取
         if IS_LOCAL:
@@ -5557,13 +5686,35 @@ def render_market():
 
         # ══ Signal 3：外資台指期 日變化量（每日方向）══
         # 用日變化而非絕對值，因外資慣性持有大量淨空單作避險
-        _f_net_now  = _fut[-1]['foreign_net']
-        _f_net_prev = _fut[-2]['foreign_net'] if len(_fut) >= 2 else _f_net_now
-        _f_net_5    = _fut[-min(5, len(_fut))]['foreign_net']
-        _f_day_chg  = _f_net_now - _f_net_prev   # 昨日單日變化
-        _f_trend    = _f_net_now - _f_net_5       # 5日趨勢
+        #
+        # ⚠️ 2026-09-08 修正（陷阱43）：舊版用 `_fut[-2]` 取「前一日」，
+        # 但那是**表裡的前一列**，不是**前一個交易日**。台指期資料缺一天時
+        # （例如 9/7 缺），就變成拿 9/8 減 9/4 當「單日變化」——
+        # 實測跨兩日的變化量中位數 2,513 口 vs 真正單日 1,670 口，
+        # ±2分強訊號誤觸率從 8% 翻倍到 16%（門檻是照單日變化校準的）。
+        # 改為用 TAIEX 交易日對齊：找不到對應日期就跳過 S3，不用錯誤基準硬算。
+        _f_by_date  = {r['date']: r['foreign_net'] for r in _fut}
+        _f_dates    = sorted(_f_by_date)
+        _f_latest_d = _f_dates[-1] if _f_dates else None
+        # 用 TAIEX 交易日序列決定「前一個交易日」與「5個交易日前」
+        _tpx_days   = [p['date'] for p in _tpx]
+        _f_prev_d   = None
+        _f_5ago_d   = None
+        if _f_latest_d and _f_latest_d in _tpx_days:
+            _i = _tpx_days.index(_f_latest_d)
+            _f_prev_d = _tpx_days[_i - 1] if _i >= 1 else None
+            _f_5ago_d = _tpx_days[_i - 5] if _i >= 5 else None
 
-        if _f_day_chg >= 5000:
+        _f_net_now  = _f_by_date.get(_f_latest_d)
+        _f_net_prev = _f_by_date.get(_f_prev_d)
+        _f_net_5    = _f_by_date.get(_f_5ago_d)
+        _f_day_chg  = (_f_net_now - _f_net_prev) if (_f_net_now is not None and _f_net_prev is not None) else None
+        _f_trend    = (_f_net_now - _f_net_5)    if (_f_net_now is not None and _f_net_5    is not None) else None
+
+        if _f_day_chg is None:
+            _bull_msgs.append(('⚪', f'外資台指期：{_f_prev_d or "前一交易日"} 資料缺漏，'
+                                    f'本項不計分（避免用跨日差當單日變化，見陷阱43）'))
+        elif _f_day_chg >= 5000:
             _bull_score += 2
             _bull_msgs.append(('🟢', f'外資台指期大幅回補 **+{_f_day_chg:,} 口**（{_tpx_date}，淨 {_f_net_now:+,} 口），期貨轉多'))
         elif _f_day_chg >= 3000:
@@ -5578,8 +5729,10 @@ def render_market():
         else:
             _bull_msgs.append(('⚪', f'外資台指期變化 {_f_day_chg:+,} 口（{_tpx_date}），部位平穩（淨 {_f_net_now:+,} 口）'))
 
-        # 5日趨勢（方向動能）
-        if _f_trend <= -8000:
+        # 5日趨勢（方向動能）——同樣需要日期對齊，缺資料就不計分
+        if _f_trend is None:
+            pass
+        elif _f_trend <= -8000:
             _bear_score += 1
             _bear_msgs.append(('🟡', f'外資期貨5日持續擴空 {_f_trend:+,} 口，空方方向動能明顯'))
         elif _f_trend >= 8000:

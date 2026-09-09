@@ -67,18 +67,31 @@ def score_signals(tpx_window, fut_window, mm_window, t86_prev):
         elif mb_pct <= -0.5: bull += 1; used.append(f'S2 融資{mb_pct:.1f}%(u+1)')
 
     # ── Signal 3：外資期貨日變化 + 5日趨勢 ──
-    if len(fut_window) >= 2:
-        f_now   = fut_window[-1]['foreign_net']
-        f_prev  = fut_window[-2]['foreign_net']
-        f_5ago  = fut_window[-min(5, len(fut_window))]['foreign_net']
-        f_chg   = f_now - f_prev
-        f_trend = f_now - f_5ago
-        if   f_chg >=  3000: bull += 2; used.append(f'S3 期回補+{f_chg:,}(u+2)')
-        elif f_chg >=  1000: bull += 1; used.append(f'S3 期回補+{f_chg:,}(u+1)')
-        elif f_chg <= -3000: bear += 2; used.append(f'S3 期擴空{f_chg:,}(b+2)')
-        elif f_chg <= -1000: bear += 1; used.append(f'S3 期擴空{f_chg:,}(b+1)')
-        if   f_trend >= 2000: bull += 1; used.append('S3 期5日多')
-        elif f_trend <=-2000: bear += 1; used.append('S3 期5日空')
+    # ⚠️ 2026-09-08 修正（陷阱43）：兩處問題一起修
+    #  (1) 舊版 fut_window[-2] 是「表裡前一列」不是「前一個交易日」，台指期缺一天時
+    #      會拿跨兩日的差當單日變化（±2分誤觸率 8%→16%）。改用 tpx_window 的交易日對齊。
+    #  (2) 門檻 3000/1000/2000 是舊值，與 app.py 的 5000/3000/8000（TAIFEX 校準值）
+    #      不同步。陷阱34 寫明「三處門檻要一起改」，Signal 3 當初漏了，這裡補上。
+    _fw_by_date = {r['date']: r['foreign_net'] for r in fut_window}
+    _tw_dates   = [r['date'] for r in tpx_window]
+    f_chg = f_trend = None
+    if _tw_dates:
+        _d0 = _tw_dates[-1]                      # 「昨日」＝視窗最後一個交易日
+        _d1 = _tw_dates[-2] if len(_tw_dates) >= 2 else None
+        _d5 = _tw_dates[-6] if len(_tw_dates) >= 6 else None
+        if _d0 in _fw_by_date:
+            if _d1 in _fw_by_date:
+                f_chg = _fw_by_date[_d0] - _fw_by_date[_d1]
+            if _d5 in _fw_by_date:
+                f_trend = _fw_by_date[_d0] - _fw_by_date[_d5]
+    if f_chg is not None:
+        if   f_chg >=  5000: bull += 2; used.append(f'S3 期回補+{f_chg:,}(u+2)')
+        elif f_chg >=  3000: bull += 1; used.append(f'S3 期回補+{f_chg:,}(u+1)')
+        elif f_chg <= -5000: bear += 2; used.append(f'S3 期擴空{f_chg:,}(b+2)')
+        elif f_chg <= -3000: bear += 1; used.append(f'S3 期擴空{f_chg:,}(b+1)')
+    if f_trend is not None:
+        if   f_trend >=  8000: bull += 1; used.append('S3 期5日多')
+        elif f_trend <= -8000: bear += 1; used.append('S3 期5日空')
 
     # ── Signal 4：T86 外資現貨 ──
     # 門檻 2026-07 校準：全市場加總量級，舊門檻(15萬)導致 80% 天數觸發滿分
