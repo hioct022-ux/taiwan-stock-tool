@@ -155,12 +155,19 @@ def _build_market_signals():
     return market_net
 
 # ── 回測核心（可選大盤過濾、到期續抱）─────
-def _run_backtest(market_net=None, renew=False, trailing_pct=None, market_exit=False):
+def _run_backtest(market_net=None, renew=False, trailing_pct=None, market_exit=False,
+                  threshold_fn=None):
     """
     market_net   : dict {date: net_score} 或 None
     renew        : True = 到期時分數 ≥65 則續抱一輪（策略 C）
     trailing_pct : float 或 None = 從波段高點回落超過此比例則移動停利出場
     market_exit  : True = 持有期間大盤轉偏空（net≥2，評分≤40）提前出場
+    threshold_fn : callable(date) -> int | None，逐日決定個股進場門檻。
+                   回傳 None = 該日停止進場。None（不傳）則一律用 SCORE_THRESHOLD。
+                   2026-09-10 新增，用來把 app.py 的「大盤評分四段門檻階梯」
+                   真的跑進回測——在此之前**回測從來沒有實作過那個階梯**，
+                   跑的一直是「net>0 不進場 + 一律 65 分」這個二元閘門，
+                   等於 UI 教使用者的規則與回測驗證的規則不是同一套。
     """
     watchlist = get_watchlist()
     all_trades = []
@@ -268,10 +275,17 @@ def _run_backtest(market_net=None, renew=False, trailing_pct=None, market_exit=F
                     continue
 
                 score = result['total_score']
-                if score >= SCORE_THRESHOLD:
+                _thr = SCORE_THRESHOLD if threshold_fn is None else threshold_fn(date_now)
+                if _thr is None:      # 該日規則說「停止進場」
+                    continue
+                if score >= _thr:
                     entry_bar = prices[i + 1]
                     open_trade = {
                         'code': code, 'name': name, 'score': score,
+                        # 決策日（= 評分所依據的那根K），與進場日分開記。
+                        # 個股若有缺資料，它的「下一根K」未必等於 TAIEX 的下一個交易日，
+                        # 事後用進場日回推決策日會對錯（2026-09-10 加，供大盤評分分組用）。
+                        'signal_date': date_now,
                         'entry_date':  entry_bar['date'],
                         'entry_price': entry_bar['close'],
                         'entry_idx':   i + 1,

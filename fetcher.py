@@ -104,6 +104,126 @@ def _missing_weekdays(last_date_str, today=None):
     return dates
 
 
+def _trading_day_calendar(lookback_days=45, today=None):
+    """
+    近 lookback_days 個日曆日內的**實際交易日**清單（由舊到新），取自 TAIEX。
+    TAIEX 由 yfinance 抓整段，是全專案缺口最少的序列，`backfill_missing_days.py`
+    與 app.py 的資料完整性檢查都用它當日曆基準，這裡沿用同一個來源。
+    取不到回傳 []。
+    """
+    from database import get_conn
+    if today is None:
+        today = datetime.now()
+    cutoff = (today - timedelta(days=lookback_days)).strftime('%Y-%m-%d')
+    tstr   = today.strftime('%Y-%m-%d')
+    conn = get_conn()
+    try:
+        return [r[0] for r in conn.execute(
+            "SELECT date FROM prices WHERE code='TAIEX' AND date >= ? AND date <= ? "
+            "ORDER BY date", (cutoff, tstr)).fetchall()]
+    except Exception:
+        return []
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+def _missing_trading_days(table, where='', lookback_days=45, today=None, exclude_today=True):
+    """
+    回傳某張表在近 lookback_days 個日曆日內**實際缺哪幾個交易日**（由舊到新）。
+
+    ⚠️ 為什麼不能用 `MAX(date)` 當水位線（2026-09-09 踩到的真實 bug）：
+    MAX 只看得到「尾端缺口」，**看不到中間的洞**。實例：9/7 沒更新、9/8 更新成功，
+    此時 MAX 已經是 9/8，9/9 再跑時算出來的補齊區間是 9/9~9/9，
+    **9/7 那個洞永遠補不到**。而「今天成功、昨天失敗」正是最常見的情境
+    （單日 API 逾時、空回應——見陷阱21/38），所以這不是罕見邊角案例。
+
+    改用交易日日曆逐日比對，中間的洞才抓得出來。
+    日曆取不到時（例如全新 DB、TAIEX 還沒抓）退回舊的 `_missing_weekdays()` 保底。
+    """
+    from database import get_conn
+    if today is None:
+        today = datetime.now()
+
+    cal = _trading_day_calendar(lookback_days, today)
+    if not cal:
+        return _missing_weekdays(_last_date_of(table), today)
+
+    cutoff = cal[0]
+    sql = f'SELECT DISTINCT date FROM {table} WHERE date >= ?'
+    if where:
+        sql += f' AND {where}'
+    conn = get_conn()
+    try:
+        have = {r[0] for r in conn.execute(sql, (cutoff,)).fetchall()}
+    except Exception:
+        return []
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    tstr = today.strftime('%Y-%m-%d')
+    return [d for d in cal if d not in have and not (exclude_today and d == tstr)]
+
+
+def _last_date_of(table):
+    """
+    回傳某張表的最大日期字串（'YYYY-MM-DD'），無資料回傳 None。
+    table 只由本檔內部以常數字串呼叫，不接受外部輸入。
+    """
+    from database import get_conn
+    conn = get_conn()
+    try:
+        row = conn.execute(f'SELECT MAX(date) FROM {table}').fetchone()
+        return row[0] if row and row[0] else None
+    except Exception:
+        return None
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+def _taifex_query_windows(missing_dates, today=None, max_span=30):
+    """
+    依**實際缺漏的交易日**算出 TAIFEX 要查的日期區間清單 [(start_dt, end_dt), ...]，由舊到新。
+
+    TAIFEX 的 queryStartDate / queryEndDate **實測有效**（2026-09-08 驗證：
+    要求 2026/09/01~09/04，回傳的就是這四天，不像 TWSE STOCK_DAY_ALL 會忽略
+    date 參數 —— 見陷阱41），所以補齊可以用「一次要一段區間」而不必逐日打。
+    但單次查詢範圍有上限（約 30 天），因此超過就切段。
+
+    **一律包含今天**（今天的資料可能剛出爐）。`missing_dates` 為空就只查今天。
+    區間從「最早的缺漏日」開始，而不是從「DB 最新日期＋1」——後者是 2026-09-09
+    修掉的 bug，見 `_missing_trading_days()` 的說明。
+    """
+    if today is None:
+        today = datetime.now()
+    today = datetime(today.year, today.month, today.day)
+
+    start = today
+    for _d in (missing_dates or []):
+        try:
+            _dt = datetime.strptime(str(_d)[:10], '%Y-%m-%d')
+        except Exception:
+            continue
+        if _dt < start:
+            start = _dt
+
+    windows = []
+    s = start
+    while s <= today:
+        e = min(s + timedelta(days=max_span - 1), today)
+        windows.append((s, e))
+        s = e + timedelta(days=1)
+    return windows
+
+
 # ── 抓當日全市場收盤價 ───────────────────
 def _parse_twse_csv_all(content_bytes):
     """
@@ -279,9 +399,9 @@ def fetch_today_prices():
     # 只補「上市」部分，因為只有帶日期參數的CSV端點支援查任意歷史日期；
     # 上櫃（TPEx）API 沒有日期參數、只能查當下快照，這裡無法回補，是已知限制。
     try:
-        from database import get_latest_price_date
-        _last_date = get_latest_price_date('2330')
-        _missing = _missing_weekdays(_last_date)
+        # 2026-09-09：改用交易日日曆逐日比對，不再用「最新日期＋1」
+        # （後者看不到中間的洞，見 _missing_trading_days() 的說明）
+        _missing = _missing_trading_days('prices', where="code != 'TAIEX'")
         if _missing:
             print(f'偵測到 {len(_missing)} 個可能漏掉的交易日（{_missing[0]}～{_missing[-1]}），開始補齊...')
             _backfilled = 0
@@ -455,29 +575,42 @@ def fetch_today_prices():
 
 # ── 抓基本面（PE / 殖利率 / PB）─────────
 def fetch_fundamentals():
+    """
+    抓全市場基本面（PE / 殖利率 / PB）寫入 fundamentals 表。
+
+    ⚠️ 2026-09-08 改用 www 版 BWIBBU_ALL（原本用 openapi 那支）——原因見陷阱44：
+    openapi 版本**完全沒有日期欄位**，舊版只好用 `datetime.now()` 當日期存檔，
+    但 BWIBBU 的報表實際上晚一個交易日，等於整張 fundamentals 表的日期都標晚一天
+    （週末開 App 甚至會產生週六日的資料列）。改用 www 版才拿得到 title 裡的
+    真實報表日期，而且**資料與日期出自同一個回應**，不跨來源借日期
+    （跨來源借日期正是陷阱42 的錯法）。
+    """
+    from database import get_conn
     print('抓取基本面資料...')
-    count = 0
+    report_date, rows = _fetch_bwibbu_all()
+    if not report_date or not rows:
+        print('基本面資料：無法取得（或無法確定報表日期），本次不寫入')
+        return
+
+    # 用「報表當日」的收盤價反推 EPS（近四季TTM估算）。
+    # 一次撈出當日全市場收盤，取代舊版「每檔各查一次 get_prices」（1900+ 次 SQLite 查詢）。
+    closes = {}
     try:
-        url = 'https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_ALL'
-        r = requests.get(url, headers=HEADERS, timeout=15, verify=False)
-        data = r.json()
-        today = datetime.now().strftime('%Y-%m-%d')
-        for s in data:
-            code = s.get('Code','').strip()
-            pe   = clean_num(s.get('PEratio',''))
-            pb   = clean_num(s.get('PBratio',''))
-            div  = clean_num(s.get('DividendYield',''))
-            if code:
-                # EPS 從收盤價 ÷ PE 反推（近四季TTM估算）
-                from database import get_prices as _gp
-                _prices = _gp(code, days=1)
-                _close = _prices[-1]['close'] if _prices else 0
-                eps = round(_close / pe, 2) if pe and pe > 0 and _close > 0 else 0.0
-                save_fundamental(code, today, eps, pe, pb, div)
-                count += 1
-        print(f'基本面資料：{count} 筆')
+        conn = get_conn()
+        for _c, _cl in conn.execute('SELECT code, close FROM prices WHERE date = ?', (report_date,)):
+            closes[_c] = _cl
+        conn.close()
     except Exception as e:
-        print(f'抓取基本面失敗：{e}')
+        print(f'  取 {report_date} 收盤價失敗（EPS 將為 0）：{e}')
+
+    count = 0
+    for row in rows:
+        pe    = row['pe'] or 0.0
+        close = closes.get(row['code'], 0) or 0
+        eps   = round(close / pe, 2) if pe > 0 and close > 0 else 0.0
+        save_fundamental(row['code'], report_date, eps, pe, row['pb'] or 0.0, row['dy'] or 0.0)
+        count += 1
+    print(f'基本面資料：{count} 筆（報表日期 {report_date}）')
 
 # ── 抓三大法人 ───────────────────────────
 def _fetch_t86_chips_for_date(date_str_yyyymmdd):
@@ -547,11 +680,8 @@ def fetch_chips():
 
     # ── 智慧補齊：先補上次更新到今天之間漏掉的交易日（2026-08新增）──
     try:
-        _conn = __import__('database').get_conn()
-        _row = _conn.execute("SELECT MAX(date) FROM chips").fetchone()
-        _conn.close()
-        _last_chips_date = _row[0] if _row else None
-        _missing = _missing_weekdays(_last_chips_date)
+        # 2026-09-09：同上，改用交易日日曆比對
+        _missing = _missing_trading_days('chips')
         if _missing:
             print(f'三大法人：偵測到 {len(_missing)} 個可能漏掉的交易日，開始補齊...')
             _backfilled = 0
@@ -782,7 +912,7 @@ def fetch_market_margin():
         return
 
     # ── 智慧補齊：先補上次更新到今天之間漏掉的交易日（2026-08新增）──
-    _missing = _missing_weekdays(last)
+    _missing = _missing_trading_days('market_margin')   # 2026-09-09：改用交易日日曆比對
     if _missing:
         print(f'大盤融資融券：偵測到 {len(_missing)} 個可能漏掉的交易日，開始補齊...')
         for _d in _missing:
@@ -1175,8 +1305,13 @@ def fetch_fundamentals_tpex(code):
         close = info.get('regularMarketPrice') or info.get('currentPrice') or 0.0
         eps = round(close / pe, 2) if pe and pe > 0 and close > 0 else 0.0
 
-        today = datetime.now().strftime('%Y-%m-%d')
-        save_fundamental(code, today, eps, pe, pb, div)
+        # yfinance 的 info 沒有回傳資料日期，只能用當下時間推。至少把週末往回收到週五，
+        # 避免產生「週六/週日」這種不存在的交易日資料列（舊版直接用 datetime.now()，
+        # 週末開 App 就會寫出週末列——見陷阱44 的說明）。
+        _d = datetime.now()
+        while _d.weekday() >= 5:
+            _d -= timedelta(days=1)
+        save_fundamental(code, _d.strftime('%Y-%m-%d'), eps, pe, pb, div)
         print(f'{code} 基本面：EPS={eps}, PE={pe}, PB={pb}, 殖利率={div:.2f}%')
     except ImportError:
         print('yfinance 未安裝，請執行：pip install yfinance')
@@ -1994,26 +2129,62 @@ def fetch_all():
 
     print('='*40)
 
-# ── 工具：從 BWIBBU_ALL 個股資料計算市場中位數 PE/PB/殖利率 ──
-def _calc_market_pe_from_bwibbu(date_yyyymmdd):
+# ── 工具：BWIBBU_ALL 全市場 PE / 殖利率 / PB ──────────
+_BWIBBU_ALL_URL = ('https://www.twse.com.tw/exchangeReport/BWIBBU_ALL'
+                   '?response=json&selectType=ALL')
+
+
+def _bwibbu_title_date(title):
     """
-    呼叫 TWSE BWIBBU_ALL，回傳 (date_std, pe_median, pb_median, dy_median)。
-    以上市個股中位數計算（排除負值、異常值、無資料）。
-    回傳 None 表示失敗。
+    從 BWIBBU_ALL 回應的 title 取出**真正的報表日期**。
+    title 形如：'115/09/7 個股日本益比、殖利率及股價淨值比'（民國年，日不補零）。
+    取不到回傳 None。
     """
-    url = (f'https://www.twse.com.tw/exchangeReport/BWIBBU_ALL'
-           f'?response=json&date={date_yyyymmdd}&selectType=ALL')
+    import re as _re
+    m = _re.match(r'\s*(\d{2,3})/(\d{1,2})/(\d{1,2})', str(title or ''))
+    if not m:
+        return None
     try:
-        r = requests.get(url, headers=HEADERS, timeout=20, verify=False)
+        return f'{int(m.group(1)) + 1911}-{int(m.group(2)):02d}-{int(m.group(3)):02d}'
+    except Exception:
+        return None
+
+
+def _fetch_bwibbu_all():
+    """
+    抓 TWSE BWIBBU_ALL 全市場本益比 / 殖利率 / 股價淨值比。
+    回傳 (report_date, rows)，rows 每項 {'code','pe','pb','dy'}；失敗回傳 (None, [])。
+
+    ⚠️ 兩個 2026-09-08 實測確認的事實（詳見陷阱44）：
+
+    1. **date 參數無效** —— 要求 `date=20260901` 仍回傳最新一份報表，與陷阱41 的
+       STOCK_DAY_ALL 是同一個坑。所以**這支 API 無法補歷史**，漏掉的日期永久補不回來，
+       唯一的補救是每天都跑一次更新。故意不做「假的補齊迴圈」讓人誤以為補得回來。
+
+    2. **回應的 `date` 欄位比實際報表日期晚一個交易日** —— 實測 date 欄寫 20260908，
+       title 卻寫「115/09/7」。用 `close(前一交易日)/pe` 反推 EPS 才會是穩定值
+       （2330 恆為 86.25~86.28、2317 恆為 15.165~15.174），用 `close(當日)/pe` 則亂跳，
+       證明 title 才是對的。
+       → **一律以 title 的日期為準**；title 解析不出來就當失敗，
+         不退回去用 date 欄位（寧可少存一天，也不要靜默標錯日期——陷阱41/42 的教訓）。
+    """
+    try:
+        r = requests.get(_BWIBBU_ALL_URL, headers=HEADERS, timeout=20, verify=False)
         data = r.json()
     except Exception as e:
-        print(f'  BWIBBU_ALL 請求失敗（{date_yyyymmdd}）：{e}')
-        return None
+        print(f'  BWIBBU_ALL 請求失敗：{e}')
+        return None, []
 
     if data.get('stat') != 'OK':
-        return None
+        return None, []
 
-    # 解析欄位順序：["股票代號","股票名稱","本益比","殖利率(%)","股價淨值比"]
+    report_date = _bwibbu_title_date(data.get('title'))
+    if not report_date:
+        print(f'  ⚠️ BWIBBU_ALL 無法從 title 取得報表日期（title={data.get("title")!r}），'
+              f'不改用 date 欄位（已知晚一個交易日），本次視為失敗')
+        return None, []
+
+    # 欄位順序：["股票代號","股票名稱","本益比","殖利率(%)","股價淨值比"]
     fields = data.get('fields', [])
     try:
         pe_idx = next(i for i, f in enumerate(fields) if '本益比' in f)
@@ -2022,73 +2193,78 @@ def _calc_market_pe_from_bwibbu(date_yyyymmdd):
     except StopIteration:
         pe_idx, dy_idx, pb_idx = 2, 3, 4
 
-    pes, dys, pbs = [], [], []
-    for row in (data.get('data') or []):
-        def safe_float(v):
-            try:
-                f = float(str(v).replace(',', '').strip())
-                return f if f > 0 else None
-            except:
-                return None
-        pe = safe_float(row[pe_idx]) if len(row) > pe_idx else None
-        dy = safe_float(row[dy_idx]) if len(row) > dy_idx else None
-        pb = safe_float(row[pb_idx]) if len(row) > pb_idx else None
-        # 排除明顯異常值（PE > 200 視為極端值）
-        if pe and pe <= 200:
-            pes.append(pe)
-        if dy:
-            dys.append(dy)
-        if pb and pb <= 30:
-            pbs.append(pb)
+    def safe_float(v):
+        try:
+            f = float(str(v).replace(',', '').strip())
+            return f if f > 0 else None
+        except Exception:
+            return None
 
+    rows = []
+    for row in (data.get('data') or []):
+        if not row:
+            continue
+        code = str(row[0]).strip()
+        if not code:
+            continue
+        rows.append({
+            'code': code,
+            'pe': safe_float(row[pe_idx]) if len(row) > pe_idx else None,
+            'dy': safe_float(row[dy_idx]) if len(row) > dy_idx else None,
+            'pb': safe_float(row[pb_idx]) if len(row) > pb_idx else None,
+        })
+    return report_date, rows
+
+
+def _calc_market_pe_from_bwibbu():
+    """
+    回傳 (report_date, pe_median, pb_median, dy_median)，以上市個股中位數計算
+    （排除負值與異常值）。回傳 None 表示失敗。
+    """
+    report_date, rows = _fetch_bwibbu_all()
+    if not report_date or not rows:
+        return None
+
+    pes = sorted(r['pe'] for r in rows if r['pe'] and r['pe'] <= 200)   # PE>200 視為極端值
+    dys = sorted(r['dy'] for r in rows if r['dy'])
+    pbs = sorted(r['pb'] for r in rows if r['pb'] and r['pb'] <= 30)
     if not pes:
         return None
 
-    pes.sort(); dys.sort(); pbs.sort()
     def median(lst):
         n = len(lst)
         return (lst[n // 2] if n % 2 else (lst[n // 2 - 1] + lst[n // 2]) / 2) if lst else None
 
-    # API date 欄位是西元年8碼（如 20260530），直接轉換
-    raw_date = str(data.get('date', '')).strip()
-    if len(raw_date) == 8:
-        date_std = f'{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:]}'
-    else:
-        date_std = twse_date_to_std(raw_date) if raw_date else datetime.strptime(date_yyyymmdd, '%Y%m%d').strftime('%Y-%m-%d')
-
-    return date_std, round(median(pes), 2), round(median(pbs), 2) if pbs else None, round(median(dys), 2) if dys else None
+    return (report_date, round(median(pes), 2),
+            round(median(pbs), 2) if pbs else None,
+            round(median(dys), 2) if dys else None)
 
 
 # ── 大盤本益比（每日更新）──────────────────
 def fetch_market_pe():
-    """從 TWSE BWIBBU_ALL 計算市場中位數本益比並存入 DB。"""
-    from database import save_market_pe, get_market_pe_last_date
-    last = get_market_pe_last_date()
+    """
+    從 TWSE BWIBBU_ALL 計算市場中位數本益比並存入 DB。
 
-    for days_back in range(0, 6):
-        try_d = datetime.now() - timedelta(days=days_back)
-        if try_d.weekday() >= 5:
-            continue
-        date_yyyymmdd = try_d.strftime('%Y%m%d')
-        date_std      = try_d.strftime('%Y-%m-%d')
-        if last and date_std <= last:
-            print(f'大盤本益比已是最新（{last}），略過')
-            return
-
-        result = _calc_market_pe_from_bwibbu(date_yyyymmdd)
-        if result:
-            date_std, pe, pb, dy = result
-            save_market_pe(date_std, pe, pb, dy)
-            print(f'大盤本益比：{date_std} PE中位數={pe} PB={pb} 殖利率={dy}%')
-            return
-
-    print('大盤本益比：今日無資料（非交易日或 API 無回應）')
+    ⚠️ **這支沒有智慧補齊，而且做不到**——BWIBBU_ALL 的 date 參數無效
+    （見 `_fetch_bwibbu_all()` 說明與陷阱44），只拿得到「最新一份報表」。
+    漏掉的交易日永久補不回來，只能靠每天更新累積。
+    資料完整性檢查（app.py 十九章）會把缺漏的天數顯示出來。
+    """
+    from database import save_market_pe
+    result = _calc_market_pe_from_bwibbu()
+    if not result:
+        print('大盤本益比：無資料（非交易日或 API 無回應）')
+        return
+    date_std, pe, pb, dy = result
+    save_market_pe(date_std, pe, pb, dy)
+    print(f'大盤本益比：{date_std} PE中位數={pe} PB={pb} 殖利率={dy}%')
 
 
-# ── 大盤本益比歷史補抓（僅抓今日，歷史靠每日累積）──
+# ── 大盤本益比歷史補抓（做不到，只抓最新一份）──
 def fetch_market_pe_history(months=6):
-    """BWIBBU_ALL 不支援歷史查詢，改為只儲存今日資料作為起始點。"""
-    print('大盤本益比：TWSE API 不支援歷史查詢，今日資料已儲存，往後每日自動累積。')
+    """BWIBBU_ALL 的 date 參數無效，無法補歷史；只儲存最新一份報表當起始點。"""
+    print('大盤本益比：TWSE API 不支援歷史查詢（date 參數無效），'
+          '只能儲存最新一份報表，往後每日自動累積。')
     fetch_market_pe()
     return 1
 
@@ -2235,33 +2411,60 @@ def _parse_futures_csv(raw):
 
 
 def fetch_futures_institutional():
-    """抓取今日（或最近一交易日）台指期三大法人未平倉"""
-    from database import save_futures_institutional, get_futures_institutional
+    """
+    抓取台指期三大法人未平倉，**含智慧補齊**（2026-09-08 新增，補上陷阱39 沒涵蓋的部分）。
+
+    ═══ 為什麼可以補齊（與 TWSE STOCK_DAY_ALL 的差別）═══
+    陷阱41 的教訓是「外部 API 的日期參數不一定有效，會被忽略但仍回 200 + 合法資料」，
+    所以動手前先實測（2026-09-08）：
+      GET futContractsDateDown?queryStartDate=2026/09/01&queryEndDate=2026/09/04
+      → 回傳的就是 09/01、09/02、09/03、09/04 這四天，**參數確實有效**。
+    而且 _parse_futures_csv() 是用 CSV 每列自帶的日期當 key，不是用請求參數，
+    符合陷阱41 通則2「用回傳內容裡的真實日期存檔」的防禦寫法。
+
+    ═══ 做法 ═══
+    查 DB 最新日期 → _taifex_query_windows() 算出要補的區間（超過30天自動切段）
+    → 逐段抓 → 存檔前再驗一次「日期落在要求區間內」（雙重保險）。
+    """
+    from database import save_futures_institutional
     print('抓取台指期三大法人未平倉...')
-    today = datetime.now().strftime('%Y/%m/%d')
-    url = 'https://www.taifex.com.tw/cht/3/futContractsDateDown'
-    try:
-        r = requests.get(url, params={
-            'down_type': '1', 'commodity_id': 'TXF',
-            'queryStartDate': today, 'queryEndDate': today
-        }, headers=HEADERS, timeout=15)
-        parsed = _parse_futures_csv(r.content)
-        if not parsed:
-            # 今天可能還沒資料，試前一交易日
-            prev = (datetime.now() - timedelta(days=1)).strftime('%Y/%m/%d')
-            r2 = requests.get(url, params={
+    url     = 'https://www.taifex.com.tw/cht/3/futContractsDateDown'
+    missing = _missing_trading_days('futures_institutional')
+    windows = _taifex_query_windows(missing)
+    if missing:
+        print(f'  偵測到缺漏交易日 {len(missing)} 天（{missing[0]}～{missing[-1]}），'
+              f'補齊區間 {windows[0][0]:%Y-%m-%d} ~ {windows[-1][1]:%Y-%m-%d}')
+
+    count = 0
+    for ws, we in windows:
+        s_str, e_str = ws.strftime('%Y/%m/%d'), we.strftime('%Y/%m/%d')
+        try:
+            r = requests.get(url, params={
                 'down_type': '1', 'commodity_id': 'TXF',
-                'queryStartDate': prev, 'queryEndDate': prev
-            }, headers=HEADERS, timeout=15)
-            parsed = _parse_futures_csv(r2.content)
-        count = 0
-        for date, data in parsed.items():
+                'queryStartDate': s_str, 'queryEndDate': e_str,
+            }, headers=HEADERS, timeout=20)
+            parsed = _parse_futures_csv(r.content)
+        except Exception as e:
+            print(f'  {s_str}~{e_str} 失敗：{e}')
+            continue
+
+        lo, hi = ws.strftime('%Y-%m-%d'), we.strftime('%Y-%m-%d')
+        for date, data in sorted(parsed.items()):
+            # ⚠️ 日期守衛（陷阱41）：只接受落在要求區間內的日期，
+            #    寧可少存也不要把別天的資料當成這幾天的。
+            if not (lo <= date <= hi):
+                print(f'  ⚠️ 回傳日期 {date} 不在要求區間 {lo}~{hi}，略過')
+                continue
             if len(data) >= 6:  # 至少有外資+投信+自營
                 save_futures_institutional(date, data)
                 count += 1
+        if len(windows) > 1:
+            time.sleep(0.5)
+
+    if count:
         print(f'台指期未平倉：{count} 筆')
-    except Exception as e:
-        print(f'台指期未平倉失敗：{e}')
+    else:
+        print('台指期未平倉：0 筆（今日資料尚未發布或非交易日）')
 
 
 def fetch_futures_institutional_history(months=3):
@@ -2353,31 +2556,50 @@ def _parse_pc_csv(content: bytes) -> list:
 
 
 def fetch_options_pc():
-    """抓取今日（或最近一交易日）選擇權 P/C 比率"""
-    from database import save_options_pc, get_options_pc_last_date
+    """
+    抓取選擇權 P/C 比率，**含智慧補齊**（2026-09-08 新增）。
+
+    與 fetch_futures_institutional() 同一套邏輯與同一組實測依據：
+    pcRatioDown 的 queryStartDate/queryEndDate 實測有效（2026-09-08 驗證：
+    要求 2026/09/01~09/05，回傳 09/01~09/04 四個交易日，週末自然不在其中），
+    且 _parse_pc_csv() 用 CSV 自帶日期，不用請求參數。
+    """
+    from database import save_options_pc
     print('抓取選擇權 P/C 比率...')
-    url   = 'https://www.taifex.com.tw/cht/3/pcRatioDown'
-    today = datetime.now().strftime('%Y/%m/%d')
-    try:
-        r = requests.get(url, params={
-            'queryStartDate': today,
-            'queryEndDate':   today,
-        }, headers=HEADERS, timeout=15)
-        rows = _parse_pc_csv(r.content)
-        if not rows:
-            # 當日可能還沒資料，試前一交易日
-            prev = (datetime.now() - timedelta(days=1)).strftime('%Y/%m/%d')
-            r2 = requests.get(url, params={
-                'queryStartDate': prev, 'queryEndDate': prev,
-            }, headers=HEADERS, timeout=15)
-            rows = _parse_pc_csv(r2.content)
-        count = 0
+    url     = 'https://www.taifex.com.tw/cht/3/pcRatioDown'
+    missing = _missing_trading_days('options_pc_ratio')
+    windows = _taifex_query_windows(missing)
+    if missing:
+        print(f'  偵測到缺漏交易日 {len(missing)} 天（{missing[0]}～{missing[-1]}），'
+              f'補齊區間 {windows[0][0]:%Y-%m-%d} ~ {windows[-1][1]:%Y-%m-%d}')
+
+    count = 0
+    for ws, we in windows:
+        s_str, e_str = ws.strftime('%Y/%m/%d'), we.strftime('%Y/%m/%d')
+        try:
+            r = requests.get(url, params={
+                'queryStartDate': s_str, 'queryEndDate': e_str,
+            }, headers=HEADERS, timeout=20)
+            rows = _parse_pc_csv(r.content)
+        except Exception as e:
+            print(f'  {s_str}~{e_str} 失敗：{e}')
+            continue
+
+        lo, hi = ws.strftime('%Y-%m-%d'), we.strftime('%Y-%m-%d')
         for row in rows:
+            # ⚠️ 日期守衛（陷阱41），同 fetch_futures_institutional()
+            if not (lo <= row['date'] <= hi):
+                print(f'  ⚠️ 回傳日期 {row["date"]} 不在要求區間 {lo}~{hi}，略過')
+                continue
             save_options_pc(row['date'], row['call_oi'], row['put_oi'], row['pc_ratio'])
             count += 1
+        if len(windows) > 1:
+            time.sleep(0.5)
+
+    if count:
         print(f'P/C 比率：{count} 筆')
-    except Exception as e:
-        print(f'P/C 比率失敗：{e}')
+    else:
+        print('P/C 比率：0 筆（今日資料尚未發布或非交易日）')
 
 
 def fetch_options_pc_history(months=3):
@@ -2443,28 +2665,25 @@ def fetch_t86():
         print('T86：無法取得 TWSE 日期，略過')
         return
 
-    # 已有當日資料則略過
+    # ── 候選日 = 實際缺漏的交易日 + 最新交易日（2026-09-09 改寫）──
+    #
+    # ⚠️ 舊版有兩層「只看尾端」的邏輯，中間的洞永遠補不回來：
+    #   1. `if last >= twse_date: return`（已是最新就直接跳出）
+    #   2. 候選日從 `last + 1 天` 起算
+    # 於是「9/7 沒抓到、9/8 抓到了」之後，last 前進到 9/8，9/7 那個洞就再也不會被碰。
+    # **這極可能就是陷阱41 裡「T86 缺 8/26、9/2、9/7，失敗原因不明」的真正原因**——
+    # 不是抓取失敗查不出來，是失敗過一次之後就再也沒有重試的機會。
+    # 改用交易日日曆逐日比對（見 `_missing_trading_days()`）。
     last = get_t86_last_date()
-    if last and last >= twse_date:
-        print(f'T86 排行資料已是最新（{last}），略過')
-        return
-
-    # 從上次日期+1天逐日往後補，最多試30個交易日
-    # （2026-08 從 5 天拉高到 30 天：5 天上限在使用者出門超過一週沒更新時會補不完整）
-    from_date = datetime.strptime(last, '%Y-%m-%d') + timedelta(days=1) if last else datetime.strptime(twse_date, '%Y-%m-%d')
-    to_date   = datetime.strptime(twse_date, '%Y-%m-%d')
-
-    # 列出需要嘗試的日期（只取週一~週五，最多30天）
-    candidates = []
-    d = from_date
-    while d <= to_date and len(candidates) < 30:
-        if d.weekday() < 5:  # 非週末
-            candidates.append(d.strftime('%Y-%m-%d'))
-        d += timedelta(days=1)
+    candidates = _missing_trading_days('t86_ranking', lookback_days=45)[-30:]
+    if (not last or last < twse_date) and twse_date not in candidates:
+        candidates.append(twse_date)
 
     if not candidates:
-        print('T86：無需補抓')
+        print(f'T86 排行資料已是最新（{last}），且近期無缺漏交易日')
         return
+    if len(candidates) > 1:
+        print(f'T86：需補抓 {len(candidates)} 天（{candidates[0]}～{candidates[-1]}）')
 
     def shares_to_lots(val):
         return int(clean_num(val) / 1000)

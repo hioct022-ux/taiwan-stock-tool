@@ -316,6 +316,7 @@ def init_db():
         'ALTER TABLE positions ADD COLUMN entry_score INTEGER',
         'ALTER TABLE positions ADD COLUMN entry_ms INTEGER',
         'ALTER TABLE positions ADD COLUMN exit_reason TEXT',
+        'ALTER TABLE positions ADD COLUMN original_entry_date TEXT',
     ]
     for sql in migrations:
         try:
@@ -878,9 +879,20 @@ def get_market_margin_last_date():
     return row[0] if row and row[0] else None
 
 # ── 持倉部位（本機專屬，不匯出 JSON）──────────
-_POS_COLS = ['id', 'code', 'name', 'entry_date', 'entry_price', 'shares',
+_POS_COLS = ['id', 'code', 'name', 'entry_date', 'original_entry_date',
+             'entry_price', 'shares',
              'stop_price', 'renew_count', 'status', 'entry_score', 'entry_ms',
              'exit_reason', 'exit_date', 'exit_price', 'pnl_pct', 'note', 'created_at']
+
+# ⚠️ entry_date vs original_entry_date 的分工（2026-09-12 新增，陷阱47）
+#   entry_date          = **本輪持有期的起算日**，續抱時會被 renew_position() 重設為今天
+#   original_entry_date = **最初真正買進的那天**，續抱時不動
+# 兩者分開的原因：`entry_price` 從來不隨續抱改變（那是最初的成交價），
+# 但舊版只有 entry_date 且會被重設，於是「進場日」與「進場價」對不起來——
+# 實際資料中緯創登錄 8/13＠169.5，但 8/12 收 193.5、隔天跌停也只到 174.2，
+# 根本不可能成交在 169.5（169.5 其實是 8/03 的價位，續抱一輪後日期被推到 8/13）。
+#   → pnl_pct / entry_score / entry_ms 都對應「最初進場」，彼此一致；
+#     只有 entry_date 與持有天數會誤導，故補上這個欄位。
 
 def add_position(code, name, entry_date, entry_price, shares=1000,
                  stop_price=None, note='', entry_score=None, entry_ms=None) -> int:
@@ -894,12 +906,13 @@ def add_position(code, name, entry_date, entry_price, shares=1000,
         stop_price = round(entry_price * STOP_LOSS_RATIO, 2)
     conn = get_conn()
     cur = conn.execute('''
-        INSERT INTO positions (code, name, entry_date, entry_price, shares,
+        INSERT INTO positions (code, name, entry_date, original_entry_date,
+                               entry_price, shares,
                                stop_price, renew_count, status, note,
                                entry_score, entry_ms)
-        VALUES (?, ?, ?, ?, ?, ?, 0, 'holding', ?, ?, ?)
-    ''', (code, name, entry_date, entry_price, int(shares), stop_price, note,
-          entry_score, entry_ms))
+        VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'holding', ?, ?, ?)
+    ''', (code, name, entry_date, entry_date, entry_price, int(shares),
+          stop_price, note, entry_score, entry_ms))
     conn.commit()
     pid = cur.lastrowid
     conn.close()
@@ -930,12 +943,22 @@ def get_positions_by_code(code, status='holding') -> list:
     return [p for p in get_positions(status) if p['code'] == code]
 
 def renew_position(pid, new_entry_date=None) -> None:
-    """策略 C 續抱：renew_count +1，並把持有期起算日重設為 new_entry_date（預設今天）"""
+    """
+    策略 C 續抱：renew_count +1，並把**本輪**持有期起算日重設為 new_entry_date（預設今天）。
+
+    ⚠️ `original_entry_date` 刻意不動——那是最初真正買進的日期，
+    與 `entry_price` 同一個時點，兩者必須保持一致（見 _POS_COLS 上方說明）。
+    若該欄為 NULL（升級前建立、之後才第一次續抱的舊資料），
+    這裡用「續抱前的 entry_date」補上——那是目前能取得最接近原始進場的值。
+    """
     from datetime import datetime as _dt
     d = new_entry_date or _dt.now().strftime('%Y-%m-%d')
     conn = get_conn()
-    conn.execute('UPDATE positions SET renew_count = renew_count + 1, entry_date = ? '
-                 'WHERE id = ? AND status = ?', (d, pid, 'holding'))
+    conn.execute('''UPDATE positions
+                       SET renew_count = renew_count + 1,
+                           original_entry_date = COALESCE(original_entry_date, entry_date),
+                           entry_date = ?
+                     WHERE id = ? AND status = ?''', (d, pid, 'holding'))
     conn.commit()
     conn.close()
 
@@ -957,7 +980,8 @@ def close_position(pid, exit_date, exit_price, exit_reason='') -> None:
 
 def update_position(pid, **fields) -> None:
     """更新任意欄位（entry_price/shares/stop_price/note 等）"""
-    allowed = {'entry_date', 'entry_price', 'shares', 'stop_price', 'note',
+    allowed = {'entry_date', 'original_entry_date', 'entry_price', 'shares',
+               'stop_price', 'note',
                'exit_date', 'exit_price', 'status', 'entry_score', 'entry_ms',
                'exit_reason', 'pnl_pct', 'name'}
     sets = {k: v for k, v in fields.items() if k in allowed}

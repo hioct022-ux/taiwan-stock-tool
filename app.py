@@ -194,6 +194,23 @@ def _trading_days_since(entry_date, code='TAIEX'):
         return 1
 
 
+def _hold_days_label(pos):
+    """
+    回傳 (本輪天數, 顯示文字)。續抱過的部位額外標出「累計」天數。
+
+    ⚠️ 為什麼要兩個數字（陷阱47）：`entry_date` 是**本輪**起算日，續抱時會被重設；
+    `original_entry_date` 才是最初買進那天。只看前者，一檔續抱三次、實際抱了
+    六週的部位會顯示「第 3 天」，嚴重低估實際曝險時間。
+    """
+    _cur = _trading_days_since(pos['entry_date'])
+    _orig = pos.get('original_entry_date')
+    _rc = pos.get('renew_count') or 0
+    if _orig and _orig != pos['entry_date']:
+        _tot = _trading_days_since(_orig)
+        return _cur, f'第{_cur}天（續抱{_rc}次，累計{_tot}天）'
+    return _cur, f'第{_cur}天'
+
+
 def _trade_cost(amount, is_sell=False):
     """單邊交易成本：手續費（含折扣與低消）+ 賣出時的證交稅"""
     from config import FEE_RATE, FEE_DISCOUNT, FEE_MIN, TAX_RATE
@@ -224,6 +241,59 @@ def _latest_close(code):
         return _p[-1]['close'] if _p else None
     except Exception:
         return None
+
+def _current_data_date():
+    """目前資料的最新交易日（本機讀 DB 的 TAIEX、雲端讀 TAIEX.json）。取不到回傳 None。"""
+    try:
+        if IS_LOCAL:
+            _p = get_prices('TAIEX', days=1)
+        else:
+            import json as _j
+            _jb = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'json')
+            with open(os.path.join(_jb, 'TAIEX.json'), encoding='utf-8') as _f:
+                _p = _j.load(_f).get('prices', [])[-1:]
+        return _p[-1]['date'] if _p else None
+    except Exception:
+        return None
+
+
+def _market_state():
+    """
+    回傳 `(ms, net, data_date, stale)` —— session_state 裡的大盤評分，**以及它算自哪一天的資料**。
+
+    ⚠️ 為什麼需要這個（2026-09-12 新增，陷阱46）：
+    `_market_ms` / `_market_net` **整個程式只有 `render_market()` 會寫入**，
+    也就是「你最後一次打開大盤分析頁」算出來的即時評分（S1–S11）。
+    但它被四個地方讀去用：側邊欄持倉旗標、投資策略頁門檻、減碼警報、📌 進場登錄。
+
+    舊版只檢查「有沒有值」、**不檢查「是哪一天的值」**，於是：
+      - App 一直開著、今天沒進大盤分析頁 → 這四處全部拿到昨天（或更早）的分數
+      - 而 📌 登錄的「進場日」預設是 `datetime.now()`（今天）→
+        `entry_ms` 與 `entry_date` 可能根本不是同一天
+
+    **實際紀錄裡已有證據**：2026-08-14 登錄的兩筆持倉，`entry_ms` 一筆 100、一筆 60
+    ——同一天的大盤評分只會有一個值，代表中間重新載入過大盤分析頁。
+
+    這是陷阱40 那條通則的漏網之魚（當時修了 `_market_score_history_v3_{date}`、
+    `_score_hist_{code}_{date}`、`_wl_patterns_{date}` 三個 key，這一組沒動）。
+    **本函式不改任何評分邏輯，只讓「舊值」不能無聲通過。**
+    """
+    _ms  = st.session_state.get('_market_ms')
+    _net = st.session_state.get('_market_net')
+    _d   = st.session_state.get('_market_ms_date')
+    if _ms is None:
+        return None, None, None, False
+    _cur = _current_data_date()
+    # 取不到目前資料日期時不做判斷（寧可不擋，也不要誤擋）
+    _stale = bool(_cur) and (_d != _cur)
+    return _ms, _net, _d, _stale
+
+
+def _market_stale_note(data_date):
+    """大盤評分過期時的統一提示文字。"""
+    return (f'⚠️ 目前帶入的大盤評分是 **{data_date or "更早"}** 的資料，'
+            f'並非最新交易日。請重新開啟「📊 大盤分析」頁讓它重算。')
+
 
 def _positions_unlocked():
     """雲端版持倉區塊的密碼關卡（2026-08新增）。
@@ -495,6 +565,29 @@ def _data_integrity_report(days=30):
         return {'missing': [], 'dupes': []}
 
 
+# 各表缺漏時的修復方式。2026-09-08 更新：台指期/選擇權P/C 已補上智慧補齊
+# （fetcher.py，TAIFEX 的日期區間參數實測有效），按更新按鈕就會自動補；
+# 大盤本益比則是 BWIBBU_ALL 的 date 參數無效，**補不回來**（陷阱44）。
+_INTEGRITY_FIX = {
+    '個股收盤':   '按「🔄 手動更新資料」會自動補齊',
+    '法人排行':   '按「🔄 手動更新資料」會自動補齊',
+    '個股籌碼':   '按「🔄 手動更新資料」會自動補齊',
+    '融資融券':   '按「🔄 手動更新資料」會自動補齊',
+    '台指期法人': '按「🔄 手動更新資料」會自動補齊',
+    '選擇權P/C':  '按「🔄 手動更新資料」會自動補齊',
+}
+# 2026-09-09：六項全都改成「按更新就會自動補」——補齊邏輯從「MAX(date)+1」改為
+# 「與 TAIEX 交易日日曆逐日比對」之後，中間的洞也抓得到了（見陷阱45）。
+# 若按了更新這裡仍不消失，代表該日 API 真的沒有資料，才需要人工介入。
+# 無法補回的資料表：只能靠每日更新累積，舊缺口是永久的。
+# 這類項目**不列入警告框的計數**——一個永遠在示警、又無事可做的監控，
+# 會讓人習慣性忽略它，反而害到真正需要處理的那些項目。
+_INTEGRITY_UNFIXABLE = {
+    '大盤本益比': 'TWSE BWIBBU_ALL 的 date 參數無效，舊缺口補不回來（陷阱44）。'
+                  '不影響任何評分與回測（陷阱43 已查證），只會讓估值走勢圖有斷點。',
+}
+
+
 def _render_integrity_warning():
     """把資料完整性問題顯示在側邊欄。沒問題時完全不佔版面。"""
     if not IS_LOCAL:
@@ -503,14 +596,25 @@ def _render_integrity_warning():
     if not rep['missing'] and not rep['dupes']:
         return
 
-    _n_miss = sum(len(m) for _, m in rep['missing'])
+    _fixable   = [(l, m) for l, m in rep['missing'] if l not in _INTEGRITY_UNFIXABLE]
+    _unfixable = [(l, m) for l, m in rep['missing'] if l in _INTEGRITY_UNFIXABLE]
+
+    _n_miss = sum(len(m) for _, m in _fixable)
     _n_dupe = len(rep['dupes'])
+
+    if not _n_dupe and not _n_miss:
+        # 只剩補不回來的項目：用一行淡色說明帶過，不跳警告框
+        if _unfixable:
+            _l, _m = _unfixable[0]
+            st.caption(f'ℹ️ {_l}近30日缺 {len(_m)} 天（API 限制，無法補回，不影響評分）')
+        return
+
     _sev = '#ef4444' if rep['dupes'] else '#f59e0b'   # 資料汙染比缺資料嚴重
     _bits = []
     if _n_dupe:
         _bits.append(f'{_n_dupe} 個重複日')
     if _n_miss:
-        _bits.append(f'{len(rep["missing"])} 表缺 {_n_miss} 天')
+        _bits.append(f'{len(_fixable)} 表缺 {_n_miss} 天')
 
     st.markdown(
         f'<div style="background:#1a1505;border-left:4px solid {_sev};border-radius:6px;'
@@ -523,12 +627,16 @@ def _render_integrity_warning():
             for d, mkt, same, tot in rep['dupes']:
                 st.caption(f'{d}　{mkt}：{same}/{tot} 檔與前一交易日完全相同')
             st.caption('→ 執行 `python3 repair_tpex_dupes.py` 修復（見陷阱42）')
-        if rep['missing']:
+        if _fixable:
             st.markdown('**🟡 缺漏交易日**')
-            for label, miss in rep['missing']:
+            for label, miss in _fixable:
                 _s = '、'.join(d[5:] for d in miss[-6:])
-                st.caption(f'{label}：缺 {len(miss)} 天（{_s}{"…" if len(miss) > 6 else ""}）')
-            st.caption('→ 執行 `python3 backfill_missing_days.py --apply` 補齊（見陷阱41）')
+                st.caption(f'{label}：缺 {len(miss)} 天（{_s}{"…" if len(miss) > 6 else ""}）'
+                           f'　→ {_INTEGRITY_FIX.get(label, "見 CLAUDE.md 十九章")}')
+        if _unfixable:
+            st.markdown('**⚪ 缺漏但無法補回**')
+            for label, miss in _unfixable:
+                st.caption(f'{label}：缺 {len(miss)} 天　→ {_INTEGRITY_UNFIXABLE[label]}')
 
 
 def _market_advice(ms):
@@ -545,11 +653,18 @@ def _market_advice(ms):
     「追漲」（🔥）並沒有比較差，勝率甚至是四組最高（51.6%）；而 🎯 的 EV 反而略低。
     原本那句話會讓使用者誤以為必須等回檔才能買、看到清單全是「—」就不敢進場。
     **這裡只保留有回測基礎的內容：個股門檻、停損單、部位大小。**
+
+    ⚠️ 2026-09-17 再修：`<45` 那句原本寫「持股逢反彈減碼」——**那是策略D 的邏輯，
+    不是正式規則**，而且沒有任何標註。正式規則是策略C：持有期間不因大盤轉弱出場，
+    只有 停損／滿10日評分不足／大盤淨值+4 三種出場條件。
+    這句話與綜合判斷框（陷阱48）是同一個病灶的兩個出口，一起改。
+    **這四句話一律只描述「還沒進場的資金」該怎麼做，不碰已持有的部位。**
     """
     if   ms >= 70: return '大盤條件良好，個股 ≥65 分可積極進場；買進當日即掛停損單'
     elif ms >= 55: return '大盤偏多，個股門檻提高至 70 分；可正常進場，買進當日即掛停損單'
     elif ms >= 45: return '大盤中性，個股門檻提高至 75 分；輕倉試單，進場即掛停損單'
-    else:          return '大盤偏空，暫停進場；持股逢反彈減碼（不恐慌殺低），停損單守最後底線'
+    else:          return ('大盤偏空，**暫停進場**（此句僅針對新資金）；'
+                          '已持有的部位不因此出場，仍依停損單／滿10日評分／+4警報三項規則')
 
 
 def show_chart(fig, key=None, date_xaxis=True):
@@ -873,16 +988,28 @@ def render_sidebar():
             _sb_hold = get_positions('holding')
             if _sb_hold:
                 from config import HOLD_DAYS as _SB_HOLD_DAYS
-                _sb_net = st.session_state.get('_market_net')
+                # 大盤評分過期時**不拿舊值判「📉 大盤轉空」**（陷阱46）。
+                # 顯示一個錯的旗標，比不顯示更糟——使用者會照著它減碼。
+                _sb_ms0, _sb_net, _sb_msd, _sb_stale = _market_state()
+                if _sb_stale:
+                    _sb_net = None
                 st.markdown(f'#### 📌 持倉觀察　<span style="font-size:12px;color:#64748b">'
                             f'({len(_sb_hold)})</span>', unsafe_allow_html=True)
+                if _sb_stale:
+                    st.caption(f'⚠️ 大盤評分停在 {_sb_msd or "更早"}，'
+                               f'已暫停「大盤轉空」旗標。請開一次大盤分析頁。')
                 # 持倉成本佔比（2026-08新增）：分母＝目前所有持倉成本總和，非帳戶總資金
                 _sb_total_cost = sum((p['entry_price'] or 0) * (p['shares'] or 0) for p in _sb_hold)
                 for _sp in _sb_hold:
                     _sc_cur = _latest_close(_sp['code'])
                     _sd     = _trading_days_since(_sp['entry_date'])
+                    # 續抱過的部位，按鈕後面補上累計天數（陷阱47）
+                    _s_orig = _sp.get('original_entry_date')
+                    _s_tot  = (f'／累計{_trading_days_since(_s_orig)}'
+                               if _s_orig and _s_orig != _sp['entry_date'] else '')
                     _sf, _sfc, _sft = _position_status(_sp, _sc_cur, _sb_net)
-                    if st.button(f'{_sf} {_sp["code"]} {_sp["name"]}　第 {_sd}/{_SB_HOLD_DAYS} 天',
+                    if st.button(f'{_sf} {_sp["code"]} {_sp["name"]}　'
+                                 f'第 {_sd}/{_SB_HOLD_DAYS} 天{_s_tot}',
                                  key=f'sb_pos_{_sp["id"]}', use_container_width=True):
                         st.session_state['current_code'] = _sp['code']
                         st.session_state['page'] = 'stock'
@@ -1914,7 +2041,7 @@ def render_valuation(result, code, name, fund_data):
         else:
             return f'比過去 {cheap_pct}% 的時間都便宜'
 
-    # ── 過濾有效歷史數據 ──────────────────────────────
+    # ── 過濾有效歷史資料 ──────────────────────────────
     pe_valid  = [(r['date'], r['pe']) for r in fund_data
                  if r.get('pe') and 0 < r['pe'] < 500]
     pb_valid  = [(r['date'], r['pb']) for r in fund_data
@@ -2621,7 +2748,7 @@ def render_chips(result, code, name, chips_list, market=None, ownership_override
             st.caption(f'{level_msg} {trend_msg}')
             st.caption('外資%來源：TWSE MI_QFIIS 每日更新；投信/自營/董監為估算值')
         else:
-            st.caption('外資持股比率尚無資料，請先按「手動更新資料」取得真實數據。')
+            st.caption('外資持股比率尚無資料，請先按「手動更新資料」取得真實資料。')
 
     # 右欄：ETF 持股圓餅圖
     with col_etf:
@@ -2752,7 +2879,7 @@ def render_score(result, code, name, prices=None, fund_data=None, chips_all=None
     )
 
     # 波動度標示（2026-08新增，純資訊揭露，不影響評分）
-    # 分數只反映「體質/方向」，不反映「平常會動多少」，兩者是獨立的維度——
+    # 分數只反映「體質/方向」，不反映「平常會動多少」，兩者是獨立的面向——
     # 分數再高，若波動度低，短期內也可能不會有明顯漲幅；分數普通但波動度高，短期振幅可能反而更大。
     _vol20 = ind.get('vol20')
     if _vol20 is not None:
@@ -2929,8 +3056,14 @@ def render_score(result, code, name, prices=None, fund_data=None, chips_all=None
                             f'border-radius:6px;padding:10px 14px;margin-top:8px;font-size:13px">'
                             f'<span style="color:#f87171;font-weight:700">🔴 評分跌破買入門檻</span>'
                             f'<span style="color:#c47070;margin-left:10px">'
+                            # ⚠️ 2026-09-17 改：原本寫「考慮減碼或停損」——那**違反這個提示自己的定位**。
+                            #    策略F 已回測驗證（851筆）：每次亮燈就出場，扣掉 0.47% 來回成本後
+                            #    由賺轉賠（+0.17% 毛EV、勝率僅 26.6%）。十八章明文寫著
+                            #    「正確用法是『這檔要特別盯著』，不是『立刻出場』」，但 UI 文字沒跟上。
                             f'從近期高點 <b>{_recent_peak}</b> 分下滑至 <b>{_curr_score}</b> 分'
-                            f'（下滑 {abs(_peak_decline)} 分），考慮減碼或停損</span>'
+                            f'（下滑 {abs(_peak_decline)} 分）——<b>這是提醒盯緊，不是出場訊號</b>。'
+                            f'出場仍依三項規則：停損單／滿10日評分不足／大盤 +4 警報。'
+                            f'（實測：每次亮燈就賣，長期扣成本後是虧的）</span>'
                             f'</div>',
                             unsafe_allow_html=True
                         )
@@ -4902,7 +5035,7 @@ def render_doc():
 
 ## 一、這個程式是什麼？
 
-本工具整合技術面、基本面、籌碼面三個維度，幫助投資人客觀評估股票現況，減少情緒性決策。
+本工具整合技術面、基本面、籌碼面三個面向，幫助投資人客觀評估股票現況，減少情緒性決策。
 並提供大盤開盤前預判、選擇權 P/C 比率、個股歷史評分走勢等輔助功能。
 所有判斷邏輯透明可查，評分規則固定且可驗證。
 
@@ -6169,6 +6302,10 @@ def render_market():
         st.session_state['_market_net']  = _net
         st.session_state['_market_bear'] = _bear_score
         st.session_state['_market_bull'] = _bull_score
+        # ⚠️ 一起記下「這個分數算自哪一天的資料」（2026-09-12，陷阱46）。
+        # 沒有這一行，讀取端就無法分辨手上的值是今天的還是三天前的——
+        # 而這四處（側邊欄旗標／策略頁門檻／減碼警報／進場登錄）全都會默默用舊值。
+        st.session_state['_market_ms_date'] = _tpx_date
 
         if   _ms >= 85: _ms_grade = '強烈偏多'; _ms_c = '#22c55e'; _ms_bg = '#0a2010'
         elif _ms >= 70: _ms_grade = '偏多';     _ms_c = '#4ade80'; _ms_bg = '#0a1a0a'
@@ -6221,10 +6358,36 @@ def render_market():
         # ⚠️ 定位（2026-08-20 依回測修訂）：這裡純粹是「目前有哪些股票處在什麼型態」的
         # 狀態揭露，**不是買點推薦、不代表這些股票比較值得買**。
         # backtest_entry_pattern.py 實測：🎯 EV +4.05%、🔥 +4.19%、不看型態 +4.67%，
+        # ── 量能水位（2026-09-15 新增，純資訊，不計分不擋單）──
+        # ⚠️ 定位與 🎯🔥 型態完全相同：**沒有驗證過有預測力，不可當進出場理由。**
+        # 起因：使用者觀察到近日量一直縮，問系統該不該據此警戒別出手。
+        # 實測（253 個交易日）：「5日量 ≤ 20日量 -15%」的日子，未來10日指數
+        # 均漲 -0.46%、勝率 46.7%（基準 +2.63%／66.8%），看似有效——
+        # **但那 15 天拆開只是 4 段連續期間，2 勝 2 負**，而 -3.09pp 的落差
+        # 幾乎全由 2026-07-08~07-28 那一段（＝已知的 7/14 空頭）撐起來。
+        # 一個事件被重疊視窗膨脹成 15 個樣本，不構成證據（同「單日進場集中度」那則教訓）。
+        # 另：ER 趨勢過濾 2026-08-27 已測過並否決，結論是「震盪期表現差主要是 beta 低，
+        # 不是 alpha 壞」，所以量能也不該拿來當第二層過濾器。
+        try:
+            _vv = [p.get('value') or 0 for p in _tpx if 0 < (p.get('value') or 0) < 50000]
+            if len(_vv) >= 20:
+                _v5, _v20 = sum(_vv[-5:]) / 5, sum(_vv[-20:]) / 20
+                _vr = (_v5 - _v20) / _v20 * 100
+                _vlab = ('量縮' if _vr <= -15 else '量能偏低' if _vr <= -5
+                         else '量能放大' if _vr >= 15 else '量能回升' if _vr >= 5 else '量能持平')
+                st.caption(
+                    f'📊 近5日均量 **{_v5:,.0f} 億**（對比20日均量 {_v20:,.0f} 億，'
+                    f'{_vr:+.1f}%／{_vlab}）　'
+                    f'純現況陳述，**不計入評分、不影響進場門檻**——'
+                    f'量能與後續報酬的關聯未經驗證（實測僅 4 段獨立期間、2勝2負，'
+                    f'看似的效果來自單一空頭事件），請勿當作進出場理由。')
+        except Exception:
+            pass
+
         # 型態對期望報酬沒有可辨識的正面影響（🎯 只是停損率較低 18% vs 33%，
         # 影響的是離散度而非期望值——與波動度那次的結論同一形狀）。
         # 當篩選條件更糟：🎯 只保留 17%、🔥 只保留 7% 的進場機會。
-        if _ms >= 45:      # 偏空時暫停進場，不需要顯示型態現況
+        if _ms >= 45:      # ≥45：顯示型態現況；＜45 走下方 else（明講規則要你暫停）
             _pat = _scan_watchlist_patterns()
             _nc, _nb = len(_pat['consol']), len(_pat['breakout'])
             def _names(lst, k=4):
@@ -6260,6 +6423,26 @@ def render_market():
                     f'<b>這不影響進場判斷</b>——回測顯示無型態（「—」）的交易期望報酬'
                     f'與整體相當（+4.62% vs +4.67%），評分達標即可正常評估。</div>',
                     unsafe_allow_html=True)
+        else:
+            # 大盤 <45：規則本身就說暫停進場。
+            # ⚠️ 舊版這裡什麼都不顯示（`if _ms >= 45` 沒有 else），理由是「偏空時
+            # 不需要顯示型態現況」——但那推論只對了一半：型態確實不必顯示，
+            # **「規則現在要你暫停」這件事反而最該講**，因為這正是最容易勉強出手的時候。
+            # 使用者 2026-09-15 提出「盤不好時系統該不該警戒」，查下來發現想要的東西
+            # 其實已經做好了（型態框的空清單設計），只是被這個條件擋在門外。
+            # 純顯示，不改任何規則。
+            st.markdown(
+                f'<div style="background:#1a1505;border-left:4px solid #f59e0b;'
+                f'border-radius:6px;padding:10px 14px;margin-bottom:14px;font-size:12px;'
+                f'line-height:1.8">'
+                f'<span style="color:#f59e0b;font-weight:700">⏸️ 大盤評分 {_ms} 分（＜45）'
+                f'——規則：暫停進場</span><br>'
+                f'<span style="color:#94a3b8">這不是「找不到標的」，是<b>策略本來就要你這時候不出手</b>。'
+                f'手上部位照既有規則管理（停損／到期重新評分），不需要因為這個提示額外動作。</span>'
+                f'<div style="color:#475569;font-size:11px;margin-top:6px">'
+                f'空手期間沒有成本，勉強進場才有。'
+                f'2026-07 空頭段實測：大盤過濾擋掉的 18 筆平均 -4.21%。</div></div>',
+                unsafe_allow_html=True)
 
         # ── 多殺多 / 斷頭警告框 ──────────────────────────────
         if _s10_alert_level >= 2:
@@ -6476,29 +6659,54 @@ def render_market():
                 st.caption('近180日大盤評分走勢。歷史點僅含S1–S8；最後一點為今日即時評分（含S9–S11）。綠點偏多，黃點中性，紅點偏空。')
 
         # ── 綜合判斷（門檻降低，讓正常行情也能判斷方向）────
+        #
+        # ⚠️ 2026-09-17 重大修正：這個框的「操作建議」原本從 net≥1 起就在暗示降部位
+        #    （≥1「保守持倉」／≥3「逢反彈可減碼」／≥6「持股者酌情減碼」），
+        #    **與正式規則策略C「持有期間不因大盤轉弱自動出場」直接矛盾，且完全沒有標註。**
+        #
+        #    實際後果（使用者 2026-08-19）：照這個框把緯創／微星／國泰金三檔在第 4–5 天
+        #    出清（規則是 10 天），三筆出場後 15 日分別 +6.2%／+7.6%／+12.3%，全數賣飛。
+        #    而那天 net 只有 +1，策略D 的兩個警報門檻（+2／+4）都沒觸發。
+        #
+        #    ⚠️ 這是 2026-08-20 那次修正的漏網之魚——當時把 C 與 D 拆開標示，
+        #    但只改了「投資策略頁」的策略規則區塊，**大盤分析頁這個框沒跟上**。
+        #    正是陷阱30 的通則再次應驗：同一類訊息文字散在多處，只改一處必定漏掉另一處。
+        #
+        # 修正方式：每個偏空級距都明確拆成「還沒買的」與「已持有的」兩句，
+        #          已持有的一律指回策略C，並標明 D 的警報門檻在哪裡才會真的叫你減碼。
+        # ⚠️ 只列策略C 的兩項正式出場條件。+4 警報屬策略D，是「提醒」不是規則——
+        #    十八章已明文把 D 與 C 拆開，這裡不可把 D 混進正式清單（否則又是一次規則漂移）。
+        _HOLD_RULE = ('\n\n📌 **已持有的部位：不因這個分數出場。** 正式規則（策略C）'
+                      '的出場只有兩項——① 觸及停損單 ② 滿 10 個交易日且評分不足。'
+                      '（大盤 +4 的全面減碼警報屬策略D，是提醒、不是規則，照做與否是另一個決定）\n\n'
+                      '上面那句只針對「還沒進場」的資金。')
 
         if _net >= 6:
             _vcolor = '#ef4444'; _vbg = '#2d0a0a'
             _verdict = (f'🚨 **強烈偏空（空方+{_bear_score} / 多方+{_bull_score}）**\n\n'
                        f'多項空方訊號同時觸發，開盤下壓機率高。\n\n'
-                       f'**操作建議：** 開盤觀望，不急進場；持股者酌情減碼或設停損。\n\n'
-                       f'💡 減碼時點：不恐慌殺低，急跌後常有技術性反彈（空單回補+搶短買盤），'
-                       f'挑反彈日執行減碼可拿到較好價格。但反彈≠反轉——空頭反彈通常量縮、'
-                       f'過不了前高，是出貨機會而非進場點。若無反彈直接續跌，停損單為最後防線。')
+                       f'**尚未進場的資金：** 開盤觀望，暫停進場。'
+                       + _HOLD_RULE +
+                       f'\n\n💡 若確實觸發了 +4 警報要減碼：不恐慌殺低，急跌後常有技術性反彈'
+                       f'（空單回補+搶短買盤），挑反彈日執行可拿到較好價格。但反彈≠反轉——'
+                       f'空頭反彈通常量縮、過不了前高。若無反彈直接續跌，停損單為最後防線。')
         elif _net >= 3:
             _vcolor = '#f97316'; _vbg = '#2d1500'
             _verdict = (f'⚠️ **偏空（空方+{_bear_score} / 多方+{_bull_score}）**\n\n'
                        f'空方訊號偏多，開盤偏弱可能性較高。\n\n'
-                       f'**操作建議：** 降低積極度，觀察開盤量價方向，逢反彈可減碼。\n\n'
-                       f'💡 為何挑反彈減碼：方向由趨勢決定（偏空→該降部位），時點由價格決定'
-                       f'（反彈日賣比殺低日賣價格好）。空頭中的反彈本質是出貨機會而非趨勢反轉'
-                       f'（特徵：量縮、漲不回前高）。此法賭的是反彈會來，若直接續跌則由停損單守底線，'
-                       f'兩者並用不是二選一。')
+                       f'**尚未進場的資金：** 降低積極度，個股門檻已自動提高。'
+                       + _HOLD_RULE +
+                       f'\n\n⚠️ **這一級（淨值 {_net:+d}）還沒到減碼門檻。** 回測顯示「大盤一轉弱就出場」'
+                       f'（策略D）在多頭段是錯殺：實測 alpha 明顯低於策略C，'
+                       f'而本樣本期間指數仍在漲。手上的部位照原規則管理就好。')
         elif _net >= 1:
             _vcolor = '#f59e0b'; _vbg = '#1a1505'
             _verdict = (f'🟡 **中性偏空（空方+{_bear_score} / 多方+{_bull_score}）**\n\n'
                        f'空方稍佔上風，方向待確認。\n\n'
-                       f'**操作建議：** 保守持倉，等開盤方向明朗後再決策。')
+                       f'**尚未進場的資金：** 等開盤方向明朗後再決策。'
+                       + _HOLD_RULE +
+                       f'\n\n⚠️ 淨值 {_net:+d} **離減碼門檻（+4）還很遠**，'
+                       f'這一級不構成任何出場理由。')
         elif _net <= -6:
             _vcolor = '#22c55e'; _vbg = '#0a2010'
             _verdict = (f'🚀 **強烈偏多（空方+{_bear_score} / 多方+{_bull_score}）**\n\n'
@@ -6682,7 +6890,7 @@ def render_market():
 
     prices = get_prices('TAIEX', days=400)   # 400日：年線(MA240)需要240+交易日
     if not prices:
-        st.warning('尚無大盤資料，請先按左側「🔄 手動更新資料」抓取最新數據。')
+        st.warning('尚無大盤資料，請先按左側「🔄 手動更新資料」抓取最新資料。')
         return
 
     ind = calc_all(prices)
@@ -7939,7 +8147,7 @@ def render_ranking():
 
     last_date = get_t86_last_date()
     if not last_date:
-        st.warning('尚無排行資料，請先按左側「🔄 手動更新資料」抓取最新數據。')
+        st.warning('尚無排行資料，請先按左側「🔄 手動更新資料」抓取最新資料。')
         return
 
     st.caption(f'資料日期：{last_date}　｜　投信含 ETF 買盤，可反映 ETF 資金動向')
@@ -8269,13 +8477,17 @@ def _render_manual_add_position():
             _m_es    = _h2.number_input('進場時個股評分', min_value=0, max_value=100,
                                         value=int(_m_score) if _m_score is not None else 65,
                                         step=1)
+            _mm_ms, _, _mm_msd, _mm_stale = _market_state()
             _m_ms    = _h3.number_input('進場時大盤評分', min_value=0, max_value=100,
-                                        value=int(st.session_state.get('_market_ms') or 50),
-                                        step=1)
+                                        value=int(_mm_ms or 50), step=1)
             _m_note  = st.text_input('備註（選填）', value='')
-            st.caption('⚠️ 兩個評分欄位預設帶入**今日**數值。若你是買進後隔幾天才補登錄，'
-                       '請改成當初進場那天的評分——策略驗證的分組統計會用到這兩個欄位，'
-                       '填錯會讓「評分門檻是否有效」的驗證失真。')
+            # 明講預設值算自哪一天——這個欄位是策略驗證的分組依據（陷阱46）
+            st.caption(f'⚠️ 個股評分預設帶今日值；**大盤評分預設帶的是 '
+                       f'{_mm_msd or "（尚未載入大盤分析頁）"} 的分數**'
+                       + ('（**已非最新交易日**）' if _mm_stale else '') + '。\n\n'
+                       '若你是買進後隔幾天才補登錄，請改成當初進場那天的評分——'
+                       '策略驗證的分組統計會用到這兩個欄位，填錯會讓'
+                       '「評分門檻是否有效」的驗證失真。')
             _mok = st.form_submit_button('✅ 確認登錄', use_container_width=True)
 
         if _mok:
@@ -8302,7 +8514,10 @@ def _render_position_manager():
     from config import HOLD_DAYS
     st.markdown('---')
     _hold = get_positions('holding')
-    _mnet = st.session_state.get('_market_net')
+    # 大盤評分過期就不拿舊值判旗標／到期建議（陷阱46），與側邊欄同一原則
+    _mms0, _mnet, _mmsd, _mstale = _market_state()
+    if _mstale:
+        _mnet = None
     _scores = st.session_state.get('_wl_scores', {})
 
     _uniq_codes = len({p['code'] for p in _hold})
@@ -8310,6 +8525,8 @@ def _render_position_manager():
                 else f'（{len(_hold)} 檔持有中）'
     st.markdown(f'### 📌 持倉管理　<span style="font-size:14px;color:#64748b">'
                 f'{_hd_extra}</span>', unsafe_allow_html=True)
+    if _mstale:
+        st.warning(_market_stale_note(_mmsd) + '　（在那之前已暫停「大盤轉空」相關判斷）')
 
     # ── 手動登錄任一檔（2026-08 新增）──────────────────────
     # 問題：原本唯一的登錄入口是「符合進場條件」清單的 📌 按鈕，
@@ -8398,10 +8615,23 @@ def _render_position_manager():
                     st.session_state['page'] = 'stock'
                     st.rerun()
                 _renew_tag = f'　🔄×{_p["renew_count"]}' if _p['renew_count'] else ''
-                st.caption(f'{_p["entry_date"]} 進場 @ {_p["entry_price"]:,.2f}'
-                           f'　{_p["shares"]:,} 股{_renew_tag}')
+                # ⚠️ entry_price 是**最初**買進的價格，續抱不會改它；而 entry_date 是
+                # 本輪起算日。兩者放在同一行會讓人以為「那天用那個價買的」，
+                # 所以續抱過的部位改成明寫原始進場日（陷阱47）
+                _p_orig = _p.get('original_entry_date')
+                if _p_orig and _p_orig != _p['entry_date']:
+                    st.caption(f'{_p_orig} 最初進場 @ {_p["entry_price"]:,.2f}'
+                               f'　{_p["shares"]:,} 股{_renew_tag}'
+                               f'　｜　本輪自 {_p["entry_date"]} 起算')
+                else:
+                    st.caption(f'{_p["entry_date"]} 進場 @ {_p["entry_price"]:,.2f}'
+                               f'　{_p["shares"]:,} 股{_renew_tag}')
             _c2.markdown(f'<div style="padding:6px 0;font-weight:700;color:{_fc}">'
-                         f'{_days} / {HOLD_DAYS}</div>', unsafe_allow_html=True)
+                         f'{_days} / {HOLD_DAYS}</div>'
+                         + (f'<div style="font-size:10px;color:#64748b">累計 '
+                            f'{_trading_days_since(_p_orig)} 天</div>'
+                            if _p_orig and _p_orig != _p['entry_date'] else ''),
+                         unsafe_allow_html=True)
             if _cur:
                 _g, _n, _gm, _nm, _cost = _position_pnl(_p['entry_price'], _cur, _p['shares'])
                 _pc = '#ef4444' if _g >= 0 else '#22c55e'
@@ -8524,11 +8754,22 @@ def _render_position_manager():
                             f'{"（已平倉）" if _is_closed else "（持有中）"}')
                 _e1, _e2, _e3 = st.columns(3)
                 _ed_date = _e1.date_input(
-                    '進場日', value=datetime.strptime(_xp['entry_date'], '%Y-%m-%d'))
-                _ed_price = _e2.number_input('進場價', value=float(_xp['entry_price']),
+                    '本輪起算日', value=datetime.strptime(_xp['entry_date'], '%Y-%m-%d'))
+                _ed_price = _e2.number_input('進場價（最初買進價）',
+                                             value=float(_xp['entry_price']),
                                              min_value=0.01, step=0.05, format='%.2f')
                 _ed_shares = _e3.number_input('股數', value=int(_xp['shares'] or 1000),
                                               min_value=1, step=1)
+                # 原始進場日（陷阱47）：續抱會重設「本輪起算日」但不動進場價，
+                # 這一欄才是與進場價同一個時點的日期。回填腳本的推估值可在此修正。
+                _ed_orig = st.date_input(
+                    '最初進場日（續抱不會改變；與上方「進場價」是同一個時點）',
+                    value=datetime.strptime(
+                        _xp.get('original_entry_date') or _xp['entry_date'], '%Y-%m-%d'))
+                if (_xp.get('renew_count') or 0) > 0:
+                    st.caption(f'⚠️ 此部位續抱過 {_xp["renew_count"]} 次。'
+                               f'若「最初進場日」是由 `repair_original_entry_date.py` 推估而來，'
+                               f'請對照券商對帳單確認後修正——持有天數與日後的持有期分析會用到它。')
                 _e4, _e5, _e6 = st.columns(3)
                 _ed_stop = _e4.number_input('停損價', value=float(_xp.get('stop_price') or 0),
                                             min_value=0.0, step=0.05, format='%.2f')
@@ -8564,6 +8805,7 @@ def _render_position_manager():
                 _xcan = _x3.form_submit_button('取消', use_container_width=True)
             if _xok:
                 _upd = dict(entry_date=_ed_date.strftime('%Y-%m-%d'),
+                            original_entry_date=_ed_orig.strftime('%Y-%m-%d'),
                             entry_price=float(_ed_price), shares=int(_ed_shares),
                             stop_price=float(_ed_stop), note=_ed_note,
                             entry_score=int(_ed_sc) or None,
@@ -8772,10 +9014,14 @@ def render_strategy():
     st.markdown('## 📋 投資策略')
 
     # ── 大盤評分區塊 ──
-    _ms   = st.session_state.get('_market_ms')
-    _net  = st.session_state.get('_market_net')
+    _ms, _net, _ms_date, _ms_stale = _market_state()
     _bear = st.session_state.get('_market_bear')
     _bull = st.session_state.get('_market_bull')
+
+    # 大盤評分過期 → 明講，因為下面整頁的個股門檻都是依它決定的（陷阱46）
+    if _ms is not None and _ms_stale:
+        st.warning(_market_stale_note(_ms_date)
+                   + '　下方的「個股建議門檻」與減碼警報都是依這個分數算的。')
 
     if _ms is None:
         st.info('請先前往「📊 大盤分析」頁面，系統即可自動帶入今日大盤評分。')
@@ -8822,7 +9068,10 @@ def render_strategy():
                 f'🚨 大盤明確轉空（淨值 {_net:+d}）——建議全面減碼或出場</div>'
                 f'<div style="font-size:13px;color:#d4a0a0;line-height:1.7">'
                 f'不論個股評分高低，系統性下跌時個股會一起跌，等個股警訊出現通常已太遲。<br>'
-                f'空頭段回測：大盤轉空即出場的策略平均損益 -1.8%，等個股訊號的策略 -4.5%。</div>'
+                f'空頭段回測：大盤轉空即出場的策略平均損益 -1.8%，等個股訊號的策略 -4.5%。<br>'
+                f'<b style="color:#fca5a5">⚠️ 這是策略D 的提醒，不是正式規則（策略C 不因大盤轉弱出場）。</b>'
+                f'照做的話，請在出場表單選「大盤轉空減碼」，'
+                f'之後看績效要對照策略D 的基準、不是 C 的。</div>'
                 f'<div style="font-size:12px;color:#94a3b8;margin-top:8px">'
                 f'💡 持股者：明日開盤減碼至半倉以下；未掛停損單者立即補掛。</div>'
                 f'</div>',
@@ -8832,9 +9081,12 @@ def render_strategy():
                 f'<div style="background:#1a1505;border-left:5px solid #f59e0b;'
                 f'border-radius:8px;padding:12px 16px;margin-bottom:14px">'
                 f'<div style="font-size:14px;font-weight:700;color:#f59e0b;margin-bottom:4px">'
-                f'⚠️ 大盤偏空（淨值 {_net:+d}）——建議開始減碼</div>'
+                f'⚠️ 大盤偏空（淨值 {_net:+d}）——提高警覺，<b>先確認停損單都掛了</b></div>'
                 f'<div style="font-size:12px;color:#94a3b8;line-height:1.6">'
-                f'大盤層級的轉弱通常比個股評分早 1–2 天反映。確認所有持股都已預掛停損單。</div>'
+                f'大盤層級的轉弱通常比個股評分早 1–2 天反映。<br>'
+                f'<b style="color:#f59e0b">這一級不是出場訊號。</b>'
+                f'正式規則（策略C）的出場只有兩項：觸及停損單、滿 10 個交易日且評分不足。'
+                f'回測顯示大盤一轉弱就出場（策略D）在多頭段是錯殺。</div>'
                 f'</div>',
                 unsafe_allow_html=True)
 
@@ -9022,6 +9274,21 @@ def render_strategy():
                     _bcost = _trade_cost(_amt, False)
                     st.caption(f'投入金額約 {_amt:,.0f} 元（買進手續費約 {_bcost:,.0f} 元）　'
                                f'｜　停損觸發時損失約 {(_in_stop - _in_price) * _in_shares:,.0f} 元')
+                    # 明講「會記下哪一天的大盤評分」——這欄是策略驗證的分組依據，
+                    # 而它跟上面的「進場日」是各自獨立的，可能不同天（陷阱46）
+                    _pm_ms, _, _pm_msd, _pm_stale = _market_state()
+                    if _pm_ms is None:
+                        st.warning('尚未載入大盤分析頁，本筆的「進場時大盤評分」會留空，'
+                                   '策略驗證的大盤分組會少這一筆。')
+                    elif _pm_stale:
+                        st.warning(f'將記錄的大盤評分 **{_pm_ms}** 分是 **{_pm_msd}** 的，'
+                                   f'**已非最新交易日**。建議先開一次大盤分析頁再登錄，'
+                                   f'否則這筆的策略驗證分組會失真。')
+                    else:
+                        # 只陳述事實，不當成錯誤：策略是「D日達標→D+1進場」，
+                        # 所以「評分日期 = 進場日的前一個交易日」本來就是對的（那是決策日）。
+                        st.caption(f'將記錄「進場時大盤評分 **{_pm_ms}** 分」'
+                                   f'——取自 **{_pm_msd}** 的收盤資料。')
                     _sub1, _sub2 = st.columns(2)
                     _ok     = _sub1.form_submit_button('✅ 確認記錄', use_container_width=True)
                     _cancel = _sub2.form_submit_button('取消', use_container_width=True)
