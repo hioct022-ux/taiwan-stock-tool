@@ -53,7 +53,39 @@ from database import (get_watchlist, get_prices, get_fundamentals,
                       get_chips, get_ownership)
 from scorer import full_score
 
-CACHE = '/tmp/_pf_slots_cache.pkl'
+CACHE        = '/tmp/_pf_slots_cache.pkl'
+CACHE_MARKET = '/tmp/_pf_slots_cache_market.pkl'
+
+# ── 全市場宇宙的篩選條件（2026-09-23 新增，見下方 build_cache 的說明）──
+UNI_MIN_TURNOVER = 5e7      # 近一年日均成交金額 ≥ 5,000 萬元
+UNI_SINCE        = '2025-09-01'
+UNI_MIN_DAYS     = 180
+
+
+def market_universe(conn, min_turnover=UNI_MIN_TURNOVER):
+    """
+    全市場回測用的標的宇宙：上市普通股 + 流動性門檻。
+
+    ⚠️ 三道篩選都是刻意的：
+      1. `market='TWSE'` —— 籌碼（T86）不含上櫃，放上櫃進來會讓 35% 權重
+         變成預設值 50，重演 2026-09-17 那個「同一個 65 分在不同子樣本
+         指的不是同一件事」的坑。
+      2. 4 碼數字且非 `00` 開頭 —— 排除 ETF、權證、特別股、存託憑證。
+         ETF 的評分沒有意義（籌碼與基本面欄位語意不同）。
+      3. 日均成交金額門檻 —— 冷門股的回測成交價不現實（掛單就跑掉），
+         把它們算進 alpha 等於在統計一批永遠買不到的交易。
+         實測分布：中位數 0.36 億，≥0.5 億剩 510 檔。
+    """
+    mk = dict(conn.execute("SELECT code, market FROM stocks").fetchall())
+    rows = conn.execute(
+        "SELECT code, AVG(value) av, COUNT(*) n FROM prices "
+        "WHERE date>=? AND code!='TAIEX' GROUP BY code HAVING n>=?",
+        (UNI_SINCE, UNI_MIN_DAYS)).fetchall()
+    return sorted(r[0] for r in rows
+                  if r[1] and r[1] >= min_turnover
+                  and mk.get(r[0]) == 'TWSE'
+                  and len(r[0]) == 4 and r[0].isdigit()
+                  and not r[0].startswith('00'))
 
 MIN_HISTORY     = bs.MIN_HISTORY
 HOLD_DAYS       = bs.HOLD_DAYS
@@ -85,14 +117,45 @@ def _vol20(closes):
 
 
 # ════════════════ 第一段：建快取 ════════════════
-def build_cache():
+def build_cache(universe='watchlist'):
+    """
+    universe='watchlist' → 87 檔自選股（原行為，存 CACHE）
+    universe='market'    → 全市場上市普通股（存 CACHE_MARKET）
+
+    ═══ 為什麼要有 market 模式（2026-09-23）═══
+    現行回測 n=243，**雜訊帶 2.76pp**——任何小於它的真實效果都看不見。
+    9/17 測「65 分門檻」、9/23 測「大盤評分」與「評分的領先性」，
+    三次都卡在同一件事：**分不出是效果還是運氣**。
+
+    樣本數 = 時間 × 標的數。時間那一維走不通（實測 0.47 筆/交易日，
+    要壓到 1.5pp 還要 8.1 年）。標的數則可以立刻放大 6 倍。
+
+    而且對「評分能不能挑出好股」這個問題，**用全市場比用自選股更對**——
+    自選股是已經人工精選過的，等於在一群好學生裡面比高下。
+
+    前置條件（2026-09-23 當天完成）：`backfill_prices_history.py`
+    補了 439 個交易日的全市場價格（56 萬列），否則全市場股票只有 87 天歷史，
+    `pos_250`/`ma240` 會靜默退化（陷阱32）。
+    """
     print('計算大盤訊號（S1–S8 逐日回溯）...')
     market_net = bs._build_market_signals()
     tpx = get_prices('TAIEX', days=600)
     tpx_close = {p['date']: p['close'] for p in tpx}
     tpx_dates = [p['date'] for p in tpx]
 
-    wl = get_watchlist()
+    if universe == 'market':
+        from database import get_conn
+        conn = get_conn()
+        codes = market_universe(conn)
+        names = dict(conn.execute("SELECT code, name FROM stocks").fetchall())
+        conn.close()
+        wl = [{'code': c, 'name': names.get(c, c)} for c in codes]
+        out_path = CACHE_MARKET
+        print(f'宇宙：全市場上市普通股，日均成交 ≥ {UNI_MIN_TURNOVER/1e8:.2f} 億 → {len(wl)} 檔')
+    else:
+        wl = get_watchlist()
+        out_path = CACHE
+
     stocks = {}
     print(f'逐股逐日計算評分與波動度（{len(wl)} 檔）...')
     for n, s in enumerate(wl, 1):
@@ -122,25 +185,35 @@ def build_cache():
             v = _vol20([p['close'] for p in prices[max(0, i-20):i+1]])
             if v is not None:
                 vol_by_date[d] = v
+        # ⚠️ 只留模擬會用到的欄位。全市場 510 檔 × 527 列，
+        #    整份 dict 存下來會讓 pickle 膨脹好幾倍且吃光記憶體。
+        slim = [{'date': p['date'], 'open': p['open'], 'high': p['high'],
+                 'low': p['low'], 'close': p['close']} for p in prices]
         stocks[code] = {
-            'name': name, 'prices': prices,
-            'idx': {p['date']: k for k, p in enumerate(prices)},
+            'name': name, 'prices': slim,
+            'idx': {p['date']: k for k, p in enumerate(slim)},
             'score': score_by_date, 'vol': vol_by_date,
             'parts': parts_by_date,        # {date: (tech, chip, fund)}
         }
-        print(f'  [{n}/{len(wl)}] {code} {name}　{len(score_by_date)} 個評分點')
+        if n % 25 == 0 or n == len(wl):
+            print(f'  [{n}/{len(wl)}] {code} {name}　{len(score_by_date)} 個評分點')
 
-    with open(CACHE, 'wb') as f:
+    with open(out_path, 'wb') as f:
         pickle.dump({'market_net': market_net, 'tpx_close': tpx_close,
-                     'tpx_dates': tpx_dates, 'stocks': stocks}, f)
-    print(f'\n✅ 快取已存 {CACHE}（{len(stocks)} 檔）')
+                     'tpx_dates': tpx_dates, 'stocks': stocks,
+                     'universe': universe}, f)
+    print(f'\n✅ 快取已存 {out_path}（{len(stocks)} 檔）')
 
 
 # ════════════════ 第二段：組合模擬 ════════════════
-def simulate(cache, rank_key, max_positions, label):
+def simulate(cache, rank_key, max_positions, label, score_filter=None):
     """
     rank_key      : callable(code, date, stocks) -> 排序用的 tuple（小的先選）
     max_positions : None = 無上限（＝現行回測行為）
+    score_filter  : None = 照階梯門檻（sc >= thr）；
+                    給 callable(sc) -> bool 則**取代**門檻判斷，
+                    用來測「進場評分落在某個區間」會怎樣（backtest_score_bands.py 用）。
+                    ⚠️ `<45 停止進場` 那條規則**仍然生效**，只換掉個股門檻這一項。
     """
     stocks     = cache['stocks']
     market_net = cache['market_net']
@@ -192,7 +265,12 @@ def simulate(cache, rank_key, max_positions, label):
             if i is None or i + 1 >= len(st_['prices']):
                 continue
             sc = st_['score'].get(d)
-            if sc is None or sc < thr:
+            if sc is None:
+                continue
+            if score_filter is None:
+                if sc < thr:
+                    continue
+            elif not score_filter(sc):
                 continue
             cands.append(code)
 
@@ -239,11 +317,11 @@ def stat(trades, tpx_close):
     }
 
 
-def main():
-    if not os.path.exists(CACHE):
+def main(path=CACHE):
+    if not os.path.exists(path):
         print(f'找不到快取，請先執行：python3 {os.path.basename(__file__)} cache')
         return
-    with open(CACHE, 'rb') as f:
+    with open(path, 'rb') as f:
         cache = pickle.load(f)
     S, tpx = cache['stocks'], cache['tpx_close']
 
@@ -283,7 +361,9 @@ def main():
 
 
 if __name__ == '__main__':
-    if len(sys.argv) > 1 and sys.argv[1] == 'cache':
-        build_cache()
+    args = sys.argv[1:]
+    mkt = 'market' in args
+    if 'cache' in args:
+        build_cache('market' if mkt else 'watchlist')
     else:
-        main()
+        main(CACHE_MARKET if mkt else CACHE)
