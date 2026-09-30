@@ -2,17 +2,6 @@
   "code": "2881",
   "prices": [
     {
-      "date": "2025-02-11",
-      "open": 93.6,
-      "high": 94.5,
-      "low": 93.4,
-      "close": 93.8,
-      "volume": 15061350,
-      "value": 1417705440.0,
-      "change": 0.4,
-      "change_pct": 0.43
-    },
-    {
       "date": "2025-02-12",
       "open": 93.3,
       "high": 93.9,
@@ -4400,6 +4389,17 @@
       "value": 2163206411.0,
       "change": 1.5,
       "change_pct": 1.0
+    },
+    {
+      "date": "2026-09-30",
+      "open": 153.0,
+      "high": 153.5,
+      "low": 151.0,
+      "close": 151.0,
+      "volume": 11350421,
+      "value": 1724333710.0,
+      "change": -0.5,
+      "change_pct": -0.33
     }
   ],
   "fundamentals": [
@@ -5095,23 +5095,16 @@
       "pe": 14.16,
       "pb": 1.87,
       "dividend_yield": 2.81
+    },
+    {
+      "date": "2026-09-29",
+      "eps_ttm": 10.74,
+      "pe": 14.11,
+      "pb": 1.86,
+      "dividend_yield": 2.81
     }
   ],
   "chips": [
-    {
-      "date": "2026-06-26",
-      "foreign_buy": 21538,
-      "foreign_sell": 21391,
-      "foreign_net": 147,
-      "trust_buy": 233,
-      "trust_sell": 776,
-      "trust_net": -543,
-      "dealer_buy": 1057,
-      "dealer_sell": 770,
-      "dealer_net": 287,
-      "margin_balance": 0,
-      "short_balance": 0
-    },
     {
       "date": "2026-06-29",
       "foreign_buy": 16463,
@@ -6005,13 +5998,27 @@
       "dealer_buy": 106,
       "dealer_sell": 668,
       "dealer_net": -562,
-      "margin_balance": 0,
-      "short_balance": 0
+      "margin_balance": 5435,
+      "short_balance": 348
+    },
+    {
+      "date": "2026-09-30",
+      "foreign_buy": 8935,
+      "foreign_sell": 8638,
+      "foreign_net": 297,
+      "trust_buy": 60,
+      "trust_sell": 655,
+      "trust_net": -595,
+      "dealer_buy": 195,
+      "dealer_sell": 27,
+      "dealer_net": 168,
+      "margin_balance": 5317,
+      "short_balance": 347
     }
   ],
   "ownership": {
-    "foreign_pct": 18.74,
-    "date": "2026-09-24"
+    "foreign_pct": 18.77,
+    "date": "2026-09-30"
   },
-  "exported_at": "2026-09-29 20:18"
+  "exported_at": "2026-09-30 22:04"
 }

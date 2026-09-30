@@ -2,17 +2,6 @@
   "code": "3661",
   "prices": [
     {
-      "date": "2025-02-11",
-      "open": 3500.0,
-      "high": 3585.0,
-      "low": 3465.0,
-      "close": 3525.0,
-      "volume": 2587432,
-      "value": 9110310880.0,
-      "change": 45.0,
-      "change_pct": 1.29
-    },
-    {
       "date": "2025-02-12",
       "open": 3550.0,
       "high": 3580.0,
@@ -4400,6 +4389,17 @@
       "value": 4381764150.0,
       "change": -85.0,
       "change_pct": -2.25
+    },
+    {
+      "date": "2026-09-30",
+      "open": 3745.0,
+      "high": 3810.0,
+      "low": 3730.0,
+      "close": 3740.0,
+      "volume": 1125493,
+      "value": 4238207900.0,
+      "change": 55.0,
+      "change_pct": 1.49
     }
   ],
   "fundamentals": [
@@ -5095,23 +5095,16 @@
       "pe": 54.05,
       "pb": 5.27,
       "dividend_yield": 0.88
+    },
+    {
+      "date": "2026-09-29",
+      "eps_ttm": 67.18,
+      "pe": 54.85,
+      "pb": 5.34,
+      "dividend_yield": 0.87
     }
   ],
   "chips": [
-    {
-      "date": "2026-06-26",
-      "foreign_buy": 1370,
-      "foreign_sell": 1520,
-      "foreign_net": -150,
-      "trust_buy": 4,
-      "trust_sell": 2,
-      "trust_net": 2,
-      "dealer_buy": 136,
-      "dealer_sell": 213,
-      "dealer_net": -77,
-      "margin_balance": 0,
-      "short_balance": 0
-    },
     {
       "date": "2026-06-29",
       "foreign_buy": 800,
@@ -6005,13 +5998,27 @@
       "dealer_buy": 38,
       "dealer_sell": 55,
       "dealer_net": -16,
-      "margin_balance": 0,
-      "short_balance": 0
+      "margin_balance": 5767,
+      "short_balance": 20
+    },
+    {
+      "date": "2026-09-30",
+      "foreign_buy": 413,
+      "foreign_sell": 334,
+      "foreign_net": 79,
+      "trust_buy": 0,
+      "trust_sell": 1,
+      "trust_net": -1,
+      "dealer_buy": 32,
+      "dealer_sell": 20,
+      "dealer_net": 11,
+      "margin_balance": 5778,
+      "short_balance": 20
     }
   ],
   "ownership": {
     "foreign_pct": 50.45,
-    "date": "2026-09-24"
+    "date": "2026-09-30"
   },
-  "exported_at": "2026-09-29 20:18"
+  "exported_at": "2026-09-30 22:04"
 }
