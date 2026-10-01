@@ -2,17 +2,6 @@
   "code": "2383",
   "prices": [
     {
-      "date": "2025-02-12",
-      "open": 626.0,
-      "high": 627.0,
-      "low": 603.0,
-      "close": 604.0,
-      "volume": 4751533,
-      "value": 2908555376.0,
-      "change": -16.0,
-      "change_pct": -2.58
-    },
-    {
       "date": "2025-02-13",
       "open": 610.0,
       "high": 611.0,
@@ -4400,6 +4389,17 @@
       "value": 7715507295.0,
       "change": 15.0,
       "change_pct": 0.3
+    },
+    {
+      "date": "2026-10-01",
+      "open": 4950.0,
+      "high": 4975.0,
+      "low": 4855.0,
+      "close": 4975.0,
+      "volume": 1363430,
+      "value": 6698010765.0,
+      "change": 40.0,
+      "change_pct": 0.81
     }
   ],
   "fundamentals": [
@@ -5102,23 +5102,16 @@
       "pe": 77.17,
       "pb": 30.31,
       "dividend_yield": 0.51
+    },
+    {
+      "date": "2026-10-00",
+      "eps_ttm": 0.0,
+      "pe": 77.8,
+      "pb": 30.56,
+      "dividend_yield": 0.5
     }
   ],
   "chips": [
-    {
-      "date": "2026-06-29",
-      "foreign_buy": 746,
-      "foreign_sell": 674,
-      "foreign_net": 73,
-      "trust_buy": 3,
-      "trust_sell": 34,
-      "trust_net": -31,
-      "dealer_buy": 2,
-      "dealer_sell": 23,
-      "dealer_net": -20,
-      "margin_balance": 0,
-      "short_balance": 0
-    },
     {
       "date": "2026-06-30",
       "foreign_buy": 671,
@@ -6014,11 +6007,25 @@
       "dealer_net": -4,
       "margin_balance": 2503,
       "short_balance": 14
+    },
+    {
+      "date": "2026-10-01",
+      "foreign_buy": 563,
+      "foreign_sell": 765,
+      "foreign_net": -202,
+      "trust_buy": 34,
+      "trust_sell": 100,
+      "trust_net": -66,
+      "dealer_buy": 79,
+      "dealer_sell": 70,
+      "dealer_net": 9,
+      "margin_balance": 2510,
+      "short_balance": 13
     }
   ],
   "ownership": {
-    "foreign_pct": 43.63,
-    "date": "2026-09-30"
+    "foreign_pct": 43.57,
+    "date": "2026-10-01"
   },
-  "exported_at": "2026-09-30 22:04"
+  "exported_at": "2026-10-01 21:54"
 }

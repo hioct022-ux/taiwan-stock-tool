@@ -2,17 +2,6 @@
   "code": "2313",
   "prices": [
     {
-      "date": "2025-02-12",
-      "open": 67.9,
-      "high": 68.7,
-      "low": 66.7,
-      "close": 66.7,
-      "volume": 8913425,
-      "value": 600393725.0,
-      "change": -1.1,
-      "change_pct": -1.62
-    },
-    {
       "date": "2025-02-13",
       "open": 67.2,
       "high": 67.8,
@@ -4400,6 +4389,17 @@
       "value": 2939761765.0,
       "change": 0.5,
       "change_pct": 0.22
+    },
+    {
+      "date": "2026-10-01",
+      "open": 227.0,
+      "high": 228.0,
+      "low": 223.0,
+      "close": 224.5,
+      "volume": 6854303,
+      "value": 1539717552.0,
+      "change": -2.0,
+      "change_pct": -0.88
     }
   ],
   "fundamentals": [
@@ -5102,23 +5102,16 @@
       "pe": 36.47,
       "pb": 5.56,
       "dividend_yield": 1.24
+    },
+    {
+      "date": "2026-10-00",
+      "eps_ttm": 0.0,
+      "pe": 36.15,
+      "pb": 5.51,
+      "dividend_yield": 1.25
     }
   ],
   "chips": [
-    {
-      "date": "2026-06-29",
-      "foreign_buy": 9337,
-      "foreign_sell": 12402,
-      "foreign_net": -3065,
-      "trust_buy": 26,
-      "trust_sell": 3,
-      "trust_net": 23,
-      "dealer_buy": 809,
-      "dealer_sell": 499,
-      "dealer_net": 310,
-      "margin_balance": 0,
-      "short_balance": 0
-    },
     {
       "date": "2026-06-30",
       "foreign_buy": 9408,
@@ -6014,11 +6007,25 @@
       "dealer_net": -152,
       "margin_balance": 34978,
       "short_balance": 667
+    },
+    {
+      "date": "2026-10-01",
+      "foreign_buy": 1763,
+      "foreign_sell": 2701,
+      "foreign_net": -938,
+      "trust_buy": 55,
+      "trust_sell": 170,
+      "trust_net": -115,
+      "dealer_buy": 48,
+      "dealer_sell": 93,
+      "dealer_net": -45,
+      "margin_balance": 34971,
+      "short_balance": 724
     }
   ],
   "ownership": {
-    "foreign_pct": 18.56,
-    "date": "2026-09-30"
+    "foreign_pct": 18.47,
+    "date": "2026-10-01"
   },
-  "exported_at": "2026-09-30 22:04"
+  "exported_at": "2026-10-01 21:54"
 }

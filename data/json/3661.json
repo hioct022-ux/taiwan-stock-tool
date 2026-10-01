@@ -2,17 +2,6 @@
   "code": "3661",
   "prices": [
     {
-      "date": "2025-02-12",
-      "open": 3550.0,
-      "high": 3580.0,
-      "low": 3450.0,
-      "close": 3580.0,
-      "volume": 2286877,
-      "value": 8027400945.0,
-      "change": 55.0,
-      "change_pct": 1.56
-    },
-    {
       "date": "2025-02-13",
       "open": 3595.0,
       "high": 3735.0,
@@ -4400,6 +4389,17 @@
       "value": 4238207900.0,
       "change": 55.0,
       "change_pct": 1.49
+    },
+    {
+      "date": "2026-10-01",
+      "open": 3770.0,
+      "high": 3820.0,
+      "low": 3735.0,
+      "close": 3765.0,
+      "volume": 953454,
+      "value": 3595359310.0,
+      "change": 25.0,
+      "change_pct": 0.67
     }
   ],
   "fundamentals": [
@@ -5102,23 +5102,16 @@
       "pe": 54.85,
       "pb": 5.34,
       "dividend_yield": 0.87
+    },
+    {
+      "date": "2026-10-00",
+      "eps_ttm": 0.0,
+      "pe": 55.22,
+      "pb": 5.38,
+      "dividend_yield": 0.86
     }
   ],
   "chips": [
-    {
-      "date": "2026-06-29",
-      "foreign_buy": 800,
-      "foreign_sell": 584,
-      "foreign_net": 216,
-      "trust_buy": 14,
-      "trust_sell": 0,
-      "trust_net": 14,
-      "dealer_buy": 42,
-      "dealer_sell": 33,
-      "dealer_net": 10,
-      "margin_balance": 0,
-      "short_balance": 0
-    },
     {
       "date": "2026-06-30",
       "foreign_buy": 1059,
@@ -6014,11 +6007,25 @@
       "dealer_net": 11,
       "margin_balance": 5778,
       "short_balance": 20
+    },
+    {
+      "date": "2026-10-01",
+      "foreign_buy": 221,
+      "foreign_sell": 383,
+      "foreign_net": -163,
+      "trust_buy": 1,
+      "trust_sell": 2,
+      "trust_net": -1,
+      "dealer_buy": 30,
+      "dealer_sell": 28,
+      "dealer_net": 2,
+      "margin_balance": 5862,
+      "short_balance": 20
     }
   ],
   "ownership": {
-    "foreign_pct": 50.45,
-    "date": "2026-09-30"
+    "foreign_pct": 50.27,
+    "date": "2026-10-01"
   },
-  "exported_at": "2026-09-30 22:04"
+  "exported_at": "2026-10-01 21:54"
 }

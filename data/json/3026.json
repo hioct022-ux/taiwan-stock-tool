@@ -2,17 +2,6 @@
   "code": "3026",
   "prices": [
     {
-      "date": "2025-02-12",
-      "open": 88.0,
-      "high": 88.3,
-      "low": 87.4,
-      "close": 88.1,
-      "volume": 420246,
-      "value": 36937018.0,
-      "change": 0.0,
-      "change_pct": 0.0
-    },
-    {
       "date": "2025-02-13",
       "open": 88.2,
       "high": 88.5,
@@ -4400,6 +4389,17 @@
       "value": 5052036887.0,
       "change": -5.0,
       "change_pct": -0.63
+    },
+    {
+      "date": "2026-10-01",
+      "open": 796.0,
+      "high": 870.0,
+      "low": 796.0,
+      "close": 852.0,
+      "volume": 18518160,
+      "value": 15484608636.0,
+      "change": 61.0,
+      "change_pct": 7.71
     }
   ],
   "fundamentals": [
@@ -5102,23 +5102,16 @@
       "pe": 77.17,
       "pb": 12.7,
       "dividend_yield": 0.73
+    },
+    {
+      "date": "2026-10-00",
+      "eps_ttm": 0.0,
+      "pe": 83.12,
+      "pb": 13.68,
+      "dividend_yield": 0.68
     }
   ],
   "chips": [
-    {
-      "date": "2026-06-29",
-      "foreign_buy": 467,
-      "foreign_sell": 89,
-      "foreign_net": 378,
-      "trust_buy": 16,
-      "trust_sell": 0,
-      "trust_net": 16,
-      "dealer_buy": 77,
-      "dealer_sell": 177,
-      "dealer_net": -100,
-      "margin_balance": 0,
-      "short_balance": 0
-    },
     {
       "date": "2026-06-30",
       "foreign_buy": 486,
@@ -6014,11 +6007,25 @@
       "dealer_net": 0,
       "margin_balance": 12733,
       "short_balance": 380
+    },
+    {
+      "date": "2026-10-01",
+      "foreign_buy": 5398,
+      "foreign_sell": 3952,
+      "foreign_net": 1446,
+      "trust_buy": 197,
+      "trust_sell": 0,
+      "trust_net": 197,
+      "dealer_buy": 296,
+      "dealer_sell": 246,
+      "dealer_net": 49,
+      "margin_balance": 13778,
+      "short_balance": 528
     }
   ],
   "ownership": {
-    "foreign_pct": 10.98,
-    "date": "2026-09-30"
+    "foreign_pct": 11.88,
+    "date": "2026-10-01"
   },
-  "exported_at": "2026-09-30 22:04"
+  "exported_at": "2026-10-01 21:54"
 }

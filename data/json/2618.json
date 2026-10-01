@@ -2,17 +2,6 @@
   "code": "2618",
   "prices": [
     {
-      "date": "2025-02-12",
-      "open": 44.1,
-      "high": 44.35,
-      "low": 43.3,
-      "close": 43.45,
-      "volume": 42522696,
-      "value": 1859105890.0,
-      "change": -0.35,
-      "change_pct": -0.8
-    },
-    {
       "date": "2025-02-13",
       "open": 43.6,
       "high": 43.9,
@@ -4400,6 +4389,17 @@
       "value": 1176443791.0,
       "change": 1.35,
       "change_pct": 3.25
+    },
+    {
+      "date": "2026-10-01",
+      "open": 42.4,
+      "high": 42.7,
+      "low": 41.85,
+      "close": 42.2,
+      "volume": 17575412,
+      "value": 740656439.0,
+      "change": -0.65,
+      "change_pct": -1.52
     }
   ],
   "fundamentals": [
@@ -5102,23 +5102,16 @@
       "pe": 9.02,
       "pb": 1.66,
       "dividend_yield": 4.67
+    },
+    {
+      "date": "2026-10-00",
+      "eps_ttm": 0.0,
+      "pe": 8.88,
+      "pb": 1.64,
+      "dividend_yield": 4.74
     }
   ],
   "chips": [
-    {
-      "date": "2026-06-29",
-      "foreign_buy": 16011,
-      "foreign_sell": 21970,
-      "foreign_net": -5959,
-      "trust_buy": 3747,
-      "trust_sell": 199,
-      "trust_net": 3549,
-      "dealer_buy": 769,
-      "dealer_sell": 600,
-      "dealer_net": 169,
-      "margin_balance": 0,
-      "short_balance": 0
-    },
     {
       "date": "2026-06-30",
       "foreign_buy": 20753,
@@ -6014,11 +6007,25 @@
       "dealer_net": 592,
       "margin_balance": 20094,
       "short_balance": 1106
+    },
+    {
+      "date": "2026-10-01",
+      "foreign_buy": 6585,
+      "foreign_sell": 10238,
+      "foreign_net": -3654,
+      "trust_buy": 2901,
+      "trust_sell": 4678,
+      "trust_net": -1777,
+      "dealer_buy": 1101,
+      "dealer_sell": 926,
+      "dealer_net": 175,
+      "margin_balance": 20223,
+      "short_balance": 1111
     }
   ],
   "ownership": {
-    "foreign_pct": 32.89,
-    "date": "2026-09-30"
+    "foreign_pct": 32.82,
+    "date": "2026-10-01"
   },
-  "exported_at": "2026-09-30 22:04"
+  "exported_at": "2026-10-01 21:54"
 }
