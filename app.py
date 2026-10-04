@@ -33,6 +33,7 @@ from indicators import calc_all
 from scorer import full_score, get_grade, generate_auto_note
 from scheduler import start_scheduler, get_data_status, manual_fetch
 from theme_rotation import render_theme_rotation
+from sector_flow import render_sector_flow
 
 # ── 頁面設定 ────────────────────────────
 st.set_page_config(
@@ -910,6 +911,13 @@ def render_sidebar():
         # 主題輪動
         if st.button('🔄 主題輪動', use_container_width=True):
             st.session_state['page'] = 'theme_rotation'
+            st.session_state.pop('current_code', None)
+            st.rerun()
+
+        # 類股資金流向（2026-10-04 新增）
+        # 本機直接算 DB；雲端讀 sector_flow.json（由本機同步時匯出）
+        if st.button('💧 類股資金流向', use_container_width=True):
+            st.session_state['page'] = 'sector_flow'
             st.session_state.pop('current_code', None)
             st.rerun()
 
@@ -9456,6 +9464,11 @@ def main():
     # 主題輪動頁
     if page == 'theme_rotation':
         render_theme_rotation()
+        return
+
+    # 類股資金流向頁（2026-10-04 新增）
+    if page == 'sector_flow':
+        render_sector_flow()
         return
 
     # 程式說明頁

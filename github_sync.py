@@ -295,6 +295,17 @@ def export_to_json(code=None):
     except Exception as e:
         print(f'匯出三大法人現貨彙總失敗：{e}')
 
+    # 類股資金流向（2026-10-04 新增）——雲端沒有全市場價格，只能靠本機算好匯出。
+    # ⚠️ `sector_flow` 已加入下方 init_cloud_data() 的個股迴圈 skip 名單（第六章規定）。
+    try:
+        from sector_flow import export_json as _sf_export
+        _p = _sf_export()
+        if _p:
+            print(f'匯出類股資金流向：{os.path.basename(_p)}'
+                  f'（{os.path.getsize(_p)/1024:.0f} KB）')
+    except Exception as e:
+        print(f'匯出類股資金流向失敗：{e}')
+
     try:
         from database import get_options_pc
         pc_rows = get_options_pc(days=120)
@@ -817,7 +828,8 @@ def init_cloud_data():
         if code in ('stocks', 'watchlist', 'meta', 't86', 'exdividend', 'TAIEX',
                     'market_margin', 'futures_institutional', 'market_pe', 'chips_market_agg',
                     'watchlist_tags', 'options_pc', 'dram_prices',
-                    'quarterly_financials', 'segment_revenue', 'positions'):
+                    'quarterly_financials', 'segment_revenue', 'positions',
+                    'sector_flow'):
             continue
         try:
             with open(os.path.join(JSON_DIR, fname), encoding='utf-8') as f:
