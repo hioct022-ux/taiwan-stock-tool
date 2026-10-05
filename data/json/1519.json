@@ -2,17 +2,6 @@
   "code": "1519",
   "prices": [
     {
-      "date": "2025-02-14",
-      "open": 534.0,
-      "high": 535.0,
-      "low": 521.0,
-      "close": 524.0,
-      "volume": 2308434,
-      "value": 1213297884.0,
-      "change": -8.0,
-      "change_pct": -1.5
-    },
-    {
       "date": "2025-02-17",
       "open": 525.0,
       "high": 535.0,
@@ -4400,6 +4389,17 @@
       "value": 817655615.0,
       "change": 4.0,
       "change_pct": 0.58
+    },
+    {
+      "date": "2026-10-05",
+      "open": 701.0,
+      "high": 703.0,
+      "low": 690.0,
+      "close": 691.0,
+      "volume": 1102674,
+      "value": 764683058.0,
+      "change": -1.0,
+      "change_pct": -0.14
     }
   ],
   "fundamentals": [
@@ -5123,23 +5123,16 @@
       "pe": 45.29,
       "pb": 23.75,
       "dividend_yield": 1.73
+    },
+    {
+      "date": "2026-10-04",
+      "eps_ttm": 0.0,
+      "pe": 45.22,
+      "pb": 23.71,
+      "dividend_yield": 1.74
     }
   ],
   "chips": [
-    {
-      "date": "2026-07-01",
-      "foreign_buy": 474,
-      "foreign_sell": 1625,
-      "foreign_net": -1151,
-      "trust_buy": 12,
-      "trust_sell": 296,
-      "trust_net": -283,
-      "dealer_buy": 234,
-      "dealer_sell": 278,
-      "dealer_net": -44,
-      "margin_balance": 3977,
-      "short_balance": 24
-    },
     {
       "date": "2026-07-02",
       "foreign_buy": 314,
@@ -6035,11 +6028,25 @@
       "dealer_net": 74,
       "margin_balance": 3303,
       "short_balance": 51
+    },
+    {
+      "date": "2026-10-05",
+      "foreign_buy": 282,
+      "foreign_sell": 412,
+      "foreign_net": -130,
+      "trust_buy": 0,
+      "trust_sell": 1,
+      "trust_net": -1,
+      "dealer_buy": 29,
+      "dealer_sell": 119,
+      "dealer_net": -90,
+      "margin_balance": 3296,
+      "short_balance": 50
     }
   ],
   "ownership": {
-    "foreign_pct": 17.96,
-    "date": "2026-10-02"
+    "foreign_pct": 17.92,
+    "date": "2026-10-05"
   },
-  "exported_at": "2026-10-04 10:51"
+  "exported_at": "2026-10-05 21:08"
 }

@@ -2,17 +2,6 @@
   "code": "8261",
   "prices": [
     {
-      "date": "2025-02-14",
-      "open": 92.2,
-      "high": 92.5,
-      "low": 91.7,
-      "close": 92.3,
-      "volume": 361913,
-      "value": 33351403.0,
-      "change": -0.2,
-      "change_pct": -0.22
-    },
-    {
       "date": "2025-02-17",
       "open": 92.3,
       "high": 93.2,
@@ -4400,6 +4389,17 @@
       "value": 1059648679.0,
       "change": 5.0,
       "change_pct": 2.75
+    },
+    {
+      "date": "2026-10-05",
+      "open": 193.0,
+      "high": 205.0,
+      "low": 192.0,
+      "close": 205.0,
+      "volume": 15767944,
+      "value": 3161090066.0,
+      "change": 18.5,
+      "change_pct": 9.92
     }
   ],
   "fundamentals": [
@@ -5123,23 +5123,16 @@
       "pe": 27.96,
       "pb": 3.89,
       "dividend_yield": 2.68
+    },
+    {
+      "date": "2026-10-04",
+      "eps_ttm": 0.0,
+      "pe": 30.73,
+      "pb": 4.27,
+      "dividend_yield": 2.44
     }
   ],
   "chips": [
-    {
-      "date": "2026-07-01",
-      "foreign_buy": 2513,
-      "foreign_sell": 533,
-      "foreign_net": 1980,
-      "trust_buy": 0,
-      "trust_sell": 0,
-      "trust_net": 0,
-      "dealer_buy": 148,
-      "dealer_sell": 205,
-      "dealer_net": -57,
-      "margin_balance": 11482,
-      "short_balance": 202
-    },
     {
       "date": "2026-07-02",
       "foreign_buy": 6033,
@@ -6035,11 +6028,25 @@
       "dealer_net": 55,
       "margin_balance": 7018,
       "short_balance": 13
+    },
+    {
+      "date": "2026-10-05",
+      "foreign_buy": 3031,
+      "foreign_sell": 3018,
+      "foreign_net": 13,
+      "trust_buy": 0,
+      "trust_sell": 0,
+      "trust_net": 0,
+      "dealer_buy": 257,
+      "dealer_sell": 201,
+      "dealer_net": 56,
+      "margin_balance": 6108,
+      "short_balance": 252
     }
   ],
   "ownership": {
-    "foreign_pct": 6.95,
-    "date": "2026-10-02"
+    "foreign_pct": 7.15,
+    "date": "2026-10-05"
   },
-  "exported_at": "2026-10-04 10:51"
+  "exported_at": "2026-10-05 21:08"
 }
