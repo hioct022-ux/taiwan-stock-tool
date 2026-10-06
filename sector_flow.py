@@ -385,6 +385,39 @@ def _get_meta_version():
         return ''
 
 
+def _watchlist_codes():
+    """
+    自選股代號集合——成分股明細要用它決定哪幾檔可以點進去看個股頁。
+
+    ⚠️ 只讓「自選股」可點，是刻意的：個股頁的評分需要 fundamentals／chips，
+    非自選股那兩張表很稀疏（2026-09-17 查到基本面只有 2026-05 之後才有），
+    點進去會看到一頁半殘的評分。自選股才是系統真正有完整資料的那批。
+
+    ⚠️⚠️ **刻意不加 `@st.cache_data`**（第一版加了，當天就被使用者抓到是錯的）。
+
+    第一版用 `data_date`（TAIEX 最新價格日期）當快取 key，理由是「照陷阱40 的通則帶資料版本」。
+    但那是**帶錯了版本**——自選股清單與價格日期是兩件互不相干的事：
+    新增一檔自選股 → 價格日期沒變 → key 沒變 → 快取不失效 → 那檔不會出現 ⭐，
+    要等到下次更新資料、日期前進才生效。
+
+    **陷阱40 的通則要再補一句：快取 key 要帶的是「會被改動的那個東西」的版本，
+    不是隨手拿一個現成的版本字串。** 判斷方法還是同一句話——
+    「使用者做了那個動作（這裡＝新增自選股）之後，這份快取會不會自動失效？」
+
+    這裡的正解是**不要快取**：本機只是一次 SQLite 查詢（93 列），
+    而側邊欄每次渲染本來就對每檔自選股各查一次價格（N 次查詢），
+    為了省這一次而引入一整類 bug 不划算。雲端也只是讀一個小 JSON。
+    """
+    try:
+        if IS_LOCAL:
+            from database import get_watchlist
+            return {w['code'] for w in get_watchlist()}
+        with open(os.path.join(JSON_DIR, 'watchlist.json'), encoding='utf-8') as f:
+            return {w['code'] for w in json.load(f) if isinstance(w, dict) and w.get('code')}
+    except Exception:
+        return set()
+
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def _cloud_payload(version):
     try:
@@ -561,16 +594,29 @@ def render_sector_flow():
         st.info('這個類股在近期沒有成交資料。')
         return
 
-    _W = [1.7, 1.0, 1.2, 1.1, 1.1, 1.1]
+    _wl = _watchlist_codes()      # 刻意每次重讀，見該函式的說明
+
+    _W = [1.9, 1.0, 1.2, 1.1, 1.1, 1.1]
     hdr = st.columns(_W)
-    for col, t in zip(hdr, ['股票', '最新價', '日均成交(億)', '占本類股%',
+    for col, t in zip(hdr, ['股票（⭐ 自選股可點）', '最新價', '日均成交(億)', '占本類股%',
                             f'vs 近{long_n}日', f'近{short_n}日漲跌']):
         col.markdown(f"<div style='font-size:0.82rem;color:#94a3b8'>{t}</div>",
                      unsafe_allow_html=True)
 
     for r in det[:40]:
         cols = st.columns(_W)
-        cols[0].markdown(f"**{r['code']}** {r['name']}")
+        with cols[0]:
+            if r['code'] in _wl:
+                # 跳轉用與投資策略頁完全相同的方式（`current_code` + `page='stock'`）
+                if st.button(f"⭐ {r['code']} {r['name']}",
+                             key=f"sf_go_{sel}_{r['code']}", use_container_width=True):
+                    st.session_state['current_code'] = r['code']
+                    st.session_state['page'] = 'stock'
+                    st.rerun()
+            else:
+                st.markdown(f"<div style='padding:6px 0'>"
+                            f"<b>{r['code']}</b> {r['name']}</div>",
+                            unsafe_allow_html=True)
         # 最新價跟著漲跌上色（台灣慣例：紅漲綠跌），與側邊欄價格摘要一致
         if r['close'] is None:
             cols[1].markdown('—')
@@ -597,6 +643,10 @@ def render_sector_flow():
                    f'完整名單請看本機版）')
     elif len(det) > 40:
         st.caption(f'（共 {len(det)} 檔，只列日均成交金額前 40 檔）')
+    _n_wl = sum(1 for r in det[:40] if r['code'] in _wl)
+    st.caption(f'⭐ 代表已在自選股（這一類股的前 {min(len(det), 40)} 檔裡有 {_n_wl} 檔），'
+               f'**點它直接跳到個股分析頁**。沒有 ⭐ 的不可點——'
+               f'非自選股的基本面／籌碼資料很稀疏，個股頁的評分會不完整。')
     st.caption(f'最新價＝ {data_date} 收盤（盤後資料）。'
                f'「占本類股%」的分母是**這個類股自己**（不是全市場），'
                f'用來看類股內部的資金集中在哪幾檔。'
