@@ -2,17 +2,6 @@
   "code": "1101",
   "prices": [
     {
-      "date": "2025-02-14",
-      "open": 33.5,
-      "high": 33.8,
-      "low": 32.9,
-      "close": 33.05,
-      "volume": 23428459,
-      "value": 780236286.0,
-      "change": -0.4,
-      "change_pct": -1.2
-    },
-    {
       "date": "2025-02-17",
       "open": 33.2,
       "high": 33.85,
@@ -4400,6 +4389,17 @@
       "value": 900036992.0,
       "change": -0.35,
       "change_pct": -1.38
+    },
+    {
+      "date": "2026-10-06",
+      "open": 25.0,
+      "high": 25.3,
+      "low": 24.8,
+      "close": 25.2,
+      "volume": 26891285,
+      "value": 674559882.0,
+      "change": 0.2,
+      "change_pct": 0.8
     }
   ],
   "fundamentals": [
@@ -5130,23 +5130,16 @@
       "pe": 0.0,
       "pb": 0.81,
       "dividend_yield": 3.2
+    },
+    {
+      "date": "2026-10-05",
+      "eps_ttm": 0.0,
+      "pe": 0.0,
+      "pb": 0.82,
+      "dividend_yield": 3.17
     }
   ],
   "chips": [
-    {
-      "date": "2026-07-02",
-      "foreign_buy": 10308,
-      "foreign_sell": 18308,
-      "foreign_net": -8001,
-      "trust_buy": 28,
-      "trust_sell": 95,
-      "trust_net": -67,
-      "dealer_buy": 103,
-      "dealer_sell": 129,
-      "dealer_net": -26,
-      "margin_balance": 0,
-      "short_balance": 0
-    },
     {
       "date": "2026-07-03",
       "foreign_buy": 18142,
@@ -6042,11 +6035,25 @@
       "dealer_net": 3,
       "margin_balance": 37668,
       "short_balance": 52
+    },
+    {
+      "date": "2026-10-06",
+      "foreign_buy": 10811,
+      "foreign_sell": 11786,
+      "foreign_net": -975,
+      "trust_buy": 0,
+      "trust_sell": 58,
+      "trust_net": -58,
+      "dealer_buy": 200,
+      "dealer_sell": 116,
+      "dealer_net": 84,
+      "margin_balance": 37712,
+      "short_balance": 45
     }
   ],
   "ownership": {
-    "foreign_pct": 12.74,
-    "date": "2026-10-05"
+    "foreign_pct": 12.62,
+    "date": "2026-10-06"
   },
-  "exported_at": "2026-10-05 21:08"
+  "exported_at": "2026-10-06 21:32"
 }

@@ -2,17 +2,6 @@
   "code": "6239",
   "prices": [
     {
-      "date": "2025-02-17",
-      "open": 120.5,
-      "high": 129.0,
-      "low": 120.5,
-      "close": 128.0,
-      "volume": 8021801,
-      "value": 1007635679.0,
-      "change": 9.5,
-      "change_pct": 8.02
-    },
-    {
       "date": "2025-02-18",
       "open": 127.0,
       "high": 128.5,
@@ -4400,6 +4389,17 @@
       "value": 7351946462.0,
       "change": -10.5,
       "change_pct": -3.41
+    },
+    {
+      "date": "2026-10-06",
+      "open": 302.5,
+      "high": 312.0,
+      "low": 299.5,
+      "close": 310.5,
+      "volume": 27368367,
+      "value": 8392567989.0,
+      "change": 13.0,
+      "change_pct": 4.37
     }
   ],
   "fundamentals": [
@@ -5130,23 +5130,16 @@
       "pe": 29.46,
       "pb": 3.85,
       "dividend_yield": 1.51
+    },
+    {
+      "date": "2026-10-05",
+      "eps_ttm": 9.68,
+      "pe": 30.74,
+      "pb": 4.02,
+      "dividend_yield": 1.45
     }
   ],
   "chips": [
-    {
-      "date": "2026-07-02",
-      "foreign_buy": 8911,
-      "foreign_sell": 8425,
-      "foreign_net": 486,
-      "trust_buy": 194,
-      "trust_sell": 3413,
-      "trust_net": -3219,
-      "dealer_buy": 618,
-      "dealer_sell": 730,
-      "dealer_net": -112,
-      "margin_balance": 0,
-      "short_balance": 0
-    },
     {
       "date": "2026-07-03",
       "foreign_buy": 8023,
@@ -6042,11 +6035,25 @@
       "dealer_net": -435,
       "margin_balance": 23379,
       "short_balance": 71
+    },
+    {
+      "date": "2026-10-06",
+      "foreign_buy": 11288,
+      "foreign_sell": 4384,
+      "foreign_net": 6904,
+      "trust_buy": 119,
+      "trust_sell": 3,
+      "trust_net": 116,
+      "dealer_buy": 1809,
+      "dealer_sell": 235,
+      "dealer_net": 1574,
+      "margin_balance": 23107,
+      "short_balance": 127
     }
   ],
   "ownership": {
-    "foreign_pct": 30.89,
-    "date": "2026-10-05"
+    "foreign_pct": 31.81,
+    "date": "2026-10-06"
   },
-  "exported_at": "2026-10-05 21:08"
+  "exported_at": "2026-10-06 21:32"
 }

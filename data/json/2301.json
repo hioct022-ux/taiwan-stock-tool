@@ -2,17 +2,6 @@
   "code": "2301",
   "prices": [
     {
-      "date": "2025-02-17",
-      "open": 110.0,
-      "high": 111.5,
-      "low": 109.5,
-      "close": 111.0,
-      "volume": 6385245,
-      "value": 706310380.0,
-      "change": 2.0,
-      "change_pct": 1.83
-    },
-    {
       "date": "2025-02-18",
       "open": 111.0,
       "high": 111.5,
@@ -4400,6 +4389,17 @@
       "value": 8883116290.0,
       "change": 16.5,
       "change_pct": 5.86
+    },
+    {
+      "date": "2026-10-06",
+      "open": 298.0,
+      "high": 303.0,
+      "low": 292.5,
+      "close": 299.0,
+      "volume": 17255123,
+      "value": 5149483453.0,
+      "change": 1.0,
+      "change_pct": 0.34
     }
   ],
   "fundamentals": [
@@ -5130,23 +5130,16 @@
       "pe": 34.85,
       "pb": 7.06,
       "dividend_yield": 1.68
+    },
+    {
+      "date": "2026-10-05",
+      "eps_ttm": 8.52,
+      "pe": 34.97,
+      "pb": 7.08,
+      "dividend_yield": 1.67
     }
   ],
   "chips": [
-    {
-      "date": "2026-07-02",
-      "foreign_buy": 8804,
-      "foreign_sell": 5627,
-      "foreign_net": 3176,
-      "trust_buy": 189,
-      "trust_sell": 919,
-      "trust_net": -730,
-      "dealer_buy": 785,
-      "dealer_sell": 409,
-      "dealer_net": 376,
-      "margin_balance": 0,
-      "short_balance": 0
-    },
     {
       "date": "2026-07-03",
       "foreign_buy": 8075,
@@ -6042,11 +6035,25 @@
       "dealer_net": 675,
       "margin_balance": 17589,
       "short_balance": 106
+    },
+    {
+      "date": "2026-10-06",
+      "foreign_buy": 6321,
+      "foreign_sell": 6904,
+      "foreign_net": -582,
+      "trust_buy": 128,
+      "trust_sell": 17,
+      "trust_net": 111,
+      "dealer_buy": 478,
+      "dealer_sell": 275,
+      "dealer_net": 202,
+      "margin_balance": 18105,
+      "short_balance": 106
     }
   ],
   "ownership": {
-    "foreign_pct": 43.28,
-    "date": "2026-10-05"
+    "foreign_pct": 43.26,
+    "date": "2026-10-06"
   },
-  "exported_at": "2026-10-05 21:08"
+  "exported_at": "2026-10-06 21:32"
 }
