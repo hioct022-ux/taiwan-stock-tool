@@ -3131,7 +3131,16 @@ def fetch_taiex(months=6, force=False):
     last_date = get_latest_price_date('TAIEX')
     all_rows  = []
 
-    period = f'{months}mo' if months <= 11 else ('2y' if months <= 24 else '5y')
+    # ⚠️ 2026-10-06 擴充：原本上限是 '5y'（約到 2021-10），不足以支援
+    #    2018 起的回填。而價格回填（backfill_prices_history.py）**用 TAIEX
+    #    當交易日日曆**，TAIEX 多長就決定全市場價格能補多長，
+    #    進而決定整個專案有沒有空頭樣本（2020 COVID -30%、2022 熊市 -28%）。
+    #    刻意不另寫一份 yfinance 抓取——那會複製陷阱35 修過的 change_pct
+    #    計算邏輯（用對照表查前一交易日，不用迴圈遞推），重複的程式碼遲早不同步。
+    period = (f'{months}mo' if months <= 11 else
+              '2y'  if months <= 24  else
+              '5y'  if months <= 60  else
+              '10y' if months <= 120 else 'max')
     print(f'抓取加權指數歷史（yfinance ^TWII，{period}）...')
 
     try:
