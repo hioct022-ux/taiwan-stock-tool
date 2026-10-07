@@ -2,17 +2,6 @@
   "code": "1101",
   "prices": [
     {
-      "date": "2025-02-17",
-      "open": 33.2,
-      "high": 33.85,
-      "low": 33.2,
-      "close": 33.5,
-      "volume": 25401116,
-      "value": 855234886.0,
-      "change": 0.45,
-      "change_pct": 1.36
-    },
-    {
       "date": "2025-02-18",
       "open": 33.55,
       "high": 33.95,
@@ -4400,6 +4389,17 @@
       "value": 674559882.0,
       "change": 0.2,
       "change_pct": 0.8
+    },
+    {
+      "date": "2026-10-07",
+      "open": 25.25,
+      "high": 25.7,
+      "low": 25.1,
+      "close": 25.5,
+      "volume": 24862063,
+      "value": 632455261.0,
+      "change": 0.3,
+      "change_pct": 1.19
     }
   ],
   "fundamentals": [
@@ -5137,23 +5137,16 @@
       "pe": 0.0,
       "pb": 0.82,
       "dividend_yield": 3.17
+    },
+    {
+      "date": "2026-10-06",
+      "eps_ttm": 0.0,
+      "pe": 0.0,
+      "pb": 0.83,
+      "dividend_yield": 3.14
     }
   ],
   "chips": [
-    {
-      "date": "2026-07-03",
-      "foreign_buy": 18142,
-      "foreign_sell": 10404,
-      "foreign_net": 7738,
-      "trust_buy": 12,
-      "trust_sell": 0,
-      "trust_net": 12,
-      "dealer_buy": 535,
-      "dealer_sell": 109,
-      "dealer_net": 426,
-      "margin_balance": 0,
-      "short_balance": 0
-    },
     {
       "date": "2026-07-06",
       "foreign_buy": 7283,
@@ -6049,11 +6042,25 @@
       "dealer_net": 84,
       "margin_balance": 37712,
       "short_balance": 45
+    },
+    {
+      "date": "2026-10-07",
+      "foreign_buy": 10333,
+      "foreign_sell": 6456,
+      "foreign_net": 3877,
+      "trust_buy": 4943,
+      "trust_sell": 212,
+      "trust_net": 4731,
+      "dealer_buy": 230,
+      "dealer_sell": 286,
+      "dealer_net": -57,
+      "margin_balance": 37297,
+      "short_balance": 53
     }
   ],
   "ownership": {
-    "foreign_pct": 12.62,
-    "date": "2026-10-06"
+    "foreign_pct": 12.65,
+    "date": "2026-10-07"
   },
-  "exported_at": "2026-10-06 21:32"
+  "exported_at": "2026-10-07 20:55"
 }

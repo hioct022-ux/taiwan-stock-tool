@@ -2,17 +2,6 @@
   "code": "1802",
   "prices": [
     {
-      "date": "2025-02-18",
-      "open": 17.05,
-      "high": 17.25,
-      "low": 16.55,
-      "close": 16.65,
-      "volume": 17255458,
-      "value": 289474886.0,
-      "change": -0.3,
-      "change_pct": -1.77
-    },
-    {
       "date": "2025-02-19",
       "open": 16.6,
       "high": 17.3,
@@ -4400,6 +4389,17 @@
       "value": 1434343204.0,
       "change": 0.5,
       "change_pct": 0.84
+    },
+    {
+      "date": "2026-10-07",
+      "open": 60.1,
+      "high": 65.7,
+      "low": 59.8,
+      "close": 65.7,
+      "volume": 108469283,
+      "value": 6893350654.0,
+      "change": 5.9,
+      "change_pct": 9.87
     }
   ],
   "fundamentals": [
@@ -5137,23 +5137,16 @@
       "pe": 69.53,
       "pb": 3.37,
       "dividend_yield": 0.0
+    },
+    {
+      "date": "2026-10-06",
+      "eps_ttm": 0.78,
+      "pe": 76.4,
+      "pb": 3.7,
+      "dividend_yield": 0.0
     }
   ],
   "chips": [
-    {
-      "date": "2026-07-03",
-      "foreign_buy": 6728,
-      "foreign_sell": 21761,
-      "foreign_net": -15033,
-      "trust_buy": 4,
-      "trust_sell": 355,
-      "trust_net": -351,
-      "dealer_buy": 946,
-      "dealer_sell": 1127,
-      "dealer_net": -181,
-      "margin_balance": 0,
-      "short_balance": 0
-    },
     {
       "date": "2026-07-06",
       "foreign_buy": 5369,
@@ -6049,11 +6042,25 @@
       "dealer_net": 743,
       "margin_balance": 37178,
       "short_balance": 963
+    },
+    {
+      "date": "2026-10-07",
+      "foreign_buy": 31781,
+      "foreign_sell": 14570,
+      "foreign_net": 17211,
+      "trust_buy": 0,
+      "trust_sell": 0,
+      "trust_net": 0,
+      "dealer_buy": 6946,
+      "dealer_sell": 713,
+      "dealer_net": 6233,
+      "margin_balance": 36468,
+      "short_balance": 1814
     }
   ],
   "ownership": {
-    "foreign_pct": 5.76,
-    "date": "2026-10-06"
+    "foreign_pct": 6.35,
+    "date": "2026-10-07"
   },
-  "exported_at": "2026-10-06 21:32"
+  "exported_at": "2026-10-07 20:55"
 }

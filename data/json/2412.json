@@ -2,17 +2,6 @@
   "code": "2412",
   "prices": [
     {
-      "date": "2025-02-18",
-      "open": 126.0,
-      "high": 126.5,
-      "low": 125.5,
-      "close": 126.5,
-      "volume": 6498055,
-      "value": 819549683.0,
-      "change": 0.5,
-      "change_pct": 0.4
-    },
-    {
       "date": "2025-02-19",
       "open": 126.5,
       "high": 127.0,
@@ -4400,6 +4389,17 @@
       "value": 1019972816.0,
       "change": 0.0,
       "change_pct": 0.0
+    },
+    {
+      "date": "2026-10-07",
+      "open": 145.5,
+      "high": 145.5,
+      "low": 144.0,
+      "close": 145.5,
+      "volume": 7080591,
+      "value": 1027931012.0,
+      "change": 0.0,
+      "change_pct": 0.0
     }
   ],
   "fundamentals": [
@@ -5137,23 +5137,16 @@
       "pe": 28.59,
       "pb": 3.08,
       "dividend_yield": 3.57
+    },
+    {
+      "date": "2026-10-06",
+      "eps_ttm": 5.09,
+      "pe": 28.59,
+      "pb": 3.08,
+      "dividend_yield": 3.57
     }
   ],
   "chips": [
-    {
-      "date": "2026-07-03",
-      "foreign_buy": 2677,
-      "foreign_sell": 12769,
-      "foreign_net": -10092,
-      "trust_buy": 3906,
-      "trust_sell": 158,
-      "trust_net": 3748,
-      "dealer_buy": 71,
-      "dealer_sell": 57,
-      "dealer_net": 14,
-      "margin_balance": 0,
-      "short_balance": 0
-    },
     {
       "date": "2026-07-06",
       "foreign_buy": 3062,
@@ -6049,11 +6042,25 @@
       "dealer_net": 11,
       "margin_balance": 1729,
       "short_balance": 28
+    },
+    {
+      "date": "2026-10-07",
+      "foreign_buy": 4161,
+      "foreign_sell": 1567,
+      "foreign_net": 2594,
+      "trust_buy": 163,
+      "trust_sell": 424,
+      "trust_net": -261,
+      "dealer_buy": 29,
+      "dealer_sell": 1,
+      "dealer_net": 28,
+      "margin_balance": 266,
+      "short_balance": 27
     }
   ],
   "ownership": {
-    "foreign_pct": 18.4,
-    "date": "2026-10-06"
+    "foreign_pct": 18.42,
+    "date": "2026-10-07"
   },
-  "exported_at": "2026-10-06 21:32"
+  "exported_at": "2026-10-07 20:55"
 }
