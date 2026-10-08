@@ -10,9 +10,9 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from database import (get_watchlist, get_prices, get_fundamentals, get_chips,
                       get_ownership, get_futures_institutional, get_market_margin,
-                      get_conn, init_db)
+                      get_conn, init_db, get_chips_market_series)
 from scorer import full_score
-from indicators import calc_all
+from indicators import calc_all, pct_rank_score
 
 # ── 參數 ────────────────────────────────
 SCORE_THRESHOLD  = 65      # 進場門檻
@@ -25,20 +25,37 @@ MIN_HISTORY      = 90      # 最少需要幾筆歷史才開始評分
 init_db()
 
 # ── 大盤訊號預計算（與 backtest.py 邏輯相同）───────────
-def _build_market_signals():
-    """回傳 {date: net_score} 字典，net > 0 = 偏空，net < 0 = 偏多，0 = 中性"""
-    taiex_all   = get_prices('TAIEX', days=600)
-    futures_all = get_futures_institutional(days=600)
-    margin_all  = get_market_margin(days=600)
+def _build_market_signals(days=600):
+    """
+    回傳 {date: net_score} 字典，net > 0 = 偏空，net < 0 = 偏多，0 = 中性
 
-    conn = get_conn()
-    t86_rows = conn.execute('''
-        SELECT date, SUM(foreign_net) AS fn, SUM(trust_net) AS tn
-        FROM t86_ranking GROUP BY date ORDER BY date
-    ''').fetchall()
-    conn.close()
+    ⚠️ `days` 2026-10-08 新增（預設 600 維持既有呼叫的行為不變）。
+    **跑 2018 起的長歷史回測時必須明確加大**，例如 `_build_market_signals(2600)`。
+
+    為什麼會踩到：原本三個來源都寫死 600 天。回填 2018 之後資料雖然有了
+    （2,130 個交易日），但這裡只撈最後 600 天 ⇒ 實際只涵蓋 2024-05 起，
+    **一個空頭年都沒有，而且不會報錯**。這與陷阱32（`calc_all()` 只餵 30 天，
+    `pos_250` 靜默變成「近 30 日位置」）是同一個病根：
+    **視窗不足時指標不會報錯，只會安靜地算出看似合理但失真的值。**
+
+    ⇒ 通則：**任何「撈最近 N 天」的資料載入，在回填歷史之後都要回頭檢查一次**。
+      回填本身不會自動讓既有程式看得到新資料。
+    """
+    taiex_all   = get_prices('TAIEX', days=days)
+    futures_all = get_futures_institutional(days=days)
+    margin_all  = get_market_margin(days=days)
+
+    # ⚠️ 2026-10-07：來源由 `t86_ranking` 改為 `chips` 彙總（排除 ETF），
+    #    與 app.py 線上的 Signal 4 同源。原因見下方 Signal 4 區塊的註解。
+    t86_rows = [(r['date'], r['foreign_net'], r['trust_net'])
+                for r in get_chips_market_series()]
 
     t86_by_date = {r[0]: {'foreign_net_total': r[1], 'trust_net_total': r[2]} for r in t86_rows}
+    # 每個日期對應「該日及之前」的歷史序列，供滾動百分位使用（不可含未來）
+    t86_hist_upto, _fgs, _trs = {}, [], []
+    for _d, _fg, _tr in t86_rows:
+        _fgs.append(_fg or 0); _trs.append(_tr or 0)
+        t86_hist_upto[_d] = (_fgs[-300:], _trs[-300:])
     fut_by_date = {r['date']: r for r in futures_all}
     mm_by_date  = {r['date']: r for r in margin_all}
 
@@ -106,18 +123,23 @@ def _build_market_signals():
             if   f_trend >=  8000: bull += 1
             elif f_trend <= -8000: bear += 1
 
-        # Signal 4：T86 外資現貨
+        # Signal 4：法人現貨
+        # ⚠️ 2026-10-07 兩項修正（與 app.py 線上同步，見 indicators.pct_rank_score）：
+        #  (1) 來源由 `t86_ranking` 改為 `chips` 彙總（排除 ETF）——原本**與 app.py 不同源**，
+        #      而門檻是依 chips 分布校準的，套在 t86_ranking 加總上實測 ±3分觸發率
+        #      **0.0%**、±1分 5.9%，等於回測裡的 S4 幾乎是死的。
+        #  (2) 絕對門檻改滾動百分位（尺度無關，2018 與 2026 同一套規則才成立）。
         if t86_prev:
             fg = t86_prev.get('foreign_net_total', 0) or 0
             tr = t86_prev.get('trust_net_total',   0) or 0
-            if   fg >= 1050000: bull += 3
-            elif fg >=  800000: bull += 2
-            elif fg >=  650000: bull += 1
-            elif fg <= -1050000: bear += 3
-            elif fg <=  -800000: bear += 2
-            elif fg <=  -650000: bear += 1
-            if   tr >=  100000: bull += 1
-            elif tr <= -100000: bear += 1
+            _hist = t86_hist_upto.get(date_prev)
+            if _hist:
+                fg_sc, _ = pct_rank_score(fg, _hist[0])
+                tr_sc, _ = pct_rank_score(tr, _hist[1])
+                if   fg_sc > 0: bull += fg_sc
+                elif fg_sc < 0: bear += -fg_sc
+                if   tr_sc > 0: bull += 1
+                elif tr_sc < 0: bear += 1
 
         # Signal 5-8：TAIEX 技術指標
         if len(tpx_win) >= 6:

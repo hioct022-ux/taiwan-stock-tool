@@ -806,21 +806,54 @@ def get_chips_market_agg_from_table(days=30):
     cols = ['date', 'foreign_net', 'trust_net', 'dealer_net']
     return list(reversed([dict(zip(cols, r)) for r in rows]))
 
-def get_chips_market_aggregate(days=60, min_stocks=500):
+# ══════════════════════════════════════════════════════════════════════
+# 🚨 ETF 排除條件（2026-10-07 新增，修正線上 Signal 4 的汙染）
+#
+# 發現經過：為了重測策略D 而去查「大盤淨值能不能回溯到 2018」，
+# 順手比對 `chips` 彙總與 `t86_ranking` 彙總，發現同一天的外資合計
+# **連方向都會相反**。拆解 2026-10-05：
+#
+#   普通股合計       -440,798 張
+#   ETF 等           +826,038 張   ← 00403A +150,918、00406A +128,492、00981A +110,265…
+#   現用總和（含ETF） +385,240 張   🚨 方向被翻轉
+#
+# 主動型 ETF 的「外資買賣超」其實是**初級市場的申購買回流量**（發行量），
+# 不是外資在買賣股票。全期 258 個交易日量化：
+#   • ETF 占外資絕對值 **中位 41%**
+#   • **29/258 天（11%）ETF 把外資方向整個翻轉**
+#   • 外資絕對值中位數 只算普通股 152,426 ／ 含 ETF 239,848（膨脹 57%）
+#
+# ⇒ 這不是參數問題，是「把兩種不同性質的數字加在一起」。排除之。
+#
+# 條件：4 碼純數字、且不以 00 開頭。台股普通股是 1101~9962，
+#       00xx 保留給 ETF；5~6 碼是權證／ETN／可展延牛熊證。
+# ══════════════════════════════════════════════════════════════════════
+_ORDINARY_STOCK_SQL = (
+    "LENGTH(code)=4 AND code GLOB '[0-9][0-9][0-9][0-9]' AND code NOT LIKE '00%'"
+)
+
+
+def get_chips_market_aggregate(days=60, min_stocks=500, stocks_only=True):
     """
     從 chips 表彙總全市場三大法人每日淨買賣超（張）。
     只取 stock_count >= min_stocks 的日期，確保是全市場資料而非少數自選股。
     回傳依日期升序的 list of dict。
+
+    stocks_only=True（預設）：**只算 4 碼普通股，排除 ETF／權證**——見上方說明。
+      ⚠️ 預設值刻意設 True：Signal 4、市場壓力監控、三大法人現貨圖三處都走這個
+         函式，若讓它們各自決定要不要含 ETF，就會重演「同一個數字在不同地方
+         不一樣」的老問題（陷阱10／34／43 全是這一類）。
     """
     conn = get_conn()
-    rows = conn.execute('''
+    _flt = f'AND {_ORDINARY_STOCK_SQL}' if stocks_only else ''
+    rows = conn.execute(f'''
         SELECT date,
                COUNT(*)          AS stock_count,
                SUM(foreign_net)  AS foreign_net,
                SUM(trust_net)    AS trust_net,
                SUM(dealer_net)   AS dealer_net
         FROM chips
-        WHERE date >= date('now', ? || ' days')
+        WHERE date >= date('now', ? || ' days') {_flt}
         GROUP BY date
         HAVING stock_count >= ?
         ORDER BY date DESC LIMIT ?
@@ -828,6 +861,41 @@ def get_chips_market_aggregate(days=60, min_stocks=500):
     conn.close()
     cols = ['date', 'stock_count', 'foreign_net', 'trust_net', 'dealer_net']
     return list(reversed([dict(zip(cols, r)) for r in rows]))
+
+
+def get_chips_market_series(since=None, min_stocks=500, stocks_only=True):
+    """
+    全期間（或 since 之後）全市場三大法人每日淨額，依日期**升序**。
+
+    與 get_chips_market_aggregate() 的差別：**不受 `date('now', -N days)` 限制**，
+    供回測與歷史回溯使用（那些情境要的是整段歷史，不是「近 N 天」）。
+
+    ⚠️ 2026-10-07 新增的理由：`backtest.py` / `backtest_stocks.py` 的 Signal 4
+       原本讀 `t86_ranking`，而 app.py 線上讀 `chips` 彙總 —— **兩邊不同源**。
+       陷阱34 當初只同步了「門檻」，沒同步「來源」，於是回測的 S4 門檻
+       （依 chips 分布校準的 1,050,000）套在 t86_ranking 的加總上，
+       實測觸發率 ±3分 **0.0%**、±1分 5.9% —— **回測裡的 S4 幾乎是死的**。
+       這個函式讓兩邊讀同一份資料。
+    """
+    conn = get_conn()
+    _flt = f'AND {_ORDINARY_STOCK_SQL}' if stocks_only else ''
+    _since = 'AND date >= ?' if since else ''
+    args = ([since] if since else []) + [min_stocks]
+    rows = conn.execute(f'''
+        SELECT date,
+               COUNT(*)          AS stock_count,
+               SUM(foreign_net)  AS foreign_net,
+               SUM(trust_net)    AS trust_net,
+               SUM(dealer_net)   AS dealer_net
+        FROM chips
+        WHERE 1=1 {_since} {_flt}
+        GROUP BY date
+        HAVING stock_count >= ?
+        ORDER BY date
+    ''', args).fetchall()
+    conn.close()
+    cols = ['date', 'stock_count', 'foreign_net', 'trust_net', 'dealer_net']
+    return [dict(zip(cols, r)) for r in rows]
 
 def get_t86_market_aggregate(days=10):
     """取得 T86 全市場外資/投信/合計淨買賣超（每日彙總），依日期升序"""

@@ -29,7 +29,7 @@ from database import (init_db, get_prices, get_fundamentals, get_chips,
                       add_position, get_positions, get_position_by_code,
                       get_positions_by_code, get_position, recalc_position_pnl,
                       renew_position, close_position, update_position, delete_position)
-from indicators import calc_all
+from indicators import calc_all, pct_rank_score
 from scorer import full_score, get_grade, generate_auto_note
 from scheduler import start_scheduler, get_data_status, manual_fetch
 from theme_rotation import render_theme_rotation
@@ -465,6 +465,48 @@ def _check_short_squeeze(prices, chips_list):
 # ⚠️ 若日後重新驗證（見CLAUDE.md「波動度標示」段落），此門檻要一併更新，不要留舊數字
 VOL20_LOW_CUT  = 2.4
 VOL20_HIGH_CUT = 3.9
+
+# ══════════════════════════════════════════════════════════════════════
+# 🚨 策略D（大盤淨值轉空就出場）的實測結論 —— 2026-10-08
+#
+# 回填 2018 起的 S2/S3/S4 之後，第一次能用**真正的觸發條件**（大盤淨值 S1–S8）
+# 測策略D，而不是 10/07 那個 MA60 代理。13 組規則 × 20 條配對、2018~2026：
+#
+#   (j) 淨值≥2「停買」=真C    全期 +142.90%　回檔 -45.48%　換手    52 次
+#   (k) 淨值≥2「出清」=真D    全期  -72.65%　回檔 -76.50%　換手 1,967 次
+#   (l) 淨值≥4「出清」        全期  -23.70%
+#
+#   配對比較（同一 seed 同一組排序）：
+#     真D vs 真C         Δ報酬 -209.82%  ❌ 0/20 p<.001   Δ|回檔| +33.08%  ❌ 0/20
+#     真D vs MA60代理D    Δ報酬 -137.05%  ❌ 0/20 p<.001   Δ|回檔| +39.01%  ❌ 0/20
+#
+# ★ 機制：**淨值≥2 是高頻閃動的訊號**（觸發 641/2129 天但不連續）。
+#   決定性對照——同樣的空手時間，換手差 5 倍：
+#     MA60 出清   在場內 66%　換手   396 次　純成本拖累 -31.2%
+#     真D  出清   在場內 67%　換手 1,967 次　純成本拖累 **-84.3%**
+#   -84.3% 幾乎解釋了全部的 -72.65%。
+#
+# ★ 為什麼淨值不是空頭偵測器（2026-10-08 另一份量測）：
+#   `net≥2` 的觸發率在 **2022（唯一真空頭年 -22.6%）是九年最低 20.7%**、
+#   在 **2026（+70% 大多頭）是九年最高 40.8%**。
+#   原因：系統的「偏空」訊號大多是**過熱類**（BIAS 過高、位置偏高、融資急增），
+#   那些東西在市場強勢上漲時才觸發 ⇒ 它實際上是過熱偵測器，不是空頭偵測器。
+#   這與 2026-09-23 量到「大盤評分方向性輸給每天猜漲」是同一件事的兩個角度。
+#
+# ⇒ **UI 上的減碼警報框一律改為「這一級不構成出場理由」**，並附上這組數字。
+#   刻意保留框體而非刪除：使用者已習慣那個位置有東西，突然消失更困惑；
+#   留著能持續提醒「這條測過、而且是負的」。
+#
+# ⚠️ 引用時要一起講的限制：除權息無法調整（陷阱50）、測的是結構不含評分門檻、
+#   排序鍵真隨機（不含選股效果）、樣本只有這一條歷史路徑。
+# ══════════════════════════════════════════════════════════════════════
+D_RETEST_FACT = ('2018~2026 實測（13 組規則 × 20 條配對）：依淨值出清，9 年報酬 -72.65%、'
+                 '最大回檔 -76.50%；對照「只停買、不出場」+142.90%，'
+                 '報酬與回檔兩個指標都是 0/20 更糟（p<0.001）。'
+                 '主因是淨值≥2 高頻閃動，換手 1,967 次，純交易成本就吃掉 -84.3%。')
+D_RETEST_WHY = ('而且淨值≥2 的觸發率，在 2022（唯一真空頭年 -22.6%）是九年最低的 20.7%、'
+                '在 2026（+70% 大多頭）是九年最高的 40.8%'
+                '—— 它實際上是過熱偵測器，不是空頭偵測器。')
 
 def _vol20_label(vol20):
     """回傳 (文字, 顏色) 或 (None, None)。純敘述性標籤，不帶好壞判斷。"""
@@ -1446,9 +1488,16 @@ def render_technical(result, name):
             st.markdown(f'RSI(14)：<span style="color:{rsi_color};font-size:20px;font-weight:700">'
                         f'{rsi}</span>', unsafe_allow_html=True)
             if rsi > 80:
-                st.error(f'RSI={rsi} 超過80，已進入超買區間。'
-                         f'根據近1年（250個交易日）歷史，RSI超過80後5個交易日內回檔機率較高，'
-                         f'建議不要追買，可考慮減碼。')
+                # ★ 2026-10-08：補上「給誰看」的區分，並標明那句機率主張未經對照驗證。
+                #   原文「回檔機率較高…可考慮減碼」有兩個問題：
+                #   (a) 沒有與無條件基準並列（2026-09-01 的教訓：不設基準會把訊號都誤判為有效）
+                #   (b) 沒有區分「還沒買的」與「已持有的」（陷阱48 的病根）
+                st.error(f'RSI={rsi} 超過 80，已進入超買區間。'
+                         f'　**尚未進場的資金：** 不建議在這個位置追買。'
+                         f'　📌 **已持有的部位：不因 RSI 出場**——正式規則（策略C）的出場'
+                         f'只有兩項：觸及停損單、滿 10 個交易日且評分不足。'
+                         f'　⚠️ 「RSI>80 後 5 日回檔機率較高」這句話**未經對照驗證**'
+                         f'（沒有與不看 RSI 的無條件回檔機率並列過），僅供參考。')
             elif rsi > 70:
                 st.warning(f'RSI={rsi} 介於70～80，動能偏強但接近警戒區，需留意回檔風險。')
             elif rsi >= 40:
@@ -3240,9 +3289,16 @@ def render_score(result, code, name, prices=None, fund_data=None, chips_all=None
         if target:
             potential = round((target - close) / close * 100, 1) if close else 0
             st.metric('目標參考價', f'{target}元', delta=f'潛在+{potential}%')
+            # ★ 2026-10-08：移除「可考慮分批獲利了結」。
+            #   策略C 明文「**不設固定停利**」，這句話與正式規則直接衝突
+            #   —— 陷阱48 的同一病根（UI 叫使用者做規則說不要做的事）。
+            #   2026-06 的持有天數掃描已測過：20 日 EV 最高，提早出場是扣分的。
             st.info(f'計算方式：近3個月最高點（{high_65}元）'
                     f'與布林上軌（{bb_upper}元）取較低者。'
-                    f'到達此價位可考慮分批獲利了結。')
+                    f'　⚠️ **這只是技術面的壓力區參考，不是停利點。**'
+                    f'正式規則（策略C）**不設固定停利**——到期時評分仍 ≥65 就續抱，'
+                    f'而 2026-10-07 實測確認「續抱」是整個結構裡最值錢的一條'
+                    f'（換手 1,102→57 次、成本拖累 -64.6%→-5.3%）。')
     with col3:
         if stop_loss:
             loss_pct = round((stop_loss - close) / close * 100, 1) if close else 0
@@ -5230,15 +5286,32 @@ BIAS 乖離率、布林通道位置、自選股強弱、外部市場（美股/VI
 
 偏空訊號在空頭環境如預期變準（多頭時的失準是環境因素，非設計缺陷）。
 
-**個股策略表現（僅統計 7/14 後進場）：**
+**個股策略表現（僅統計 7/14 後進場，⚠️ 此表已被推翻，見下）：**
 
 | 策略 | 平均損益 | 說明 |
 |------|---------|------|
 | C（現行採用） | -4.52% | 等個股評分警訊出場 |
-| D（大盤轉空提前出場） | **-1.84%** | 不等個股訊號，大盤 net ≥+4 即出場 |
+| D（大盤轉空提前出場） | -1.84% | 不等個股訊號，大盤 net ≥+4 即出場 |
 
-**驗證結論：** 系統性下跌時個股齊跌，等個股警訊必然落後；大盤層級訊號早 1–2 天。
-這正是投資策略頁「大盤轉空全面減碼警報」與「參考停損價」欄位的設計依據。
+> **🚨 上表那個「D 比 C 好」的結論已於 2026-10-08 被推翻，兩個理由疊加：**
+>
+> 1. **那兩週根本不是「大盤轉空」。** 2026-08 重跑確認該期間系統淨值
+>    全程 0~+1，**從未觸及 +2 警戒門檻** ⇒ 樣本名不副實。
+> 2. **回填 2018 起的歷史後，第一次能用真觸發條件測。** 2018~2026、
+>    13 組規則 × 20 條配對：依淨值出清 9 年報酬 **-72.65%**、回檔 -76.50%；
+>    對照「只停買不出場」**+142.90%** —— **報酬與回檔兩個指標都 0/20 更糟**。
+>
+> **機制：** 淨值 ≥2 高頻閃動（2,129 天裡觸發 641 天但不連續），
+> 換手 **1,967 次**，純交易成本就吃掉 **-84.3%**，幾乎解釋全部的虧損。
+>
+> **更根本的原因：** 淨值 ≥2 的觸發率在 **2022（唯一真空頭年 -22.6%）是九年最低
+> 20.7%**、在 **2026（+70% 大多頭）是九年最高 40.8%**。因為系統的「偏空」訊號
+> 大多是**過熱類**（BIAS 過高、位置偏高、融資急增），那些在市場強勢上漲時才觸發
+> ⇒ **它是過熱偵測器，不是空頭偵測器。**
+>
+> ⇒ 投資策略頁與大盤分析頁的「全面減碼」建議**已全部移除**，改為
+>   「這一級不構成出場理由」。**「參考停損價」欄位不受影響**——
+>   預掛停損單是價格觸發、不依賴這個分數，仍是唯一能即時保護的機制。
 
 **已知結構性限制：** 急殺型下跌（前日有反彈、隔日跳空大跌）無法靠盤後資料提前預警——
 7/24、7/28 兩根大跌棒前一晚的預判均為偏多。唯一有效的防線是**預掛停損單**（價格即時觸發）。
@@ -5280,6 +5353,7 @@ BIAS 乖離率、布林通道位置、自選股強弱、外部市場（美股/VI
 | v3.3 | 2026/08/20 | 波動度標示、持倉成本佔比與資金配置警示、評分衰退提示搬到持倉列表、K線圖延伸為3個月、資料智慧補齊（漏更新自動補回） |
 | v3.4 | 2026/08/21 | 策略 E/F 驗證（皆不採用）、**進場型態回測後移除「不追漲」等未驗證建議**、C/D 規則明確標示、手動登錄持倉入口 |
 | v3.5 | 2026/08/27 | **停損距離由 8% 校準為 10%**（依 alpha 見頂位置，非原始報酬）、波動度調整停損與趨勢過濾皆驗證後否決、報酬拆解為 beta/alpha |
+| v3.6 | 2026/10/08 | **Signal 4 修正**：排除 ETF（主動型 ETF 申購買回量曾讓 11% 的日子外資方向反轉）＋ 絕對門檻改滾動百分位（切點 96/86/72，依 2,071 天校準）；回測與線上同源。**回填 2018 起歷史**（S2/S3/S4 各 2,128 天，第一次有空頭樣本）。**策略D 實測後否決**：依淨值出清 9 年 -72.65%，兩指標 0/20 更糟 ⇒ 全面減碼建議移除 |
     ''')
 
 # ── 頁籤七：匯出分析 ────────────────────
@@ -5745,15 +5819,24 @@ def render_market():
             _fut = get_futures_institutional(days=15)
             _tpx = get_prices('TAIEX', days=250)
     # Signal 4 與三大法人圖統一使用 chips_market_agg 來源，確保上下一致
+    #
+    # ⚠️ 2026-10-07：取 300 天（原本 15 天）。理由是 Signal 4 改用**滾動百分位**
+    #    （見 indicators.pct_rank_score 的說明：絕對張數門檻會隨市場規模漂移，
+    #    2025→2026 的 p95 就差 48%），而百分位至少需要 PCT_MIN_N=60 天的歷史。
+    #    下游的 `_t86_raw` 仍只取末 15 天，行為完全不變。
     if IS_LOCAL:
-        _t86_raw = get_chips_market_aggregate(days=15)
+        _t86_hist = get_chips_market_aggregate(days=300)
     else:
         try:
             import json as _jt86
             with open(os.path.join('data', 'json', 'chips_market_agg.json'), encoding='utf-8') as _f:
-                _t86_raw = _jt86.load(_f).get('rows', [])[-15:]
+                _t86_hist = _jt86.load(_f).get('rows', [])[-300:]
         except Exception:
-            _t86_raw = get_chips_market_agg_from_table(days=15)
+            _t86_hist = get_chips_market_agg_from_table(days=300)
+    _t86_raw = _t86_hist[-15:]
+    # 百分位用的歷史序列（**只含決策日及之前**，_t86_hist 最後一筆就是決策日）
+    _t86_fg_hist = [r.get('foreign_net', 0) or 0 for r in _t86_hist]
+    _t86_tr_hist = [r.get('trust_net', 0) or 0 for r in _t86_hist]
     _t86 = [{'date': r['date'],
              'foreign_net_total': r.get('foreign_net', 0),
              'trust_net_total':   r.get('trust_net', 0),
@@ -5887,36 +5970,47 @@ def render_market():
             _t86_trust   = _t86_latest.get('trust_net_total',   0) or 0
             _t86_date    = _t86_latest.get('date', '')
 
-            # 外資現貨（單位：張，全市場 1300+ 檔加總）
-            # 門檻依實際分布校準（2026-07）：資料來源從「T86前15名」改為「全市場chips彙總」後，
-            # 數值放大約100倍，舊門檻(15萬/5萬/1萬)導致 80%+ 天數觸發滿分，訊號失去鑑別度。
-            # 新門檻對應百分位：±3分≈p95(5%天數)、±2分≈p85(15%)、±1分≈p70(30%)
-            if _t86_foreign >= 1050000:
-                _bull_score += 3
-                _bull_msgs.append(('🟢', f'外資現貨大買超 **+{_t86_foreign:,} 張**（{_t86_date}），現貨大量流入'))
-            elif _t86_foreign >= 800000:
-                _bull_score += 2
-                _bull_msgs.append(('🟢', f'外資現貨買超 +{_t86_foreign:,} 張（{_t86_date}），籌碼偏多'))
-            elif _t86_foreign >= 650000:
-                _bull_score += 1
-                _bull_msgs.append(('🟢', f'外資現貨小幅買超 +{_t86_foreign:,} 張（{_t86_date}），偏多'))
-            elif _t86_foreign <= -1050000:
-                _bear_score += 3
-                _bear_msgs.append(('🔴', f'外資現貨大賣超 **{_t86_foreign:,} 張**（{_t86_date}），現貨大量流出'))
-            elif _t86_foreign <= -800000:
-                _bear_score += 2
-                _bear_msgs.append(('🔴', f'外資現貨賣超 {_t86_foreign:,} 張（{_t86_date}），籌碼偏空'))
-            elif _t86_foreign <= -650000:
-                _bear_score += 1
-                _bear_msgs.append(('🟡', f'外資現貨小幅賣超 {_t86_foreign:,} 張（{_t86_date}），偏空'))
-            else:
-                _bull_msgs.append(('⚪', f'外資現貨買賣超 {_t86_foreign:+,} 張（{_t86_date}），中性'))
+            # 外資現貨（單位：張，全市場約 1,090 檔 4 碼普通股加總）
+            #
+            # ⚠️ 2026-10-07 兩項修正（為了重測策略D 而做的前置檢查挖出來的）：
+            #  (1) **排除 ETF**（database._ORDINARY_STOCK_SQL）。主動型 ETF 的
+            #      「外資買賣超」是初級市場申購買回量，不是外資在買股票。
+            #      實測 ETF 占外資絕對值中位 41%、**11% 的日子把方向整個翻轉**。
+            #  (2) **絕對門檻改成滾動百分位**。原本的 1,050,000／800,000／650,000
+            #      是用近 51 天校準的，拉到 258 天實際觸發率只有 1.6/5.0/7.8%
+            #      （陷阱34 自訂的目標是 5/15/30%）；而且量級會隨市場規模漂移
+            #      （外資 p95：2025 是 366,841、2026 是 544,660，差 48%）。
+            #      詳見 indicators.pct_rank_score 的註解。
+            _fg_sc, _fg_pct = pct_rank_score(_t86_foreign, _t86_fg_hist)
+            _tr_sc, _tr_pct = pct_rank_score(_t86_trust,   _t86_tr_hist)
+            _pct_txt = f'近{len(_t86_fg_hist)}日第 {_fg_pct:.0f} 百分位' if _fg_pct is not None else '歷史樣本不足'
 
-            # 投信方向（輔助訊號）
-            if _t86_trust >= 100000:
+            if _fg_sc >= 3:
+                _bull_score += 3
+                _bull_msgs.append(('🟢', f'外資現貨大買超 **+{_t86_foreign:,} 張**（{_t86_date}，{_pct_txt}），現貨大量流入'))
+            elif _fg_sc == 2:
+                _bull_score += 2
+                _bull_msgs.append(('🟢', f'外資現貨買超 +{_t86_foreign:,} 張（{_t86_date}，{_pct_txt}），籌碼偏多'))
+            elif _fg_sc == 1:
+                _bull_score += 1
+                _bull_msgs.append(('🟢', f'外資現貨小幅買超 +{_t86_foreign:,} 張（{_t86_date}，{_pct_txt}），偏多'))
+            elif _fg_sc <= -3:
+                _bear_score += 3
+                _bear_msgs.append(('🔴', f'外資現貨大賣超 **{_t86_foreign:,} 張**（{_t86_date}，{_pct_txt}），現貨大量流出'))
+            elif _fg_sc == -2:
+                _bear_score += 2
+                _bear_msgs.append(('🔴', f'外資現貨賣超 {_t86_foreign:,} 張（{_t86_date}，{_pct_txt}），籌碼偏空'))
+            elif _fg_sc == -1:
+                _bear_score += 1
+                _bear_msgs.append(('🟡', f'外資現貨小幅賣超 {_t86_foreign:,} 張（{_t86_date}，{_pct_txt}），偏空'))
+            else:
+                _bull_msgs.append(('⚪', f'外資現貨買賣超 {_t86_foreign:+,} 張（{_t86_date}，{_pct_txt}），中性'))
+
+            # 投信方向（輔助訊號，同樣改用滾動百分位；只給 ±1 分，不分強弱）
+            if _tr_sc > 0:
                 _bull_score += 1
                 _bull_msgs.append(('🟢', f'投信買超 +{_t86_trust:,} 張（{_t86_date}），法人偏多'))
-            elif _t86_trust <= -100000:
+            elif _tr_sc < 0:
                 _bear_score += 1
                 _bear_msgs.append(('🟡', f'投信賣超 {_t86_trust:,} 張（{_t86_date}），法人調節'))
 
@@ -6686,7 +6780,8 @@ def render_market():
         #    十八章已明文把 D 與 C 拆開，這裡不可把 D 混進正式清單（否則又是一次規則漂移）。
         _HOLD_RULE = ('\n\n📌 **已持有的部位：不因這個分數出場。** 正式規則（策略C）'
                       '的出場只有兩項——① 觸及停損單 ② 滿 10 個交易日且評分不足。'
-                      '（大盤 +4 的全面減碼警報屬策略D，是提醒、不是規則，照做與否是另一個決定）\n\n'
+                      '（⚠️ 大盤 +4 那個「全面減碼」建議已於 2026-10-08 實測後移除：'
+                      '依淨值出清在 2018~2026 的 20 條配對上，報酬與回檔都是 0/20 更糟）\n\n'
                       '上面那句只針對「還沒進場」的資金。')
 
         if _net >= 6:
@@ -8106,7 +8201,12 @@ def render_market():
             verdict = '🟡 **偏空謹慎**：籌碼出現部分警訊，建議持股保守，勿追高，設好停損。'
         else:
             verdict_color = '#ef4444'
-            verdict = '🔴 **高度警戒，建議大幅減碼**：多個籌碼指標同時亮紅燈，系統性風險提升，優先保本。'
+            # ★ 2026-10-08：移除「建議大幅減碼」這個出場指示（陷阱48 同一病根）。
+            #   這三個籌碼訊號從未經過回測，不可用來指示出場。
+            verdict = ('🔴 **籌碼高度警戒**：多個籌碼指標同時亮紅燈。'
+                       '**尚未進場的資金：** 不宜進場。'
+                       '📌 **已持有的部位：不因這個判讀出場**——這三個籌碼訊號'
+                       '未經回測驗證，正式出場條件只有停損與到期評分。')
 
         # 顯示三個訊號
         st.markdown(f'<div style="padding:6px 10px;border-left:3px solid {sig1_color};margin-bottom:6px">{sig1_label}</div>', unsafe_allow_html=True)
@@ -8381,19 +8481,28 @@ def _position_score_alert(trend):
 
 def _position_status(pos, cur_price, market_net=None):
     """
-    回傳 (旗標emoji, 顏色, 狀態文字)。優先序：停損 > 大盤轉空 > 到期 > 接近停損 > 正常
+    回傳 (旗標emoji, 顏色, 狀態文字)。
+    優先序：停損 🔴 ＞ 到期 ⏰ ＞ 接近停損 ⚠️ ＞ 大盤偏空 📉（純資訊）＞ 持有中 🟢
+
+    ★ 2026-10-08 兩項修正：
+      (1) **📉 從第二順位降到倒數第二。** 原本排在「到期」之前，十八章的理由是
+          「空頭回測顯示大盤層級訊號比個股訊號更早也更有效」——**那個理由已被推翻**
+          （依淨值出清在 2018~2026 的 20 條配對上，報酬與回檔都是 0/20 更糟）。
+          更糟的是排在到期之前會**遮蔽策略C 真正的出場條件**：一筆已滿 10 日、
+          該重新評分的部位，畫面上卻只顯示「大盤轉空」。
+      (2) 文字由「大盤轉空，建議減碼」改為「大盤偏空（不構成出場理由）」，顏色改中性灰。
     """
     from config import HOLD_DAYS
     _days = _trading_days_since(pos['entry_date'])
     _stop = pos.get('stop_price') or 0
     if cur_price and _stop and cur_price <= _stop:
         return '🔴', '#ef4444', '已觸及停損'
-    if market_net is not None and market_net >= 4:
-        return '📉', '#f97316', '大盤轉空，建議減碼'
     if _days >= HOLD_DAYS:
         return '⏰', '#f59e0b', '持有到期'
     if cur_price and _stop and cur_price <= _stop * 1.02:
         return '⚠️', '#f59e0b', '接近停損'
+    if market_net is not None and market_net >= 4:
+        return '📉', '#64748b', '大盤偏空（不構成出場理由）'
     return '🟢', '#22c55e', '持有中'
 
 
@@ -8702,12 +8811,17 @@ def _render_position_manager():
                             unsafe_allow_html=True)
 
         if _mnet is not None and _mnet >= 4:
+            # ★ 2026-10-08 改寫：原本寫「建議全部持倉減碼或出場」並引用
+            #   「-1.84% vs -4.52%」。那組數字出自 2026-07 兩週的空頭段，
+            #   而 2026-08 重跑確認那兩週淨值從未達 +2（根本不是大盤轉空）；
+            #   2026-10-08 用真觸發條件在 2018~2026 實測 ⇒ 兩個指標 0/20 更糟。
             st.markdown(
-                f'<div style="background:#2d0a0a;border-left:5px solid #ef4444;'
-                f'border-radius:8px;padding:10px 14px;margin-top:6px;font-size:13px">'
-                f'<b style="color:#ef4444">📉 大盤淨值 {_mnet:+d}，已達全面減碼門檻</b>'
-                f'<span style="color:#d4a0a0">　不論個股評分，建議全部持倉減碼或出場'
-                f'（空頭回測：大盤轉空即出場 -1.84% vs 等個股訊號 -4.52%）</span></div>',
+                f'<div style="background:#1a1505;border-left:5px solid #f59e0b;'
+                f'border-radius:8px;padding:10px 14px;margin-top:6px;font-size:12px">'
+                f'<b style="color:#f59e0b">⚠️ 大盤淨值 {_mnet:+d}（偏空）'
+                f'——這一級不構成出場理由</b>'
+                f'<span style="color:#94a3b8">　持倉照策略C 管理：觸及停損單、'
+                f'或滿 10 個交易日且評分不足。<br>{D_RETEST_FACT}</span></div>',
                 unsafe_allow_html=True)
 
     # ── 出場登錄表單 ──
@@ -9029,7 +9143,7 @@ def render_strategy():
     # 大盤評分過期 → 明講，因為下面整頁的個股門檻都是依它決定的（陷阱46）
     if _ms is not None and _ms_stale:
         st.warning(_market_stale_note(_ms_date)
-                   + '　下方的「個股建議門檻」與減碼警報都是依這個分數算的。')
+                   + '　下方的「個股建議門檻」是依這個分數算的。')
 
     if _ms is None:
         st.info('請先前往「📊 大盤分析」頁面，系統即可自動帶入今日大盤評分。')
@@ -9066,22 +9180,28 @@ def render_strategy():
             f'</div></div></div>',
             unsafe_allow_html=True)
 
-        # ── 大盤轉空全面減碼警報（策略 D 邏輯，2026-07 空頭回測驗證）──
-        # 空頭段驗證：D（大盤 net 轉空提前出場）平均損益 -1.84% vs C -4.52%
+        # ── 大盤偏空資訊框（★ 2026-10-08 改寫）──
+        # 原本這裡是「🚨 建議全面減碼或出場」，依據是 2026-07 那兩週空頭段的
+        # D -1.84% vs C -4.52%。那個依據已被推翻：
+        #   (a) 2026-08 重跑確認「那兩週根本不是大盤轉空」（淨值從未達 +2）
+        #   (b) 2026-10-08 用真觸發條件在 2018~2026 實測 ⇒ 兩個指標 0/20 更糟
+        # 詳見模組頂層 D_RETEST_FACT 的完整數據。
+        # ⚠️ 刻意保留框體（使用者已習慣這個位置），但措辭改為「不構成出場理由」。
         if _net is not None and _net >= 4:
             st.markdown(
-                f'<div style="background:#2d0a0a;border-left:5px solid #ef4444;'
+                f'<div style="background:#1a1505;border-left:5px solid #f59e0b;'
                 f'border-radius:8px;padding:12px 16px;margin-bottom:14px">'
-                f'<div style="font-size:15px;font-weight:700;color:#ef4444;margin-bottom:6px">'
-                f'🚨 大盤明確轉空（淨值 {_net:+d}）——建議全面減碼或出場</div>'
-                f'<div style="font-size:13px;color:#d4a0a0;line-height:1.7">'
-                f'不論個股評分高低，系統性下跌時個股會一起跌，等個股警訊出現通常已太遲。<br>'
-                f'空頭段回測：大盤轉空即出場的策略平均損益 -1.8%，等個股訊號的策略 -4.5%。<br>'
-                f'<b style="color:#fca5a5">⚠️ 這是策略D 的提醒，不是正式規則（策略C 不因大盤轉弱出場）。</b>'
-                f'照做的話，請在出場表單選「大盤轉空減碼」，'
-                f'之後看績效要對照策略D 的基準、不是 C 的。</div>'
-                f'<div style="font-size:12px;color:#94a3b8;margin-top:8px">'
-                f'💡 持股者：明日開盤減碼至半倉以下；未掛停損單者立即補掛。</div>'
+                f'<div style="font-size:15px;font-weight:700;color:#f59e0b;margin-bottom:6px">'
+                f'⚠️ 大盤偏空（淨值 {_net:+d}）——<b>這一級不構成出場理由</b></div>'
+                f'<div style="font-size:12px;color:#94a3b8;line-height:1.7">'
+                f'<b>尚未進場的資金：</b>個股門檻已自動提高，降低積極度。<br>'
+                f'📌 <b>已持有的部位：不因這個分數出場。</b>正式規則（策略C）的出場只有兩項'
+                f'——① 觸及停損單 ② 滿 10 個交易日且評分不足。<br>'
+                f'<b style="color:#fca5a5">🚨 這裡原本寫「建議全面減碼或出場」，已於 2026-10-08 移除。</b><br>'
+                f'{D_RETEST_FACT}<br>{D_RETEST_WHY}</div>'
+                f'<div style="font-size:12px;color:#64748b;margin-top:8px">'
+                f'💡 真正能即時保護的是<b>預掛停損單</b>（價格觸發、不等盤後），'
+                f'不是看這個分數決定出場。</div>'
                 f'</div>',
                 unsafe_allow_html=True)
         elif _net is not None and _net >= 2:
@@ -9092,9 +9212,11 @@ def render_strategy():
                 f'⚠️ 大盤偏空（淨值 {_net:+d}）——提高警覺，<b>先確認停損單都掛了</b></div>'
                 f'<div style="font-size:12px;color:#94a3b8;line-height:1.6">'
                 f'大盤層級的轉弱通常比個股評分早 1–2 天反映。<br>'
-                f'<b style="color:#f59e0b">這一級不是出場訊號。</b>'
-                f'正式規則（策略C）的出場只有兩項：觸及停損單、滿 10 個交易日且評分不足。'
-                f'回測顯示大盤一轉弱就出場（策略D）在多頭段是錯殺。</div>'
+                f'<b style="color:#f59e0b">這一級不構成任何出場理由。</b>'
+                f'正式規則（策略C）的出場只有兩項：觸及停損單、滿 10 個交易日且評分不足。<br>'
+                f'<b style="color:#fca5a5">🚨 原本這裡寫「大盤一轉弱就出場在多頭段是錯殺」，'
+                f'2026-10-08 用真觸發條件在 2018~2026 重測後發現更嚴重——'
+                f'連空頭年也更糟。</b><br>{D_RETEST_FACT}</div>'
                 f'</div>',
                 unsafe_allow_html=True)
 
@@ -9414,10 +9536,15 @@ def render_strategy():
 - 不設固定停利
 - 持有期間**不因大盤轉弱自動出場**（這是 C 與 D 的關鍵差異）
 
-**⚠️ 大盤警報＝策略 D，非正式規則**
-- 大盤淨值 ≥+2 開始減碼、≥+4 全面減碼
-- 這是**提醒**，要不要照做由你決定
-- D 自己的基準低於下方的 C，照 D 操作時**別拿 C 的數字對照**
+**🚨 大盤警報：已於 2026-10-08 實測後降級為「不構成出場理由」**
+- 原本寫「淨值 ≥+2 開始減碼、≥+4 全面減碼」，**那條建議已移除**
+- 2018~2026 實測（13 組 × 20 條配對）：依淨值出清 9 年報酬 **-72.65%**、
+  回檔 -76.50%；對照「只停買不出場」**+142.90%**——兩個指標都 **0/20 更糟**
+- 機制：淨值 ≥2 高頻閃動（2,129 天裡觸發 641 天但不連續），
+  換手 **1,967 次**，純交易成本就吃掉 **-84.3%**
+- 而且淨值 ≥2 的觸發率在 **2022（唯一真空頭年）是九年最低 20.7%**、
+  在 **2026（大多頭）是九年最高 40.8%** ⇒ **它是過熱偵測器，不是空頭偵測器**
+- ⇒ **持有期間不因大盤分數出場。** 真正能即時保護的是預掛停損單
 
 **回測依據（策略 C，僅適用上方 C 規則）**
 - 157+ 筆歷史交易

@@ -285,7 +285,10 @@ def export_to_json(code=None):
 
     try:
         from database import get_chips_market_aggregate
-        agg_rows = get_chips_market_aggregate(days=30)
+        # ⚠️ 2026-10-07：30 → 300 天。Signal 4 改用滾動百分位後至少需要 60 天歷史
+        #    （indicators.PCT_MIN_N），只給 30 天的話**雲端的 S4 會永遠是 0 分**，
+        #    與本機差距可達 ±4 分 ⇒ 大盤評分差 ±20 分。檔案只多數 KB。
+        agg_rows = get_chips_market_aggregate(days=300)
         if agg_rows:
             with open(os.path.join(JSON_DIR, 'chips_market_agg.json'), 'w', encoding='utf-8') as f:
                 json.dump({'rows': agg_rows,

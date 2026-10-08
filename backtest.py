@@ -5,8 +5,9 @@
 import sys, os
 sys.path.insert(0, os.path.dirname(__file__))
 
-from database import init_db, get_prices, get_futures_institutional, get_market_margin, get_conn
-from indicators import calc_all
+from database import (init_db, get_prices, get_futures_institutional, get_market_margin,
+                      get_conn, get_chips_market_series)
+from indicators import calc_all, pct_rank_score
 
 init_db()
 
@@ -15,29 +16,29 @@ taiex_all = get_prices('TAIEX', days=500)
 futures_all = get_futures_institutional(days=500)
 margin_all = get_market_margin(days=500)
 
-# T86 全部歷史（按日期彙總）
-conn = get_conn()
-t86_rows = conn.execute('''
-    SELECT date,
-           SUM(foreign_net) AS foreign_net_total,
-           SUM(trust_net)   AS trust_net_total
-    FROM t86_ranking
-    GROUP BY date
-    ORDER BY date
-''').fetchall()
-conn.close()
+# 法人現貨全部歷史（按日期彙總）
+# ⚠️ 2026-10-07：來源由 `t86_ranking` 改為 `chips` 彙總（排除 ETF），與 app.py 同源。
+#    原因見 Signal 4 區塊與 indicators.pct_rank_score 的註解。
+t86_rows = [(r['date'], r['foreign_net'], r['trust_net'])
+            for r in get_chips_market_series()]
 
 t86_by_date = {r[0]: {'foreign_net_total': r[1], 'trust_net_total': r[2]} for r in t86_rows}
+# 每個日期對應「該日及之前」的序列，供滾動百分位使用（不可含未來）
+t86_hist_upto, _fgs, _trs = {}, [], []
+for _d, _fg, _tr in t86_rows:
+    _fgs.append(_fg or 0); _trs.append(_tr or 0)
+    t86_hist_upto[_d] = (_fgs[-300:], _trs[-300:])
 fut_by_date  = {r['date']: r for r in futures_all}
 mm_by_date   = {r['date']: r for r in margin_all}
 
 # ── 訊號評分函式（與 app.py 邏輯一致）────────────────
-def score_signals(tpx_window, fut_window, mm_window, t86_prev):
+def score_signals(tpx_window, fut_window, mm_window, t86_prev, t86_hist=None):
     """
     tpx_window : list of price dicts，最後一筆是「昨日」
     fut_window  : list of futures dicts（按日期升序），最後一筆是「昨日」
     mm_window   : 同上
-    t86_prev    : dict or None，昨日 T86 彙總
+    t86_prev    : dict or None，昨日法人現貨彙總
+    t86_hist    : (外資序列, 投信序列) or None —— 滾動百分位用，只含昨日及之前
     回傳 (bear_score, bull_score, signals_used)
     """
     bear, bull = 0, 0
@@ -93,19 +94,21 @@ def score_signals(tpx_window, fut_window, mm_window, t86_prev):
         if   f_trend >=  8000: bull += 1; used.append('S3 期5日多')
         elif f_trend <= -8000: bear += 1; used.append('S3 期5日空')
 
-    # ── Signal 4：T86 外資現貨 ──
-    # 門檻 2026-07 校準：全市場加總量級，舊門檻(15萬)導致 80% 天數觸發滿分
-    if t86_prev:
+    # ── Signal 4：法人現貨 ──
+    # ⚠️ 2026-10-07：排除 ETF + 絕對門檻改滾動百分位（與 app.py 同步）。
+    #    舊版讀 t86_ranking 卻用 chips 校準的門檻，實測 ±3分觸發率 0.0% ⇒ S4 幾乎是死的。
+    if t86_prev and t86_hist:
         fg = t86_prev.get('foreign_net_total', 0) or 0
         tr = t86_prev.get('trust_net_total',   0) or 0
-        if   fg >= 1050000: bull += 3; used.append(f'S4 T86外資+{fg:,}(u+3)')
-        elif fg >=  800000: bull += 2; used.append(f'S4 T86外資+{fg:,}(u+2)')
-        elif fg >=  650000: bull += 1; used.append(f'S4 T86外資+{fg:,}(u+1)')
-        elif fg <= -1050000: bear += 3; used.append(f'S4 T86外資{fg:,}(b+3)')
-        elif fg <=  -800000: bear += 2; used.append(f'S4 T86外資{fg:,}(b+2)')
-        elif fg <=  -650000: bear += 1; used.append(f'S4 T86外資{fg:,}(b+1)')
-        if tr >=  100000: bull += 1; used.append(f'S4 投信+{tr:,}(u+1)')
-        elif tr <= -100000: bear += 1; used.append(f'S4 投信{tr:,}(b+1)')
+        fg_sc, fg_pct = pct_rank_score(fg, t86_hist[0])
+        tr_sc, _      = pct_rank_score(tr, t86_hist[1])
+        if fg_sc:
+            _t = 'u' if fg_sc > 0 else 'b'
+            if fg_sc > 0: bull += fg_sc
+            else:         bear += -fg_sc
+            used.append(f'S4 外資{fg:+,}(p{fg_pct:.0f},{_t}+{abs(fg_sc)})')
+        if   tr_sc > 0: bull += 1; used.append(f'S4 投信+{tr:,}(u+1)')
+        elif tr_sc < 0: bear += 1; used.append(f'S4 投信{tr:,}(b+1)')
 
     # ── Signal 5：BIAS5 / BIAS20 ──
     if len(tpx_window) >= 6:
@@ -163,7 +166,8 @@ for i in range(1, len(taiex_all)):
     mm_win   = [r for r in margin_all  if r['date'] <= date_prev][-15:]
     t86_prev = t86_by_date.get(date_prev)
 
-    bear, bull, used = score_signals(tpx_win, fut_win, mm_win, t86_prev)
+    bear, bull, used = score_signals(tpx_win, fut_win, mm_win, t86_prev,
+                                     t86_hist_upto.get(date_prev))
     net = bear - bull  # 正 = 空方強，負 = 多方強
 
     if   net >=  1: pred = 'down'

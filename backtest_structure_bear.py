@@ -244,10 +244,47 @@ def main():
             ok[i] = tpx_close[i] >= sum(seg) / len(seg)
         return ok
 
-    MA_OK = {60: ma_ok_series(60), 20: ma_ok_series(20)}
-    for w, s in MA_OK.items():
-        print(f'  MA{w} 濾網：允許進場 {sum(s)/n*100:.0f}% 的交易日'
-              f'（空手期 {n - sum(s)} 天）')
+    MKT = {}
+    for w in (60, 20):
+        MKT[('ma', w)] = ma_ok_series(w)
+
+    # ── ★ 真正的大盤淨值（S1–S8）──────────────────────────────
+    # 2026-10-08 新增。昨天只能用 MA60 代理，因為 S2/S3/S4 在 2018~2024 是 0 天；
+    # 回填完成後（三項各 2128/2128 天）**終於可以用策略D 真正的觸發條件**。
+    #
+    # ⚠️ 必須傳 days=2600。預設 600 只會看到 2024-05 起、一個空頭年都沒有，
+    #    而且不報錯（陷阱32 的同一個病根，2026-10-08 加了這個參數）。
+    #
+    # ⚠️ 2016~2017 不可用：S2/S3/S4 只回填到 2018-01-01，那兩年只有 5 個訊號
+    #    在跑、淨值天生偏小（實測 max 僅 3，2018+ 是 8~11）。本腳本 START=2018-01-01。
+    from backtest_stocks import _build_market_signals
+    print('計算大盤淨值（S1–S8）…', end='', flush=True)
+    _net = _build_market_signals(days=2600)
+    _miss_net = sum(1 for d in cal if d not in _net)
+    print(f' {len(_net)} 天　（本期間缺 {_miss_net} 天）')
+
+    def net_ok_series(th, confirm=1):
+        """
+        ok[i] = 第 i 個交易日允許補新倉（= 大盤淨值**沒有**觸發）。
+        confirm>1：要連續 confirm 天 net>=th 才算觸發（策略E 的 confirm_days）。
+        ⚠️ 淨值缺漏的日子一律視為「允許」—— 保守選擇，不讓缺資料變成假訊號。
+        """
+        bad = [(_net.get(d) is not None and _net[d] >= th) for d in cal]
+        ok, run = [True] * n, 0
+        for i in range(n):
+            run = run + 1 if bad[i] else 0
+            ok[i] = not (run >= confirm)
+        return ok
+
+    MKT[('net', 2)] = net_ok_series(2)
+    MKT[('net', 4)] = net_ok_series(4)
+    MKT[('netc2', 2)] = net_ok_series(2, confirm=2)
+
+    for k, s in MKT.items():
+        lab = (f'MA{k[1]}' if k[0] == 'ma' else
+               f'淨值≥{k[1]}' + ('（連2日確認）' if k[0] == 'netc2' else ''))
+        print(f'  {lab:<18}允許進場 {sum(s)/n*100:>3.0f}% 的交易日'
+              f'（觸發 {n - sum(s)} 天）')
 
     # ── 載入價格（array('d') + nan，1.9M 筆約 15MB）──
     print('載入全市場價格…', end='', flush=True)
@@ -328,11 +365,12 @@ def main():
 
         九組共用這個進場邏輯，只差 expiry_mode / use_stop / mkt ⇒ 差異可乾淨歸因。
 
-        mkt: None               不看大盤，永遠補滿（第二版的行為）
-             ('block', win)     指數 < MAwin 時不補新倉，已持有的照既有規則管理
-                                ⇒ **策略C 的空手代理**（C 明文「不因大盤轉弱出場」）
-             ('exit',  win)     指數 < MAwin 時不補新倉**且立即出清全部部位**
-                                ⇒ **策略D 的代理**
+        mkt: None                    不看大盤，永遠補滿
+             ('block', key)          觸發時不補新倉，已持有的照既有規則管理
+                                     ⇒ **策略C**（C 明文「不因大盤轉弱出場」）
+             ('exit',  key)          觸發時不補新倉**且立即出清全部部位** ⇒ **策略D**
+             key ∈ MKT：('ma',60) ('ma',20) ('net',2) ('net',4) ('netc2',2)
+             ⇒ ('ma',*) 是昨天的代理；('net',*) 才是**策略D 真正的觸發條件**
 
         expiry_mode:
           'none'  不因到期出場
@@ -370,7 +408,7 @@ def main():
                 lv *= 1 + sum(rs) / SLOTS
             invested_days += len(held) / SLOTS
 
-            mkt_ok = True if mkt is None else MA_OK[mkt[1]][i]
+            mkt_ok = True if mkt is None else MKT[mkt[1]][i]
 
             # ②a 策略D 代理：大盤轉空就出清（在個股規則之前）
             if mkt is not None and mkt[0] == 'exit' and not mkt_ok and held:
@@ -459,9 +497,14 @@ def main():
         ('(d) 無條件換倉+停損 ⚠️非現行', 'all',  True,  None),
         ('(e) ★續抱代理+停損',          'hold', True,  None),
         ('(f) 續抱代理、無停損',         'hold', False, None),
-        ('(g) ★(e)+MA60停買 ≈策略C',    'hold', True,  ('block', 60)),
-        ('(h) ★(e)+MA60出清 ≈策略D',    'hold', True,  ('exit',  60)),
-        ('(i) (e)+MA20停買 robustness', 'hold', True,  ('block', 20)),
+        ('(g) (e)+MA60停買【代理】',      'hold', True,  ('block', ('ma', 60))),
+        ('(h) (e)+MA60出清【代理】',      'hold', True,  ('exit',  ('ma', 60))),
+        ('(i) (e)+MA20停買【代理】',      'hold', True,  ('block', ('ma', 20))),
+        # ★ 2026-10-08 新增：真正的策略C／D 觸發條件（大盤淨值 S1–S8）
+        ('(j) ★(e)+淨值≥2停買 =真C',    'hold', True,  ('block', ('net', 2))),
+        ('(k) ★(e)+淨值≥2出清 =真D',    'hold', True,  ('exit',  ('net', 2))),
+        ('(l) ★(e)+淨值≥4出清 =UI紅框', 'hold', True,  ('exit',  ('net', 4))),
+        ('(m) (e)+淨值≥2出清 連2日確認', 'hold', True,  ('exit',  ('netc2', 2))),
     ]
     MAIN = '(e) ★續抱代理+停損'
 
@@ -589,9 +632,13 @@ def main():
     # 【核心問題四】第三版的主題：空頭保護是不是來自「空手」？
     # ══════════════════════════════════════════════════════════
     CASH = [MAIN,
-            '(g) ★(e)+MA60停買 ≈策略C',
-            '(h) ★(e)+MA60出清 ≈策略D',
-            '(i) (e)+MA20停買 robustness']
+            '(g) (e)+MA60停買【代理】',
+            '(h) (e)+MA60出清【代理】',
+            '(i) (e)+MA20停買【代理】',
+            '(j) ★(e)+淨值≥2停買 =真C',
+            '(k) ★(e)+淨值≥2出清 =真D',
+            '(l) ★(e)+淨值≥4出清 =UI紅框',
+            '(m) (e)+淨值≥2出清 連2日確認']
 
     def med3(label, y0, y1):
         i0, i1 = idx_range(y0, y1)
@@ -683,10 +730,15 @@ def main():
 
     PAIRS = [
         ('(e) ★續抱代理+停損',          '(d) 無條件換倉+停損 ⚠️非現行', '續抱值多少'),
-        ('(g) ★(e)+MA60停買 ≈策略C',    '(e) ★續抱代理+停損',          'MA60停買值多少'),
-        ('(h) ★(e)+MA60出清 ≈策略D',    '(e) ★續抱代理+停損',          'MA60出清值多少'),
-        ('(h) ★(e)+MA60出清 ≈策略D',    '(g) ★(e)+MA60停買 ≈策略C',    '★出清 vs 只停買（D vs C）'),
-        ('(i) (e)+MA20停買 robustness', '(g) ★(e)+MA60停買 ≈策略C',    'MA20 vs MA60（robustness）'),
+        # ★ 本次的核心：真觸發條件
+        ('(j) ★(e)+淨值≥2停買 =真C',    '(e) ★續抱代理+停損',          '★真C（淨值停買）值多少'),
+        ('(k) ★(e)+淨值≥2出清 =真D',    '(e) ★續抱代理+停損',          '★真D（淨值出清）值多少'),
+        ('(k) ★(e)+淨值≥2出清 =真D',    '(j) ★(e)+淨值≥2停買 =真C',    '★★真 D vs 真 C'),
+        ('(k) ★(e)+淨值≥2出清 =真D',    '(h) (e)+MA60出清【代理】',     '★★真D vs MA60代理D'),
+        ('(l) ★(e)+淨值≥4出清 =UI紅框', '(k) ★(e)+淨值≥2出清 =真D',    '≥4 vs ≥2（UI紅框門檻）'),
+        ('(m) (e)+淨值≥2出清 連2日確認', '(k) ★(e)+淨值≥2出清 =真D',    '連2日確認值多少（策略E）'),
+        # 代理組（昨天的，留著對照）
+        ('(h) (e)+MA60出清【代理】',     '(g) (e)+MA60停買【代理】',     '代理：出清 vs 停買'),
         ('(e) ★續抱代理+停損',          '(a) 買進持有 5 檔',            '整套結構 vs 買進持有'),
     ]
 
