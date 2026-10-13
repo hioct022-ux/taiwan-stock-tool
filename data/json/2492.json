@@ -2,17 +2,6 @@
   "code": "2492",
   "prices": [
     {
-      "date": "2025-02-21",
-      "open": 98.0,
-      "high": 99.0,
-      "low": 97.4,
-      "close": 98.8,
-      "volume": 2011829,
-      "value": 197683959.0,
-      "change": 2.0,
-      "change_pct": 2.07
-    },
-    {
       "date": "2025-02-24",
       "open": 98.5,
       "high": 99.5,
@@ -4400,6 +4389,17 @@
       "value": 9433817802.0,
       "change": -2.0,
       "change_pct": -0.48
+    },
+    {
+      "date": "2026-10-13",
+      "open": 400.5,
+      "high": 410.0,
+      "low": 376.5,
+      "close": 392.0,
+      "volume": 13463453,
+      "value": 5264776723.0,
+      "change": -26.0,
+      "change_pct": -6.22
     }
   ],
   "fundamentals": [
@@ -5158,23 +5158,16 @@
       "pe": 46.97,
       "pb": 3.05,
       "dividend_yield": 0.6
+    },
+    {
+      "date": "2026-10-12",
+      "eps_ttm": 9.49,
+      "pe": 44.04,
+      "pb": 2.86,
+      "dividend_yield": 0.64
     }
   ],
   "chips": [
-    {
-      "date": "2026-07-08",
-      "foreign_buy": 7380,
-      "foreign_sell": 9259,
-      "foreign_net": -1879,
-      "trust_buy": 3183,
-      "trust_sell": 735,
-      "trust_net": 2448,
-      "dealer_buy": 895,
-      "dealer_sell": 1378,
-      "dealer_net": -483,
-      "margin_balance": 0,
-      "short_balance": 0
-    },
     {
       "date": "2026-07-09",
       "foreign_buy": 4113,
@@ -6068,13 +6061,27 @@
       "dealer_buy": 202,
       "dealer_sell": 280,
       "dealer_net": -78,
-      "margin_balance": 0,
-      "short_balance": 0
+      "margin_balance": 23412,
+      "short_balance": 1666
+    },
+    {
+      "date": "2026-10-13",
+      "foreign_buy": 3044,
+      "foreign_sell": 865,
+      "foreign_net": 2178,
+      "trust_buy": 3,
+      "trust_sell": 78,
+      "trust_net": -75,
+      "dealer_buy": 279,
+      "dealer_sell": 1080,
+      "dealer_net": -801,
+      "margin_balance": 20844,
+      "short_balance": 1110
     }
   ],
   "ownership": {
-    "foreign_pct": 15.22,
-    "date": "2026-10-08"
+    "foreign_pct": 15.45,
+    "date": "2026-10-13"
   },
-  "exported_at": "2026-10-12 20:35"
+  "exported_at": "2026-10-13 22:01"
 }

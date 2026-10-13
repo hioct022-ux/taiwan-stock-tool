@@ -2,17 +2,6 @@
   "code": "2609",
   "prices": [
     {
-      "date": "2025-02-21",
-      "open": 71.8,
-      "high": 72.1,
-      "low": 71.4,
-      "close": 71.4,
-      "volume": 12700279,
-      "value": 910696293.0,
-      "change": -0.2,
-      "change_pct": -0.28
-    },
-    {
       "date": "2025-02-24",
       "open": 70.7,
       "high": 72.7,
@@ -4400,6 +4389,17 @@
       "value": 6977547592.0,
       "change": 3.9,
       "change_pct": 6.53
+    },
+    {
+      "date": "2026-10-13",
+      "open": 63.0,
+      "high": 64.8,
+      "low": 62.4,
+      "close": 64.5,
+      "volume": 64674613,
+      "value": 4137628826.0,
+      "change": 0.9,
+      "change_pct": 1.42
     }
   ],
   "fundamentals": [
@@ -5158,23 +5158,16 @@
       "pe": 14.32,
       "pb": 0.68,
       "dividend_yield": 3.14
+    },
+    {
+      "date": "2026-10-12",
+      "eps_ttm": 4.38,
+      "pe": 14.53,
+      "pb": 0.69,
+      "dividend_yield": 3.1
     }
   ],
   "chips": [
-    {
-      "date": "2026-07-08",
-      "foreign_buy": 7768,
-      "foreign_sell": 5035,
-      "foreign_net": 2733,
-      "trust_buy": 98,
-      "trust_sell": 0,
-      "trust_net": 98,
-      "dealer_buy": 151,
-      "dealer_sell": 60,
-      "dealer_net": 91,
-      "margin_balance": 0,
-      "short_balance": 0
-    },
     {
       "date": "2026-07-09",
       "foreign_buy": 3786,
@@ -6068,13 +6061,27 @@
       "dealer_buy": 2136,
       "dealer_sell": 716,
       "dealer_net": 1419,
-      "margin_balance": 0,
-      "short_balance": 0
+      "margin_balance": 30031,
+      "short_balance": 1270
+    },
+    {
+      "date": "2026-10-13",
+      "foreign_buy": 35786,
+      "foreign_sell": 13880,
+      "foreign_net": 21906,
+      "trust_buy": 1945,
+      "trust_sell": 78,
+      "trust_net": 1867,
+      "dealer_buy": 1311,
+      "dealer_sell": 1345,
+      "dealer_net": -34,
+      "margin_balance": 29951,
+      "short_balance": 1108
     }
   ],
   "ownership": {
-    "foreign_pct": 26.24,
-    "date": "2026-10-08"
+    "foreign_pct": 27.45,
+    "date": "2026-10-13"
   },
-  "exported_at": "2026-10-12 20:35"
+  "exported_at": "2026-10-13 22:01"
 }

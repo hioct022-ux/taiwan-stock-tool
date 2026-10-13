@@ -2,17 +2,6 @@
   "code": "9904",
   "prices": [
     {
-      "date": "2025-02-21",
-      "open": 37.85,
-      "high": 38.35,
-      "low": 37.65,
-      "close": 38.1,
-      "volume": 12847249,
-      "value": 489182752.0,
-      "change": 0.5,
-      "change_pct": 1.33
-    },
-    {
       "date": "2025-02-24",
       "open": 38.4,
       "high": 39.3,
@@ -4400,6 +4389,17 @@
       "value": 604702920.0,
       "change": 0.6,
       "change_pct": 2.4
+    },
+    {
+      "date": "2026-10-13",
+      "open": 25.5,
+      "high": 26.0,
+      "low": 25.5,
+      "close": 25.85,
+      "volume": 19969853,
+      "value": 516147721.0,
+      "change": 0.2,
+      "change_pct": 0.78
     }
   ],
   "fundamentals": [
@@ -5158,23 +5158,16 @@
       "pe": 5.43,
       "pb": 0.4,
       "dividend_yield": 5.07
+    },
+    {
+      "date": "2026-10-12",
+      "eps_ttm": 4.68,
+      "pe": 5.48,
+      "pb": 0.41,
+      "dividend_yield": 5.03
     }
   ],
   "chips": [
-    {
-      "date": "2026-07-08",
-      "foreign_buy": 6208,
-      "foreign_sell": 8739,
-      "foreign_net": -2531,
-      "trust_buy": 83,
-      "trust_sell": 14,
-      "trust_net": 69,
-      "dealer_buy": 218,
-      "dealer_sell": 18,
-      "dealer_net": 200,
-      "margin_balance": 0,
-      "short_balance": 0
-    },
     {
       "date": "2026-07-09",
       "foreign_buy": 10945,
@@ -6068,13 +6061,27 @@
       "dealer_buy": 475,
       "dealer_sell": 216,
       "dealer_net": 259,
-      "margin_balance": 0,
-      "short_balance": 0
+      "margin_balance": 22770,
+      "short_balance": 14
+    },
+    {
+      "date": "2026-10-13",
+      "foreign_buy": 12541,
+      "foreign_sell": 3235,
+      "foreign_net": 9306,
+      "trust_buy": 166,
+      "trust_sell": 200,
+      "trust_net": -34,
+      "dealer_buy": 457,
+      "dealer_sell": 179,
+      "dealer_net": 278,
+      "margin_balance": 22501,
+      "short_balance": 14
     }
   ],
   "ownership": {
-    "foreign_pct": 27.06,
-    "date": "2026-10-08"
+    "foreign_pct": 27.68,
+    "date": "2026-10-13"
   },
-  "exported_at": "2026-10-12 20:35"
+  "exported_at": "2026-10-13 22:01"
 }

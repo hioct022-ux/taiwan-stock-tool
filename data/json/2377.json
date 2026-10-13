@@ -2,17 +2,6 @@
   "code": "2377",
   "prices": [
     {
-      "date": "2025-02-21",
-      "open": 200.0,
-      "high": 204.5,
-      "low": 197.5,
-      "close": 201.0,
-      "volume": 6488697,
-      "value": 1298450820.0,
-      "change": 2.0,
-      "change_pct": 1.01
-    },
-    {
       "date": "2025-02-24",
       "open": 199.0,
       "high": 199.5,
@@ -4400,6 +4389,17 @@
       "value": 481822601.0,
       "change": 0.5,
       "change_pct": 0.32
+    },
+    {
+      "date": "2026-10-13",
+      "open": 154.0,
+      "high": 158.0,
+      "low": 152.0,
+      "close": 157.0,
+      "volume": 8682441,
+      "value": 1346722050.0,
+      "change": 2.0,
+      "change_pct": 1.29
     }
   ],
   "fundamentals": [
@@ -5158,23 +5158,16 @@
       "pe": 13.44,
       "pb": 2.26,
       "dividend_yield": 2.71
+    },
+    {
+      "date": "2026-10-12",
+      "eps_ttm": 11.38,
+      "pe": 13.62,
+      "pb": 2.28,
+      "dividend_yield": 2.68
     }
   ],
   "chips": [
-    {
-      "date": "2026-07-08",
-      "foreign_buy": 13722,
-      "foreign_sell": 6060,
-      "foreign_net": 7662,
-      "trust_buy": 30,
-      "trust_sell": 0,
-      "trust_net": 30,
-      "dealer_buy": 602,
-      "dealer_sell": 193,
-      "dealer_net": 410,
-      "margin_balance": 0,
-      "short_balance": 0
-    },
     {
       "date": "2026-07-09",
       "foreign_buy": 11201,
@@ -6068,13 +6061,27 @@
       "dealer_buy": 69,
       "dealer_sell": 59,
       "dealer_net": 10,
-      "margin_balance": 0,
-      "short_balance": 0
+      "margin_balance": 11540,
+      "short_balance": 85
+    },
+    {
+      "date": "2026-10-13",
+      "foreign_buy": 3586,
+      "foreign_sell": 1746,
+      "foreign_net": 1840,
+      "trust_buy": 2169,
+      "trust_sell": 1687,
+      "trust_net": 482,
+      "dealer_buy": 283,
+      "dealer_sell": 184,
+      "dealer_net": 99,
+      "margin_balance": 11346,
+      "short_balance": 89
     }
   ],
   "ownership": {
-    "foreign_pct": 19.82,
-    "date": "2026-10-08"
+    "foreign_pct": 20.04,
+    "date": "2026-10-13"
   },
-  "exported_at": "2026-10-12 20:35"
+  "exported_at": "2026-10-13 22:01"
 }
