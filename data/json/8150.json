@@ -2,17 +2,6 @@
   "code": "8150",
   "prices": [
     {
-      "date": "2025-02-24",
-      "open": 33.95,
-      "high": 34.5,
-      "low": 33.75,
-      "close": 34.2,
-      "volume": 1442512,
-      "value": 49342657.0,
-      "change": 0.05,
-      "change_pct": 0.15
-    },
-    {
       "date": "2025-02-25",
       "open": 33.9,
       "high": 34.2,
@@ -4400,6 +4389,17 @@
       "value": 3753722019.0,
       "change": -7.0,
       "change_pct": -5.69
+    },
+    {
+      "date": "2026-10-14",
+      "open": 116.0,
+      "high": 117.0,
+      "low": 113.0,
+      "close": 117.0,
+      "volume": 19351312,
+      "value": 2240438696.0,
+      "change": 1.0,
+      "change_pct": 0.86
     }
   ],
   "fundamentals": [
@@ -5165,23 +5165,16 @@
       "pe": 36.14,
       "pb": 3.27,
       "dividend_yield": 1.06
+    },
+    {
+      "date": "2026-10-13",
+      "eps_ttm": 3.18,
+      "pe": 36.45,
+      "pb": 3.3,
+      "dividend_yield": 1.05
     }
   ],
   "chips": [
-    {
-      "date": "2026-07-09",
-      "foreign_buy": 19494,
-      "foreign_sell": 10130,
-      "foreign_net": 9365,
-      "trust_buy": 0,
-      "trust_sell": 1,
-      "trust_net": -1,
-      "dealer_buy": 987,
-      "dealer_sell": 482,
-      "dealer_net": 505,
-      "margin_balance": 0,
-      "short_balance": 0
-    },
     {
       "date": "2026-07-13",
       "foreign_buy": 35088,
@@ -6077,11 +6070,25 @@
       "dealer_net": -1392,
       "margin_balance": 18748,
       "short_balance": 1034
+    },
+    {
+      "date": "2026-10-14",
+      "foreign_buy": 5620,
+      "foreign_sell": 8609,
+      "foreign_net": -2988,
+      "trust_buy": 1,
+      "trust_sell": 0,
+      "trust_net": 1,
+      "dealer_buy": 148,
+      "dealer_sell": 375,
+      "dealer_net": -226,
+      "margin_balance": 19362,
+      "short_balance": 996
     }
   ],
   "ownership": {
-    "foreign_pct": 46.34,
-    "date": "2026-10-13"
+    "foreign_pct": 45.89,
+    "date": "2026-10-14"
   },
-  "exported_at": "2026-10-13 22:01"
+  "exported_at": "2026-10-14 22:09"
 }

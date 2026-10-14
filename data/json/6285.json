@@ -2,17 +2,6 @@
   "code": "6285",
   "prices": [
     {
-      "date": "2025-02-24",
-      "open": 148.0,
-      "high": 149.5,
-      "low": 147.0,
-      "close": 147.5,
-      "volume": 2381967,
-      "value": 353004147.0,
-      "change": -1.0,
-      "change_pct": -0.67
-    },
-    {
       "date": "2025-02-25",
       "open": 146.5,
       "high": 148.0,
@@ -4400,6 +4389,17 @@
       "value": 3557084982.0,
       "change": -17.0,
       "change_pct": -6.45
+    },
+    {
+      "date": "2026-10-14",
+      "open": 249.5,
+      "high": 255.0,
+      "low": 248.5,
+      "close": 253.0,
+      "volume": 5462317,
+      "value": 1380499206.0,
+      "change": 6.5,
+      "change_pct": 2.64
     }
   ],
   "fundamentals": [
@@ -5165,23 +5165,16 @@
       "pe": 27.0,
       "pb": 3.33,
       "dividend_yield": 1.74
+    },
+    {
+      "date": "2026-10-13",
+      "eps_ttm": 8.9,
+      "pe": 27.71,
+      "pb": 3.42,
+      "dividend_yield": 1.7
     }
   ],
   "chips": [
-    {
-      "date": "2026-07-09",
-      "foreign_buy": 8954,
-      "foreign_sell": 6259,
-      "foreign_net": 2694,
-      "trust_buy": 8,
-      "trust_sell": 4,
-      "trust_net": 4,
-      "dealer_buy": 364,
-      "dealer_sell": 650,
-      "dealer_net": -287,
-      "margin_balance": 0,
-      "short_balance": 0
-    },
     {
       "date": "2026-07-13",
       "foreign_buy": 5282,
@@ -6077,11 +6070,25 @@
       "dealer_net": -683,
       "margin_balance": 15021,
       "short_balance": 130
+    },
+    {
+      "date": "2026-10-14",
+      "foreign_buy": 2531,
+      "foreign_sell": 1297,
+      "foreign_net": 1234,
+      "trust_buy": 6,
+      "trust_sell": 0,
+      "trust_net": 6,
+      "dealer_buy": 187,
+      "dealer_sell": 120,
+      "dealer_net": 67,
+      "margin_balance": 14944,
+      "short_balance": 323
     }
   ],
   "ownership": {
-    "foreign_pct": 22.19,
-    "date": "2026-10-13"
+    "foreign_pct": 22.46,
+    "date": "2026-10-14"
   },
-  "exported_at": "2026-10-13 22:01"
+  "exported_at": "2026-10-14 22:09"
 }

@@ -2,17 +2,6 @@
   "code": "2059",
   "prices": [
     {
-      "date": "2025-02-24",
-      "open": 1825.0,
-      "high": 1930.0,
-      "low": 1780.0,
-      "close": 1930.0,
-      "volume": 2404707,
-      "value": 4486258255.0,
-      "change": 65.0,
-      "change_pct": 3.49
-    },
-    {
       "date": "2025-02-25",
       "open": 1930.0,
       "high": 1975.0,
@@ -4400,6 +4389,17 @@
       "value": 9765700365.0,
       "change": -520.0,
       "change_pct": -4.91
+    },
+    {
+      "date": "2026-10-14",
+      "open": 10155.0,
+      "high": 10295.0,
+      "low": 9950.0,
+      "close": 10005.0,
+      "volume": 680599,
+      "value": 6846369925.0,
+      "change": -55.0,
+      "change_pct": -0.55
     }
   ],
   "fundamentals": [
@@ -5165,23 +5165,16 @@
       "pe": 55.46,
       "pb": 28.4,
       "dividend_yield": 0.51
+    },
+    {
+      "date": "2026-10-13",
+      "eps_ttm": 182.38,
+      "pe": 55.16,
+      "pb": 28.25,
+      "dividend_yield": 0.51
     }
   ],
   "chips": [
-    {
-      "date": "2026-07-09",
-      "foreign_buy": 293,
-      "foreign_sell": 502,
-      "foreign_net": -209,
-      "trust_buy": 132,
-      "trust_sell": 0,
-      "trust_net": 131,
-      "dealer_buy": 10,
-      "dealer_sell": 13,
-      "dealer_net": -3,
-      "margin_balance": 0,
-      "short_balance": 0
-    },
     {
       "date": "2026-07-13",
       "foreign_buy": 334,
@@ -6077,11 +6070,25 @@
       "dealer_net": 4,
       "margin_balance": 728,
       "short_balance": 0
+    },
+    {
+      "date": "2026-10-14",
+      "foreign_buy": 276,
+      "foreign_sell": 352,
+      "foreign_net": -76,
+      "trust_buy": 6,
+      "trust_sell": 76,
+      "trust_net": -70,
+      "dealer_buy": 31,
+      "dealer_sell": 43,
+      "dealer_net": -12,
+      "margin_balance": 730,
+      "short_balance": 1
     }
   ],
   "ownership": {
-    "foreign_pct": 23.13,
-    "date": "2026-10-13"
+    "foreign_pct": 23.05,
+    "date": "2026-10-14"
   },
-  "exported_at": "2026-10-13 22:01"
+  "exported_at": "2026-10-14 22:09"
 }

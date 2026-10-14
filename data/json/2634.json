@@ -2,17 +2,6 @@
   "code": "2634",
   "prices": [
     {
-      "date": "2025-02-24",
-      "open": 45.1,
-      "high": 45.15,
-      "low": 44.75,
-      "close": 44.75,
-      "volume": 3221529,
-      "value": 144854400.0,
-      "change": -0.4,
-      "change_pct": -0.89
-    },
-    {
       "date": "2025-02-25",
       "open": 44.85,
       "high": 45.1,
@@ -4400,6 +4389,17 @@
       "value": 435431374.0,
       "change": -1.1,
       "change_pct": -1.76
+    },
+    {
+      "date": "2026-10-14",
+      "open": 61.5,
+      "high": 62.5,
+      "low": 61.5,
+      "close": 62.1,
+      "volume": 3614591,
+      "value": 224499735.0,
+      "change": 0.7,
+      "change_pct": 1.14
     }
   ],
   "fundamentals": [
@@ -5165,23 +5165,16 @@
       "pe": 29.66,
       "pb": 3.15,
       "dividend_yield": 1.27
+    },
+    {
+      "date": "2026-10-13",
+      "eps_ttm": 2.05,
+      "pe": 30.0,
+      "pb": 3.18,
+      "dividend_yield": 1.26
     }
   ],
   "chips": [
-    {
-      "date": "2026-07-09",
-      "foreign_buy": 10727,
-      "foreign_sell": 7951,
-      "foreign_net": 2777,
-      "trust_buy": 24,
-      "trust_sell": 2,
-      "trust_net": 22,
-      "dealer_buy": 485,
-      "dealer_sell": 533,
-      "dealer_net": -48,
-      "margin_balance": 0,
-      "short_balance": 0
-    },
     {
       "date": "2026-07-13",
       "foreign_buy": 18188,
@@ -6077,11 +6070,25 @@
       "dealer_net": -429,
       "margin_balance": 23393,
       "short_balance": 287
+    },
+    {
+      "date": "2026-10-14",
+      "foreign_buy": 1129,
+      "foreign_sell": 322,
+      "foreign_net": 807,
+      "trust_buy": 0,
+      "trust_sell": 20,
+      "trust_net": -20,
+      "dealer_buy": 74,
+      "dealer_sell": 18,
+      "dealer_net": 56,
+      "margin_balance": 23170,
+      "short_balance": 277
     }
   ],
   "ownership": {
-    "foreign_pct": 3.13,
-    "date": "2026-10-13"
+    "foreign_pct": 3.22,
+    "date": "2026-10-14"
   },
-  "exported_at": "2026-10-13 22:01"
+  "exported_at": "2026-10-14 22:09"
 }

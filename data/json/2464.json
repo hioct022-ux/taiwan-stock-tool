@@ -2,17 +2,6 @@
   "code": "2464",
   "prices": [
     {
-      "date": "2025-02-24",
-      "open": 81.7,
-      "high": 82.3,
-      "low": 81.1,
-      "close": 81.6,
-      "volume": 3911613,
-      "value": 319376724.0,
-      "change": -0.9,
-      "change_pct": -1.09
-    },
-    {
       "date": "2025-02-25",
       "open": 81.4,
       "high": 82.4,
@@ -4400,6 +4389,17 @@
       "value": 1591510568.0,
       "change": -7.5,
       "change_pct": -3.92
+    },
+    {
+      "date": "2026-10-14",
+      "open": 185.5,
+      "high": 193.0,
+      "low": 185.5,
+      "close": 189.0,
+      "volume": 6174161,
+      "value": 1168553016.0,
+      "change": 5.0,
+      "change_pct": 2.72
     }
   ],
   "fundamentals": [
@@ -5165,23 +5165,16 @@
       "pe": 484.21,
       "pb": 6.99,
       "dividend_yield": 0.26
+    },
+    {
+      "date": "2026-10-13",
+      "eps_ttm": 0.37,
+      "pe": 497.37,
+      "pb": 7.18,
+      "dividend_yield": 0.25
     }
   ],
   "chips": [
-    {
-      "date": "2026-07-09",
-      "foreign_buy": 1402,
-      "foreign_sell": 3243,
-      "foreign_net": -1841,
-      "trust_buy": 0,
-      "trust_sell": 0,
-      "trust_net": 0,
-      "dealer_buy": 148,
-      "dealer_sell": 107,
-      "dealer_net": 41,
-      "margin_balance": 0,
-      "short_balance": 0
-    },
     {
       "date": "2026-07-13",
       "foreign_buy": 3170,
@@ -6077,11 +6070,25 @@
       "dealer_net": -328,
       "margin_balance": 19224,
       "short_balance": 264
+    },
+    {
+      "date": "2026-10-14",
+      "foreign_buy": 2278,
+      "foreign_sell": 1512,
+      "foreign_net": 766,
+      "trust_buy": 0,
+      "trust_sell": 0,
+      "trust_net": 0,
+      "dealer_buy": 119,
+      "dealer_sell": 39,
+      "dealer_net": 80,
+      "margin_balance": 19685,
+      "short_balance": 305
     }
   ],
   "ownership": {
-    "foreign_pct": 12.26,
-    "date": "2026-10-13"
+    "foreign_pct": 12.61,
+    "date": "2026-10-14"
   },
-  "exported_at": "2026-10-13 22:01"
+  "exported_at": "2026-10-14 22:09"
 }
