@@ -408,6 +408,38 @@ def save_chips(code, date, data):
     conn.commit()
     conn.close()
 
+def get_monthly_revenue(code, limit=24, as_of=None):
+    """
+    個股月營收（`monthly_revenue` 表），依「營收月份」**降序**（最新在前）。
+
+    ★ **一律只回傳 `avail_date <= as_of` 的列**（預設 as_of=今天）。
+      `avail_date` = 營收月的次月 11 日 = 最早可用日。
+      這個過濾**不可以拿掉**——十五章月營收那節花了很大篇幅說明為什麼：
+      沒有任何來源提供逐股公布日，FinMind 的 `date` 欄是次月 1 日（偷看 10 天），
+      而 2026-10-06 實查 9 月營收當天只有 176/993 檔已公布
+      ⇒ 用次月 1 日拿到的是「只有 18% 公司、且偏向先公布者（業績通常較好）」，
+        那是比單純偷看 10 天**更惡性的選擇偏誤**。
+
+    回傳 key：rev_year, rev_month, avail_date, revenue, yoy_pct, mom_pct,
+              cum_yoy_pct, revenue_last_y
+    單位：revenue 為**仟元**（MOPS 原始單位，不要在這裡換算，顯示層自己處理）
+    """
+    import datetime as _dt
+    if as_of is None:
+        as_of = _dt.date.today().isoformat()
+    conn = get_conn()
+    cols = ['rev_year', 'rev_month', 'avail_date', 'revenue', 'yoy_pct',
+            'mom_pct', 'cum_yoy_pct', 'revenue_last_y']
+    rows = conn.execute(
+        f'SELECT {", ".join(cols)} FROM monthly_revenue '
+        'WHERE code=? AND avail_date<=? '
+        'ORDER BY rev_year DESC, rev_month DESC LIMIT ?',
+        (code, as_of, limit)).fetchall()
+    conn.close()
+    # ⚠️ get_conn() 無 row_factory，必須手動 zip（陷阱12 的通則）
+    return [dict(zip(cols, r)) for r in rows]
+
+
 def get_chips(code, days=65):
     from datetime import timedelta
     cutoff = (datetime.now() - timedelta(days=days * 2)).strftime('%Y-%m-%d')

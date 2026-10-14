@@ -158,6 +158,7 @@ def export_to_json(code=None):
     for c in codes:
         try:
             from database import get_ownership as _get_own
+            from database import get_monthly_revenue as _get_rev
             _own_row = _get_own(c)
             stock_data = {
                 'code':         c,
@@ -165,6 +166,13 @@ def export_to_json(code=None):
                 'fundamentals': get_fundamentals(c, days=400),
                 'chips':        get_chips(c, days=65),
                 'ownership':    _own_row,          # {'foreign_pct': float, 'date': str} 或 None
+                # ★ 2026-10-14 新增：月營收（純資訊顯示用，不計入評分）
+                #   取 24 個月足夠畫圖；`get_monthly_revenue()` 內建 avail_date 過濾，
+                #   所以匯出的資料本身就不含「尚未公布」的月份（防 look-ahead）。
+                #   ⚠️ 刻意加在**個股 JSON** 而不是另開一個大盤層級檔案——
+                #     後者要改 `init_cloud_data()` 的 skip 名單（第六章規定），
+                #     而月營收本來就是 per-stock 資料。
+                'monthly_revenue': _get_rev(c, limit=24),
                 'exported_at':  datetime.now().strftime('%Y-%m-%d %H:%M')
             }
             path = os.path.join(JSON_DIR, f'{c}.json')

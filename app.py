@@ -730,6 +730,31 @@ def _read_stock_json(code):
     except Exception:
         return [], [], [], None
 
+def _monthly_revenue_for(code, limit=24):
+    """
+    月營收（純資訊顯示用）。本機讀 DB、雲端讀個股 JSON。
+
+    ⚠️ **刻意不改 `_read_stock_json()` 的回傳 arity**（它現在回 4-tuple，
+      多處呼叫；改成 5-tuple 等於要同步改每一個 call site，而漏掉一處就是
+      ValueError）。所以這裡另開一個函式讀同一個 JSON 檔。
+
+    ⚠️ 本機路徑的 avail_date 過濾在 `get_monthly_revenue()` 內；
+      雲端讀到的 JSON 是匯出時就已過濾過的，兩邊都不會出現未公布的月份。
+    """
+    if IS_LOCAL:
+        try:
+            from database import get_monthly_revenue as _gmr
+            return _gmr(code, limit=limit)
+        except Exception:
+            return []
+    try:
+        import json as _jr
+        with open(os.path.join('data', 'json', f'{code}.json'), encoding='utf-8') as _f:
+            return (_jr.load(_f).get('monthly_revenue') or [])[:limit]
+    except Exception:
+        return []
+
+
 # 雲端模式初始化：用 exported_at 當版本號，每次新部署（sync 後）才重新匯入
 def _get_meta_version():
     try:
@@ -1942,6 +1967,83 @@ def render_fundamental(result, code, name):
                 st.warning(f'PB={pb:.2f}倍偏高，市場給予明顯溢價，需要持續的高獲利能力來支撐。')
             else:
                 st.error(f'PB={pb:.2f}倍極高，市場期待非常強勁的成長，若獲利不如預期股價修正風險大。')
+
+    # ── 月營收 YoY（★ 2026-10-14 新增，純資訊顯示）──────────
+    #
+    # 為什麼加這個：2026-10-07 的檢定裡，月營收 YoY 是本專案**第一個通過完整
+    # 對照檢定的訊號**（高低組 spread +1.98%/月、t=+6.44、控制動能後仍保留 85%）。
+    # 而現有評分的基本面 25% 只有 PE/PB/殖利率——**全是評價類，完全不看成長**。
+    # 典型案例：1303 南亞 2026-10 月營收 YoY 連四月加速到 +46.7%，
+    # 但 trailing PE 56 倍讓基本面只給 23 分、判為「昂貴」。
+    #
+    # ⚠️ 但它**只是顯示**，定位與 🎯🔥 型態、量能水位、類股資金流向完全相同。
+    #   caption 那串「不計入評分／不影響門檻／不可當作進出場理由」**必須保留**，
+    #   少了那句日後必被當訊號用（這是第五次套用同一條通則）。
+    #   兩個已量到的硬限制讓它現在還不能當規則：
+    #     (a) 優勢約 0.5pp/月，而持 5 檔的運氣波動是 ±8pp/月 ⇒ 完全看不見
+    #     (b) 動能交互作用：動能最弱那組 YoY 幾乎沒用（t=+1.42）
+    #   要當規則必須先照十五章的流程回測「現有策略 + YoY 篩選」。
+    _rev = _monthly_revenue_for(code, limit=24)
+    if _rev:
+        st.markdown('---')
+        st.markdown('#### 🏭 月營收年增率（YoY）')
+        try:
+            _rv = list(reversed(_rev))          # 轉成時間升序供畫圖
+            _rx = [f'{r["rev_year"]}/{r["rev_month"]:02d}' for r in _rv]
+            _ry = [r.get('yoy_pct') for r in _rv]
+            _rr = [(r.get('revenue') or 0) / 100000 for r in _rv]   # 仟元 → 億元
+
+            _c1, _c2, _c3 = st.columns(3)
+            _last = _rev[0]
+            _c1.metric('最新月營收',
+                       f'{(_last.get("revenue") or 0)/100000:,.1f} 億',
+                       delta=f'{_last["rev_year"]}年{_last["rev_month"]}月')
+            _yn = _last.get('yoy_pct')
+            _c2.metric('年增率 YoY',
+                       f'{_yn:+.1f}%' if _yn is not None else 'N/A')
+            _mn = _last.get('mom_pct')
+            _c3.metric('月增率 MoM',
+                       f'{_mn:+.1f}%' if _mn is not None else 'N/A')
+
+            _fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
+                                 vertical_spacing=0.08, row_heights=[0.55, 0.45],
+                                 subplot_titles=('年增率 YoY（%）', '月營收（億元）'))
+            # 台灣慣例：紅色=成長、綠色=衰退（陷阱25）
+            _fig.add_trace(go.Bar(x=_rx, y=_ry, name='YoY',
+                                  marker_color=['#ef4444' if (v or 0) >= 0 else '#22c55e'
+                                                for v in _ry],
+                                  hovertemplate='%{x}　YoY %{y:+.1f}%<extra></extra>'),
+                           row=1, col=1)
+            _fig.add_hline(y=0, line_dash='dot', line_color='#64748b', row=1, col=1)
+            _fig.add_trace(go.Bar(x=_rx, y=_rr, name='月營收',
+                                  marker_color='#3b82f6',
+                                  hovertemplate='%{x}　%{y:,.1f} 億元<extra></extra>'),
+                           row=2, col=1)
+            _fig.update_layout(height=420, showlegend=False,
+                               margin=dict(l=10, r=10, t=40, b=10))
+            show_chart(_fig, key=f'rev_yoy_{code}')
+
+            # ⚠️ 資料新鮮度必須顯示出來——`monthly_revenue` 是 2026-10-07 一次性回填，
+            #   **目前沒有接進每日更新**，所以它會隨時間變舊而且不會有任何警告。
+            #   把「營收月份」與「可用日」印出來，讓過期這件事至少是看得見的。
+            st.caption(
+                f'資料截至 **{_last["rev_year"]}年{_last["rev_month"]}月**營收'
+                f'（最早可用日 {_last.get("avail_date")}）。'
+                f'　⚠️ 月營收**尚未接進每日更新**（2026-10-07 一次性回填），'
+                f'若上面的月份明顯落後，需手動執行 `backfill_monthly_revenue.py`。')
+            st.caption(
+                '🏭 來源 MOPS t21sc03；**每筆只在「營收月的次月 11 日」之後才顯示**'
+                '（法規要求 10 日前公布完，用次月 1 日會偷看 10 天——'
+                '實測公布首日只有 18% 公司交卷，且偏向業績好的先公布）。'
+                '　📌 **純資訊參考：不計入評分、不影響進場門檻、不可當作進出場理由。**'
+                '月營收 YoY 在 2026-10-07 的檢定中確實通過（spread +1.98%/月、t=+6.44），'
+                '但兩個限制讓它現在不能當規則：(1) 優勢約 0.5pp/月，'
+                '而持 5 檔的運氣波動是 ±8pp/月，完全看不見；'
+                '(2) 動能最弱的那組 YoY 幾乎沒有效果。'
+                '要當規則必須先回測「現有策略＋YoY 篩選」。')
+        except Exception as _e:
+            # 資料欄位異常就整段不顯示，不讓它打斷整個基本面頁
+            st.caption(f'月營收圖表無法顯示：{_e}')
 
     # ── 季度 EPS 歷史線圖 ────────────────────
     st.markdown('---')
