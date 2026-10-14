@@ -117,7 +117,7 @@ def _vol20(closes):
 
 
 # ════════════════ 第一段：建快取 ════════════════
-def build_cache(universe='watchlist'):
+def build_cache(universe='watchlist', days=600, price_win=300):
     """
     universe='watchlist' → 87 檔自選股（原行為，存 CACHE）
     universe='market'    → 全市場上市普通股（存 CACHE_MARKET）
@@ -137,9 +137,20 @@ def build_cache(universe='watchlist'):
     補了 439 個交易日的全市場價格（56 萬列），否則全市場股票只有 87 天歷史，
     `pos_250`/`ma240` 會靜默退化（陷阱32）。
     """
-    print('計算大盤訊號（S1–S8 逐日回溯）...')
-    market_net = bs._build_market_signals()
-    tpx = get_prices('TAIEX', days=600)
+    # ★ 2026-10-14：`days` 參數化。**原本五處全部寫死 600**，
+    #   於是 2026-10-08 回填 2018 歷史之後，這支仍然只看 2024-05 起
+    #   ——一個空頭年都沒有，而且不報錯。這是陷阱51 那條通則的
+    #   **第三次出現**（前兩次：陷阱32 的 calc_all 餵 30 天、
+    #   陷阱51 的 _build_market_signals 寫死 600）。
+    #
+    # ★ `price_win`：傳給 full_score 的價格視窗上限。
+    #   原本是 `prices[:i+1]`（整段，對 2,133 筆資料是 O(n²)）。
+    #   `calc_all()` 最長只需要 250 筆（pos_250／ma240），取 300 留餘裕。
+    #   **2026-10-14 實測 2330：逐日逐欄 2042/2042 完全相同、快 1.4×。**
+    #   ⚠️ 若日後新增週期 >300 的指標，這裡必須同步加大（陷阱32）。
+    print(f'計算大盤訊號（S1–S8 逐日回溯，days={days}）...')
+    market_net = bs._build_market_signals(days=days)
+    tpx = get_prices('TAIEX', days=days)
     tpx_close = {p['date']: p['close'] for p in tpx}
     tpx_dates = [p['date'] for p in tpx]
 
@@ -160,11 +171,11 @@ def build_cache(universe='watchlist'):
     print(f'逐股逐日計算評分與波動度（{len(wl)} 檔）...')
     for n, s in enumerate(wl, 1):
         code, name = s['code'], s['name']
-        prices    = get_prices(code, days=600)
+        prices    = get_prices(code, days=days)
         if len(prices) < MIN_HISTORY + HOLD_DAYS + 2:
             continue
-        fund_all  = get_fundamentals(code, days=600)
-        chips_all = get_chips(code, days=600)
+        fund_all  = get_fundamentals(code, days=days)
+        chips_all = get_chips(code, days=days)
         own_raw   = get_ownership(code)
         ownership = {'foreign': own_raw['foreign_pct']} if own_raw else {'foreign': 52}
 
@@ -177,7 +188,7 @@ def build_cache(universe='watchlist'):
             d = prices[i]['date']
             fund_slice  = [r for r in fund_all  if r['date'] <= d]
             chips_slice = [r for r in chips_all if r['date'] <= d][-65:]
-            r = full_score(prices[:i+1], fund_slice, chips_slice, ownership)
+            r = full_score(prices[max(0, i - price_win + 1):i+1], fund_slice, chips_slice, ownership)
             if r:
                 score_by_date[d] = r['total_score']
                 parts_by_date[d] = (r.get('tech_score'), r.get('chip_score'),
@@ -206,7 +217,7 @@ def build_cache(universe='watchlist'):
 
 
 # ════════════════ 第二段：組合模擬 ════════════════
-def simulate(cache, rank_key, max_positions, label, score_filter=None):
+def simulate(cache, rank_key, max_positions, label, score_filter=None, entry_filter=None):
     """
     rank_key      : callable(code, date, stocks) -> 排序用的 tuple（小的先選）
     max_positions : None = 無上限（＝現行回測行為）
@@ -214,6 +225,14 @@ def simulate(cache, rank_key, max_positions, label, score_filter=None):
                     給 callable(sc) -> bool 則**取代**門檻判斷，
                     用來測「進場評分落在某個區間」會怎樣（backtest_score_bands.py 用）。
                     ⚠️ `<45 停止進場` 那條規則**仍然生效**，只換掉個股門檻這一項。
+    entry_filter  : None（預設）= 完全不改變行為；
+                    給 callable(code, date) -> bool 則在**評分門檻通過之後**
+                    再加一道篩選（AND，不取代任何既有條件）。
+                    2026-10-14 新增，用來測「現有策略 ＋ 月營收 YoY 篩選」。
+                    ★ 刻意設計成「附加」而非「取代」——filter=None 時這支函式
+                      與改版前位元級相同，所以**不需要另寫一份 simulate 再對帳**
+                      （10/07 那條「給對照組命名要逐條核對現行規則」的通則，
+                      最可靠的落實方式就是根本不要有第二份實作）。
     """
     stocks     = cache['stocks']
     market_net = cache['market_net']
@@ -271,6 +290,8 @@ def simulate(cache, rank_key, max_positions, label, score_filter=None):
                 if sc < thr:
                     continue
             elif not score_filter(sc):
+                continue
+            if entry_filter is not None and not entry_filter(code, d):
                 continue
             cands.append(code)
 
