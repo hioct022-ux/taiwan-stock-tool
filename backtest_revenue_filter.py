@@ -535,6 +535,74 @@ def run():
      • **除息月的 B3−C 明顯更高** ⇒ 效果主要來自股利 ⇒ 🚨 假訊號
      • **其他 8 月 ≥ 除息月** ⇒ 與假訊號方向相反 ⇒ 地雷沒引爆（10/07 就是這樣）''')
 
+    # ════ ★★ 除息調整後重做同一個診斷（2026-10-15 新增）════
+    #
+    # 上面那個診斷是「自我診斷」——它在**沒有股利資料**的前提下，
+    # 靠「效果有沒有集中在除息月」來反推。現在 `exdividend` 已回填 2018~2026
+    # （陷阱52），可以直接把股利加回去，不必再靠反推。
+    #
+    # 🚨 但只能看「兩組相減」。理由（exdiv.py 有完整說明）：
+    #    TAIEX 是價格指數、同樣不含股利 ⇒ 只調整個股那一邊，
+    #    alpha 會憑空多出整個市場的殖利率。
+    #    而 B3−C 是**兩個 alpha 相減**，市場項精確消掉
+    #    ⇒ (個股B3 − 市場) − (個股C − 市場) = 個股B3 − 個股C
+    #    ⇒ 基準含不含股利完全不影響這個差值。**這一題剛好只需要個股端。**
+    print('\n' + '=' * 92)
+    print('【★★ 除息調整後】同一個診斷，但直接把股利加回個股報酬')
+    print('=' * 92)
+    if len(_trs) == 2:
+        import exdiv
+        _ok = exdiv.require_coverage(ds[0], ds[-1])
+        if not _ok:
+            print('\n⇒ 跳過除息調整（資料未回填完整）。上面那個「自我診斷」仍然有效。')
+        else:
+            _codes = {t['code'] for tr in _trs.values() for t in tr}
+            _divs = exdiv.load_dividends(_codes)
+            for lb in _trs:
+                exdiv.adjust_trades(_trs[lb], _divs)
+                print(f'  {lb[:28]:<28}{exdiv.summary_line(_trs[lb])}')
+
+            print(f'\n  {"進場月":<14}{"B3−C 未調整":>14}{"B3−C 除息調整後":>18}'
+                  f'{"變化":>10}')
+            print('  ' + '-' * 58)
+            _flip = {}
+            for seg, mths in (('6~9月（除息月）', {'06', '07', '08', '09'}),
+                              ('其他 8 個月',     {'01', '02', '03', '04', '05',
+                                                  '10', '11', '12'})):
+                _d = {}
+                for k in ('pnl', 'pnl_div'):
+                    row = [P.stat([t for t in _trs[lb]
+                                   if t['entry_date'][5:7] in mths], tpx, key=k)
+                           for lb in (_b3, _c)]
+                    _d[k] = (row[0]['alpha'] - row[1]['alpha']) if all(row) else None
+                if _d['pnl'] is not None and _d['pnl_div'] is not None:
+                    _flip[seg] = _d['pnl_div']
+                    print(f'  {seg:<14}{_d["pnl"]:>+13.2f}pp{_d["pnl_div"]:>+17.2f}pp'
+                          f'{_d["pnl_div"] - _d["pnl"]:>+9.2f}pp')
+
+            if len(_flip) == 2:
+                _ex = _flip['6~9月（除息月）']
+                _ot = _flip['其他 8 個月']
+                print(f'\n  ⇒ 調整後：除息月 {_ex:+.2f}pp　vs 其他 8 月 {_ot:+.2f}pp'
+                      f'　差 {_ex - _ot:+.2f}pp')
+                if _ex <= _ot:
+                    print('  ✅ **其他 8 月 ≥ 除息月** ⇒ 診斷翻正，'
+                          '10/14 那個「唯一不利的項目」解除')
+                else:
+                    print('  ⚠️ **除息月仍然較高** ⇒ 把股利加回去之後差距還在，'
+                          '不能用股利解釋。\n'
+                          '     但注意：股利已經不是原因了，所以要另找解釋'
+                          '（例如 6~9 月本身的季節性、或營收公布節奏）。')
+
+            _fs = sum(len(exdiv.suspect_false_stops(tr)) for tr in _trs.values())
+            _tot = sum(len(tr) for tr in _trs.values())
+            print(f'''
+  ⚠️ **仍然沒有處理的事（陷阱49 的同一族）：假停損。**
+     除息日的價格跳水會打到 10% 停損，產生一筆不該發生的停損——
+     本次 {_tot} 筆裡有 **{_fs} 筆**持有期間遇到 ≥{exdiv.FALSE_STOP_DIV_PCT}% 的除息
+     且以停損出場。真正的修法是用**還原股價**跑整個回測，
+     那會改動所有既有基準，是另一個題目。**這裡只揭露、不假裝沒事。**''')
+
     # ════ ★ 內建診斷：分期間（空頭年會不會翻轉）════
     print('\n' + '=' * 92)
     print('【★ 內建診斷】分期間：三個空頭年（2018／2020／2022）方向一致嗎？')

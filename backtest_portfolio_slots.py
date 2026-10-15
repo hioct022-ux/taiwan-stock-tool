@@ -318,10 +318,19 @@ def simulate(cache, rank_key, max_positions, label, score_filter=None, entry_fil
     return label, trades
 
 
-def stat(trades, tpx_close):
+def stat(trades, tpx_close, key='pnl'):
+    """
+    key='pnl'      ：未調整收盤價的報酬 ← **預設，與既有所有回測數字同基準**
+    key='pnl_div'  ：除息調整後（需先跑 `exdiv.adjust_trades()`）
+
+    🚨 `key='pnl_div'` 時回傳的 `alpha`／`ret`／`mkt` **不可拿去跟既有數字並列**：
+       TAIEX 也是價格指數、同樣不含股利，只調整個股那一邊 ⇒ alpha 會憑空多出
+       整個市場的殖利率（台股約 3~4%/年）。**它只能用在「兩組相減」**
+       （兩組同基準 ⇒ 市場項精確消掉）。完整說明見 `exdiv.py` 的 docstring。
+    """
     if not trades:
         return None
-    pnls = [t['pnl'] for t in trades]
+    pnls = [t.get(key, t['pnl']) for t in trades]
     mkts = []
     for t in trades:
         a, b = tpx_close.get(t['entry_date']), tpx_close.get(t['exit_date'])
