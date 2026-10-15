@@ -217,7 +217,8 @@ def build_cache(universe='watchlist', days=600, price_win=300):
 
 
 # ════════════════ 第二段：組合模擬 ════════════════
-def simulate(cache, rank_key, max_positions, label, score_filter=None, entry_filter=None):
+def simulate(cache, rank_key, max_positions, label, score_filter=None,
+             entry_filter=None, threshold_fn=None):
     """
     rank_key      : callable(code, date, stocks) -> 排序用的 tuple（小的先選）
     max_positions : None = 無上限（＝現行回測行為）
@@ -233,10 +234,19 @@ def simulate(cache, rank_key, max_positions, label, score_filter=None, entry_fil
                       與改版前位元級相同，所以**不需要另寫一份 simulate 再對帳**
                       （10/07 那條「給對照組命名要逐條核對現行規則」的通則，
                       最可靠的落實方式就是根本不要有第二份實作）。
+    threshold_fn  : None（預設）= 用 `make_ladder_fn()` 的現行 UI 階梯
+                    ⇒ **與改版前位元級相同，不需對帳**。
+                    給 callable(date) -> int | None 則取代整條大盤規則
+                    （回 None = 該日停止進場）。
+                    2026-10-15 新增，用來重跑「階梯 vs 固定門檻」的對照
+                    ——那批數字原本是在「S4 幾乎是死的」狀態下跑的（陷阱51），
+                    而且跑在含後見之明的自選股上（9/24）。
+                    ★ 這是「按某變數動態調整參數，必須加測同等平均值的固定值
+                      當對照」那條通則（停損校準那節立的）所需要的開關。
     """
     stocks     = cache['stocks']
     market_net = cache['market_net']
-    thr_fn     = make_ladder_fn(market_net)
+    thr_fn     = threshold_fn if threshold_fn is not None else make_ladder_fn(market_net)
     dates      = cache['tpx_dates']
 
     held, trades = {}, []
@@ -394,6 +404,19 @@ if __name__ == '__main__':
     args = sys.argv[1:]
     mkt = 'market' in args
     if 'cache' in args:
-        build_cache('market' if mkt else 'watchlist')
+        # ⚠️ `days` 必須可從 CLI 指定——這是陷阱51 那條通則的第四次。
+        #    `build_cache()` 的預設是 600 天（＝2024-05 起），而 2018~2026 是
+        #    2,130 個交易日。舊版 CLI 不傳 days ⇒ **跑 `cache market` 只會建出
+        #    600 天的快取、一個空頭年都沒有，而且不報錯。**
+        #    用法：python3 -u backtest_portfolio_slots.py cache market days=2600
+        _days = 600
+        for a in args:
+            if a.startswith('days='):
+                _days = int(a.split('=', 1)[1])
+        print(f'[build_cache] universe={"market" if mkt else "watchlist"}　days={_days}')
+        if _days <= 600:
+            print('⚠️ days ≤ 600 ⇒ 只涵蓋約 2024-05 之後，**沒有任何空頭年**。'
+                  '要測 2018~2026 請加 days=2600')
+        build_cache('market' if mkt else 'watchlist', days=_days)
     else:
         main(CACHE_MARKET if mkt else CACHE)
