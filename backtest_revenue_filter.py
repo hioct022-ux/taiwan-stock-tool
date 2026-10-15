@@ -651,7 +651,7 @@ def run():
         per_seed = []
         for sd in range(N_SEEDS):
             rnd = random.Random(sd)
-            pref = {c: rnd.random() for c in cache['stocks']}
+            pref = {c: rnd.random() for c in sorted(cache['stocks'])}   # ★ sorted 必要，見 backtest_market_ladder.py 的註解
             _, tr = P.simulate(cache, lambda c, d, s, _p=pref: (_p[c],),
                                SLOTS, label, entry_filter=fn)
             s = P.stat(tr, tpx)

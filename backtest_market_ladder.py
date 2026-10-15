@@ -309,7 +309,14 @@ def run_paired(cache):
         per = []
         for sd in range(N_SEEDS):
             rnd = random.Random(7000 + sd)
-            pref = {c: rnd.random() for c in cache['stocks']}
+            # 🚨 **必須 sorted()。** `cache['stocks']` 是 dict，順序＝插入順序，
+            #    而不同腳本建的快取插入順序不同（`backtest_revenue_filter` 分塊後
+            #    `stocks.update()` 合併、`backtest_portfolio_slots` 循序建）。
+            #    少了 sorted()，**同一個 seed 在兩份「同宇宙同期間」的快取上
+            #    會把隨機偏好配給不同股票** ⇒ 跑出兩組各自合法但彼此獨立的 20 條，
+            #    而且看起來像同一個測試。2026-10-16 實際發生過：
+            #    「一律70 vs 一律65」一份跑 2/20（p=0.000）、另一份 7/20（p=0.263）。
+            pref = {c: rnd.random() for c in sorted(cache['stocks'])}
             _, tr = P.simulate(cache, lambda c, d, s, _p=pref: (_p[c],),
                                5, label, threshold_fn=thr)
             s = P.stat(tr, tpx)

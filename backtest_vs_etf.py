@@ -303,7 +303,7 @@ def main():
     def _rand_key(seed):
         import random as _rd
         _r = _rd.Random(seed)
-        pref = {c: _r.random() for c in cache['stocks']}
+        pref = {c: _r.random() for c in sorted(cache['stocks'])}   # ★ sorted 必要，見 backtest_market_ladder.py 的註解
         return lambda c, d, s: (pref[c], c)
 
     runs = []

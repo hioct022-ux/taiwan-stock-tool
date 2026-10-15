@@ -383,7 +383,20 @@ def main():
         """
         import random
         rnd = random.Random(seed)
-        pref = {}                      # 每檔一個固定隨機偏好（與「代號」同性質但無產業結構）
+        # 🚨 **必須一次把全宇宙的偏好指派完，而且照 sorted 的順序。**
+        #    舊版是「遭遇到才指派」（`if code not in pref: pref[code] = rnd.random()`
+        #    寫在進場分支裡）。那個分支被 `len(held) < SLOTS and mkt_ok` 擋著，
+        #    而**空手型規則（g/h/i、淨值 j~m）跳過的日子與滿倉型不同**
+        #    ⇒ 同一個 seed 下，不同規則把 rnd 的第 k 次抽樣配給不同股票。
+        #    第 0 天所有規則都有空位，所以當時在宇宙裡的檔是一致的；
+        #    **但宇宙是逐月調整的**（`uni_at`），後來才進榜的檔就會錯開
+        #    ⇒ 配對隨時間逐漸失效，而且完全不報錯。
+        #    2026-10-16 在 `backtest_market_ladder.py` 發現同族問題（那邊是
+        #    dict 插入順序）後回頭查到這一處。
+        #    ⇒ 效果大的結論（續抱 19/20、真D 0/20）機制是算術、不受影響；
+        #      但**小效果的配對（真C vs 基準 15/19、結構 vs 買進持有 10/20）
+        #      必須用這一版重跑才算數**。
+        pref = {c: rnd.random() for c in sorted(close)}
 
         eq = [1.0] + [nan] * n
         lv = 1.0
@@ -448,9 +461,8 @@ def main():
             # ③ 進場：有空位就從宇宙按隨機偏好挑
             if len(held) < SLOTS and i < n - 1 and mkt_ok:
                 uni = uni_at[i]
-                for code in uni:
-                    if code not in pref:
-                        pref[code] = rnd.random()
+                # （偏好已在函式開頭對全宇宙一次指派完 —— 原本的懶惰指派
+                #   會讓不同規則錯開，見上方註解）
                 cand = sorted((code for code in uni
                                if code not in held and not isnan(close[code][i])),
                               key=lambda x: pref[x])
