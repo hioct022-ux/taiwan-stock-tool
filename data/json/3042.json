@@ -2,17 +2,6 @@
   "code": "3042",
   "prices": [
     {
-      "date": "2025-02-25",
-      "open": 103.0,
-      "high": 104.0,
-      "low": 102.0,
-      "close": 102.5,
-      "volume": 1870590,
-      "value": 192320728.0,
-      "change": 0.0,
-      "change_pct": 0.0
-    },
-    {
       "date": "2025-02-26",
       "open": 102.5,
       "high": 103.0,
@@ -4400,6 +4389,17 @@
       "value": 2009286246.0,
       "change": 9.5,
       "change_pct": 4.86
+    },
+    {
+      "date": "2026-10-15",
+      "open": 193.0,
+      "high": 199.5,
+      "low": 186.5,
+      "close": 189.5,
+      "volume": 9936313,
+      "value": 1914841214.0,
+      "change": -15.5,
+      "change_pct": -7.56
     }
   ],
   "fundamentals": [
@@ -5172,23 +5172,16 @@
       "pe": 35.41,
       "pb": 4.42,
       "dividend_yield": 2.34
+    },
+    {
+      "date": "2026-10-14",
+      "eps_ttm": 6.26,
+      "pe": 32.73,
+      "pb": 4.09,
+      "dividend_yield": 2.53
     }
   ],
   "chips": [
-    {
-      "date": "2026-07-13",
-      "foreign_buy": 5507,
-      "foreign_sell": 4193,
-      "foreign_net": 1314,
-      "trust_buy": 0,
-      "trust_sell": 0,
-      "trust_net": 0,
-      "dealer_buy": 145,
-      "dealer_sell": 602,
-      "dealer_net": -456,
-      "margin_balance": 0,
-      "short_balance": 0
-    },
     {
       "date": "2026-07-14",
       "foreign_buy": 7270,
@@ -6084,11 +6077,25 @@
       "dealer_net": 143,
       "margin_balance": 16265,
       "short_balance": 405
+    },
+    {
+      "date": "2026-10-15",
+      "foreign_buy": 2700,
+      "foreign_sell": 3106,
+      "foreign_net": -406,
+      "trust_buy": 0,
+      "trust_sell": 0,
+      "trust_net": 0,
+      "dealer_buy": 178,
+      "dealer_sell": 889,
+      "dealer_net": -711,
+      "margin_balance": 14580,
+      "short_balance": 468
     }
   ],
   "ownership": {
-    "foreign_pct": 23.89,
-    "date": "2026-10-14"
+    "foreign_pct": 23.8,
+    "date": "2026-10-15"
   },
   "monthly_revenue": [
     {
@@ -6332,5 +6339,5 @@
       "revenue_last_y": 1090113
     }
   ],
-  "exported_at": "2026-10-14 22:41"
+  "exported_at": "2026-10-15 22:23"
 }
