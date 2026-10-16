@@ -62,6 +62,33 @@ STOPS = [
     ('幾乎不停損',             0.00),   # stop=0 ⇒ low <= 0 永遠不成立
 ]
 
+def _corporate_actions(cache):
+    """
+    🚨 2026-10-16 新增。相鄰收盤比值落在 [0.65, 1.5] 之外 ⇒ 判定為公司行為
+    （分割／減資／大額配股）。**刻意不排除「跨多日缺口」**——那正是
+    陷阱49 原始掃描漏掉 81%（21/26 檔次）的原因：**分割換發必然伴隨停止交易**，
+    那個缺口不是雜訊，是公司行為的指紋。
+
+    用途：`最大單筆` 那一欄必須排除跨過這些日期的交易。
+    實測不排除會把 `幾乎不停損` 的最大單筆記成 **-90.5%**（1:10 分割的假崩盤），
+    真值是 **-49.0%**（2020 COVID 連續跌停）。
+    ⚠️ 有停損的組不受影響——停損本來就把單筆封頂。
+    """
+    ca = {}
+    for code, st_ in cache['stocks'].items():
+        pr = st_['prices']
+        for i in range(1, len(pr)):
+            c0, c1 = pr[i - 1].get('close'), pr[i].get('close')
+            if c0 and c1 and not (0.65 <= c1 / c0 <= 1.5):
+                ca.setdefault(code, set()).add(pr[i]['date'])
+    return ca
+
+
+def _spans_ca(t, ca):
+    d = ca.get(t['code'])
+    return bool(d) and any(t['entry_date'] < x <= t['exit_date'] for x in d)
+
+
 SEED_BASE = 7000
 N_SEEDS   = 100          # 10/16 的教訓：20 條在這個效果量級上沒有解析度
 BEAR_YEARS = ('2018', '2020', '2022')
@@ -78,6 +105,9 @@ def run_pertrade(cache):
      原始報酬會一路升到 25%，但那多出來的是大多頭的 beta
      （停損越寬、持有越久、吃到越多市場漲幅），不是策略貢獻。
 ''')
+    ca = _corporate_actions(cache)
+    print(f'  ★ 公司行為事件：{sum(len(v) for v in ca.values())} 檔次 / {len(ca)} 檔'
+          f'（`最大單筆` 已排除跨過這些日期的交易——見 _corporate_actions 的 docstring）')
     print(f'  {"停損":<22}{"筆數":>8}{"報酬":>9}{"同期大盤":>10}'
           f'{"alpha":>9}{"扣成本":>9}{"停損率":>8}{"勝率":>8}{"最大單筆":>10}')
     print('  ' + '-' * 94)
@@ -89,7 +119,9 @@ def run_pertrade(cache):
         if not st_:
             print(f'  {label:<22}（無交易）')
             continue
-        worst = min(t['pnl'] for t in tr)
+        # ⚠️ 排除①公司行為 ②「回測結束」（那段不經過停損檢查，見 CLAUDE.md）
+        _cl = [t for t in tr if not _spans_ca(t, ca) and t['exit_reason'] != '回測結束']
+        worst = min((t['pnl'] for t in _cl), default=min(t['pnl'] for t in tr))
         out[label] = {'trades': tr, 'st': st_, 'worst': worst}
         print(f'  {label:<22}{st_["n"]:>8,}{st_["ret"]:>+8.2f}%{st_["mkt"]:>+9.2f}%'
               f'{st_["alpha"]:>+8.2f}%{st_["alpha"]-0.47:>+8.2f}%'
@@ -225,6 +257,7 @@ def main():
   1. **除權息無法調整**（陷阱50）⇒ 絕對 alpha 系統性低估，
      而**停損越寬、持有越久 ⇒ 被低估越多** ← 偏誤方向對寬停損不利。
   2. **未調整收盤價**（陷阱49）⇒ 分割日會有假停損，直接汙染「停損率」那一欄。
+     `最大單筆` 已排除公司行為與「回測結束」；**停損率那一欄沒有排除**。
   3. **基本面 25% 在 2026-05 之前恆為 50**（陷阱44，永久）。
   4. 只有上市股；上櫃無籌碼資料，不在宇宙內。
   5. 配對設計消掉「抽到哪些股票」的運氣，**消不掉「這 9 年剛好是什麼行情」**。
