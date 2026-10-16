@@ -94,6 +94,12 @@ CACHE_CANDIDATES = [
 ]
 START   = '2018-01-02'                   # 陷阱51 限制第 5 條
 N_SEEDS = 20                             # 20 條才有容錯空間（見下方檢定力）
+
+# ★ seed base 可從 CLI 指定：`paired seedbase=8000`
+#   理由（2026-10-16 立的規矩）：單一組 20 條在 p≈0.01~0.05 這一帶**實測不穩**
+#   ——`sorted()` bug 那次同一對從 2/20 跳到 7/20，structure_bear 重跑有兩欄翻向。
+#   ⇒ 要寫進 CLAUDE.md 當結論的配對檢定，必須換 seed base 重跑到結論穩定。
+SEED_BASE = 7000
 BOOT_N  = 600
 BEAR    = {'2018', '2020', '2022'}       # ★ 三個空頭年
 
@@ -292,7 +298,7 @@ def run_paired(cache):
     rules = build_rules(cache['market_net'])
 
     print('\n' + '=' * 96)
-    print(f'【② 5 檔配置・配對比較（{N_SEEDS} 條，同一 seed 用同一組隨機排序）')
+    print(f'【② 5 檔配置・配對比較（{N_SEEDS} 條，seed {SEED_BASE}~{SEED_BASE+N_SEEDS-1}，同一 seed 用同一組隨機排序）')
     print('=' * 96)
     print(f'''  檢定力（事前就該算——10/07 的教訓：條數不足時問題不是
   「帶寬太寬」而是「檢定力為零」）：
@@ -308,7 +314,7 @@ def run_paired(cache):
     for label, thr in rules:
         per = []
         for sd in range(N_SEEDS):
-            rnd = random.Random(7000 + sd)
+            rnd = random.Random(SEED_BASE + sd)
             # 🚨 **必須 sorted()。** `cache['stocks']` 是 dict，順序＝插入順序，
             #    而不同腳本建的快取插入順序不同（`backtest_revenue_filter` 分塊後
             #    `stocks.update()` 合併、`backtest_portfolio_slots` 循序建）。
@@ -480,7 +486,16 @@ def run_bands(cache):
 
 
 def main():
-    arg = sys.argv[1] if len(sys.argv) > 1 else 'all'
+    global SEED_BASE, N_SEEDS   # ⚠️ 少了這行，CLI 參數會變成區域變數、靜默無效
+    for _a in sys.argv[1:]:
+        if _a.startswith('seedbase='):
+            SEED_BASE = int(_a.split('=', 1)[1])
+            print(f'★ seed base = {SEED_BASE}（預設 7000）')
+        if _a.startswith('seeds='):
+            N_SEEDS = int(_a.split('=', 1)[1])
+            print(f'★ 條數 = {N_SEEDS}（預設 20）⇒ 符號檢定的檢定力隨條數上升')
+    _pos = [a for a in sys.argv[1:] if '=' not in a]   # seedbase= 不算位置參數
+    arg = _pos[0] if _pos else 'all'
     print('=' * 96)
     print('大盤評分階梯：第二次驗證（S4 已修 + 全市場 + 含空頭年 + 配對設計）')
     print('=' * 96)
