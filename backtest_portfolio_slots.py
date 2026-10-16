@@ -218,7 +218,7 @@ def build_cache(universe='watchlist', days=600, price_win=300):
 
 # ════════════════ 第二段：組合模擬 ════════════════
 def simulate(cache, rank_key, max_positions, label, score_filter=None,
-             entry_filter=None, threshold_fn=None):
+             entry_filter=None, threshold_fn=None, stop_ratio=None):
     """
     rank_key      : callable(code, date, stocks) -> 排序用的 tuple（小的先選）
     max_positions : None = 無上限（＝現行回測行為）
@@ -243,12 +243,20 @@ def simulate(cache, rank_key, max_positions, label, score_filter=None,
                     而且跑在含後見之明的自選股上（9/24）。
                     ★ 這是「按某變數動態調整參數，必須加測同等平均值的固定值
                       當對照」那條通則（停損校準那節立的）所需要的開關。
+    stop_ratio    : None（預設）= 用模組常數 STOP_LOSS_RATIO（現行 0.90）
+                    ⇒ **與改版前位元級相同，不需對帳**。
+                    給 0.92／0.88… 則取代停損距離。
+                    2026-10-16 新增，用來在**空頭樣本**上重驗停損 10%
+                    ——8/27 那次校準是自選股（倖存者偏誤，9/24 確認）
+                    ＋全多頭，而那節自己寫著「真的崩盤時 10% 會比 8%
+                    每檔多賠 2pp，從未驗證」。
     """
     stocks     = cache['stocks']
     market_net = cache['market_net']
     thr_fn     = threshold_fn if threshold_fn is not None else make_ladder_fn(market_net)
     dates      = cache['tpx_dates']
 
+    _sr = STOP_LOSS_RATIO if stop_ratio is None else stop_ratio
     held, trades = {}, []
 
     for d in dates:
@@ -261,7 +269,7 @@ def simulate(cache, rank_key, max_positions, label, score_filter=None,
             p   = st_['prices'][i]
             pos = held[code]
             ep  = pos['entry_price']
-            stop = ep * STOP_LOSS_RATIO
+            stop = ep * _sr
 
             if p['low'] <= stop:
                 pos.update(exit_date=d, exit_price=stop, exit_reason='停損',
