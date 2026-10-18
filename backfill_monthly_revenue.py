@@ -255,6 +255,53 @@ def parse_page(html_bytes, want_roc, want_mon):
     return rows, ('OK' if rows else 'NO_DATA')
 
 
+SEGMENTS = {'TWSE': 'sii', 'TPEx': 'otc'}
+
+
+def write_rows(conn, rows, mkt):
+    """把 parse_page() 的結果寫入 `monthly_revenue`，回傳實際寫入列數。"""
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    cur = conn.executemany("""
+        INSERT OR REPLACE INTO monthly_revenue
+        (code, rev_year, rev_month, avail_date, name, revenue,
+         revenue_prev_m, revenue_last_y, mom_pct, yoy_pct,
+         cum_revenue, cum_last_y, cum_yoy_pct, market, note, updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        [(x['code'], x['rev_year'], x['rev_month'], x['avail_date'],
+          x['name'],
+          int(x['revenue']) if x['revenue'] is not None else None,
+          int(x['revenue_prev_m']) if x['revenue_prev_m'] is not None else None,
+          int(x['revenue_last_y']) if x['revenue_last_y'] is not None else None,
+          x['mom_pct'], x['yoy_pct'],
+          int(x['cum_revenue']) if x['cum_revenue'] is not None else None,
+          int(x['cum_last_y']) if x['cum_last_y'] is not None else None,
+          x['cum_yoy_pct'], mkt, x['note'], now)
+         for x in rows])
+    conn.commit()
+    return cur.rowcount
+
+
+def upsert_month(conn, roc, mon, mkt='TWSE', apply=True):
+    """
+    抓單一「民國年/月」的全市場月營收 → 解析 → 寫入。
+    回傳 `(rows, status, nwrote)`，status 與 `parse_page()` 同義，另加 `HTTP nnn`。
+
+    ⚠️ **`fetcher.fetch_monthly_revenue()` 也呼叫這一支。**
+      陷阱34／43 的病根都是「同一邏輯兩三份實作、只改其中一處」，
+      所以 MOPS 的 URL／編碼／解析／寫入**只留這一份**，不要在 fetcher 另寫。
+    """
+    seg = SEGMENTS.get(mkt, 'sii')
+    url = f'https://mopsov.twse.com.tw/nas/t21/{seg}/t21sc03_{roc}_{mon}_0.html'
+    r = fetch(url)
+    if r.status_code != 200:
+        return [], f'HTTP {r.status_code}', 0
+    rows, status = parse_page(r.content, roc, mon)
+    if status != 'OK':
+        return [], status, 0
+    n = write_rows(conn, rows, mkt) if apply else 0
+    return rows, 'OK', n
+
+
 def months_from(roc, mon):
     """從 (民國roc, mon) 到今天的所有年月。"""
     now = datetime.now()
@@ -304,14 +351,12 @@ def main():
 
     for roc, mon in todo:
         for seg, mkt in markets:
-            url = f'https://mopsov.twse.com.tw/nas/t21/{seg}/t21sc03_{roc}_{mon}_0.html'
             try:
-                r = fetch(url)
-                if r.status_code != 200:
-                    fail.append((roc, mon, mkt, f'HTTP {r.status_code}'))
-                    print(f'  {roc}/{mon:<2} {mkt:<5} ❌ HTTP {r.status_code}')
+                rows, status, nwrote = upsert_month(conn, roc, mon, mkt, apply=apply)
+                if status.startswith('HTTP '):
+                    fail.append((roc, mon, mkt, status))
+                    print(f'  {roc}/{mon:<2} {mkt:<5} ❌ {status}')
                     continue
-                rows, status = parse_page(r.content, roc, mon)
                 if status != 'OK':
                     if status == 'NO_DATA':
                         # 正常：該月營收尚未公布（例如 10/6 查 10 月營收）
@@ -328,26 +373,7 @@ def main():
                     continue
 
                 tot_rows += len(rows)
-                if apply:
-                    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    cur = conn.executemany('''
-                        INSERT OR REPLACE INTO monthly_revenue
-                        (code, rev_year, rev_month, avail_date, name, revenue,
-                         revenue_prev_m, revenue_last_y, mom_pct, yoy_pct,
-                         cum_revenue, cum_last_y, cum_yoy_pct, market, note, updated_at)
-                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
-                        [(x['code'], x['rev_year'], x['rev_month'], x['avail_date'],
-                          x['name'],
-                          int(x['revenue']) if x['revenue'] is not None else None,
-                          int(x['revenue_prev_m']) if x['revenue_prev_m'] is not None else None,
-                          int(x['revenue_last_y']) if x['revenue_last_y'] is not None else None,
-                          x['mom_pct'], x['yoy_pct'],
-                          int(x['cum_revenue']) if x['cum_revenue'] is not None else None,
-                          int(x['cum_last_y']) if x['cum_last_y'] is not None else None,
-                          x['cum_yoy_pct'], mkt, x['note'], now)
-                         for x in rows])
-                    tot_new += cur.rowcount
-                    conn.commit()
+                tot_new += nwrote
 
                 ex = rows[0]
                 # ⚠️ 公布中：次月 1~10 日之間資料逐日累積，此時抓到的是**不完整**

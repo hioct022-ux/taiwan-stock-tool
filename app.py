@@ -28,7 +28,7 @@ from database import (init_db, get_prices, get_fundamentals, get_chips,
                       update_watchlist_tags, get_latest_price_date,
                       add_position, get_positions, get_position_by_code,
                       get_positions_by_code, get_position, recalc_position_pnl,
-                      renew_position, close_position, update_position, delete_position)
+                      renew_position, close_position, update_position, delete_position, incomplete_revenue_months)
 from indicators import calc_all, pct_rank_score
 from scorer import full_score, get_grade, generate_auto_note
 from scheduler import start_scheduler, get_data_status, manual_fetch
@@ -2023,14 +2023,22 @@ def render_fundamental(result, code, name):
                                margin=dict(l=10, r=10, t=40, b=10))
             show_chart(_fig, key=f'rev_yoy_{code}')
 
-            # ⚠️ 資料新鮮度必須顯示出來——`monthly_revenue` 是 2026-10-07 一次性回填，
-            #   **目前沒有接進每日更新**，所以它會隨時間變舊而且不會有任何警告。
-            #   把「營收月份」與「可用日」印出來，讓過期這件事至少是看得見的。
+            # ⚠️ 資料新鮮度必須顯示出來。2026-10-17 起已接進 fetch_all()
+            #   （每日重抓「當月+前兩個月」，不用水位線——陷阱45），
+            #   另有完整度守衛會把「公布中」的月份整片擋掉，所以這裡要說明
+            #   「為什麼最新月份看起來比預期舊」——那通常是守衛在作用，不是壞了。
+            _rev_blocked = sorted(incomplete_revenue_months())
             st.caption(
                 f'資料截至 **{_last["rev_year"]}年{_last["rev_month"]}月**營收'
                 f'（最早可用日 {_last.get("avail_date")}）。'
-                f'　⚠️ 月營收**尚未接進每日更新**（2026-10-07 一次性回填），'
-                f'若上面的月份明顯落後，需手動執行 `backfill_monthly_revenue.py`。')
+                f'　每日更新會重抓最近三個月。')
+            if _rev_blocked:
+                _bl = '、'.join(f'{m // 100}年{m % 100}月' for m in _rev_blocked[-3:])
+                st.caption(
+                    f'　⚠️ **{_bl}** 的資料筆數明顯不足（公布中，法規到次月 10 日才公布完），'
+                    f'**整月暫不顯示**——那個階段拿到的是「只有少數公司、而且偏向'
+                    f'先公布者」的子集，實測 YoY 中位比完整月高 **8.5pp**，'
+                    f'顯示出來比不顯示更糟。隔日更新抓到完整資料後會自動出現。')
             st.caption(
                 '🏭 來源 MOPS t21sc03；**每筆只在「營收月的次月 11 日」之後才顯示**'
                 '（法規要求 10 日前公布完，用次月 1 日會偷看 10 天——'

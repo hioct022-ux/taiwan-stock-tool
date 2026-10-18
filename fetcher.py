@@ -2104,6 +2104,12 @@ def fetch_all():
     except Exception as e:
         errors.append(f'DRAM現貨價：{e}')
 
+    # ── 月營收（重抓當月+前兩個月，不可用水位線——見函式 docstring）──
+    try:
+        fetch_monthly_revenue()
+    except Exception as e:
+        errors.append(f'月營收：{e}')
+
     # ── 除權息資料（最後執行，避免被 TWSE 限流）──
     time.sleep(3)
     try:
@@ -2270,6 +2276,74 @@ def fetch_market_pe_history(months=6):
 
 
 # ── 抓即將除權息名單 ──────────────────────
+def fetch_monthly_revenue(months_back=2):
+    """
+    每日更新時重抓「**當月 + 前 months_back 個月**」的全市場月營收（MOPS t21sc03）。
+
+    🚨 **刻意不用 `MAX(date)` 水位線——那正是陷阱45 的病根。**
+      MOPS 的某一月營收在「次月 1~10 日」之間是**逐日累積**的：
+      法規只要求 10 日前公布完，所以越早查、拿到的公司越少。
+      若用「抓過就跳過」的水位線，那個月會**永久停在第一次抓到的不完整快照**。
+
+    ★ 這不是假設，是實測過的：
+      2026-10-06 一次性回填時，9 月營收只抓到 **176/993 檔（18%）**，
+      而那個子集**不是隨機的**——同樣看 2026-08（完整月）把那 176 檔拆出來，
+      YoY 中位 **+21.8%** vs 其餘 817 檔 **+13.3%**，**差 8.5pp**。
+      先公布的公司業績系統性較好（陷阱50 預測的方向）。
+
+    ⇒ 所以每天都重抓最近三個月，`INSERT OR REPLACE` 會把不完整的那份蓋掉。
+      另外 `database.incomplete_revenue_months()` 是第二道防線：
+      就算哪天這支沒跑成功，筆數不足的月份也不會被供應出去。
+
+    ⚠️ MOPS 的解析／寫入**只有一份實作**，在 `backfill_monthly_revenue.py`
+      （`upsert_month()`）。不要在這裡複製——陷阱34／43 的病根就是同一邏輯多份實作。
+    """
+    from database import get_conn
+    try:
+        import backfill_monthly_revenue as _mrev
+    except Exception as e:
+        print(f'  月營收：無法載入 backfill_monthly_revenue（{e}）')
+        return False
+
+    now = datetime.now()
+    # 當月往前數 months_back 個月（營收月份），由舊到新
+    todo = []
+    y, m = now.year, now.month
+    for _ in range(months_back + 1):
+        todo.append((y - 1911, m))
+        y, m = (y - 1, 12) if m == 1 else (y, m - 1)
+    todo.reverse()
+
+    conn = get_conn()
+    conn.executescript(_mrev.DDL)      # 表不存在時自動建（IF NOT EXISTS）
+    conn.commit()
+    ok = partial = 0
+    try:
+        for roc, mon in todo:
+            try:
+                rows, status, _n = _mrev.upsert_month(conn, roc, mon, 'TWSE', apply=True)
+            except Exception as e:
+                print(f'  月營收 {roc}/{mon}：❌ {type(e).__name__}: {e}')
+                continue
+            if status == 'NO_DATA':
+                # 正常：該月營收還沒開始公布（例如 10 月中查 10 月營收）
+                print(f'  月營收 {roc}/{mon}：⚪ 尚未公布（正常）')
+            elif status != 'OK':
+                # ⚠️ 年月不符是守衛攔下來的，要看得見（陷阱41 的教訓）
+                print(f'  月營收 {roc}/{mon}：🚨 {status}')
+            else:
+                ok += 1
+                flag = ''
+                if len(rows) < 600:
+                    partial += 1
+                    flag = '　⚠️ 公布中，明天會再抓一次'
+                print(f'  月營收 {roc}/{mon}：✅ {len(rows)} 檔{flag}')
+            time.sleep(_mrev.SLEEP)
+    finally:
+        conn.close()
+    return ok > 0
+
+
 def fetch_exdividend():
     """
     兩階段抓取除權息資料：

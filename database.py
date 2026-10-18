@@ -408,6 +408,53 @@ def save_chips(code, date, data):
     conn.commit()
     conn.close()
 
+_REV_MIN_RATIO = 0.6     # 某營收月筆數 < 全市場中位 ×0.6 ⇒ 判為「公布中」，不供應
+
+
+def incomplete_revenue_months(conn=None, min_ratio=_REV_MIN_RATIO):
+    """
+    🚨 2026-10-17 新增。回傳「筆數明顯不足、視為尚未公布完」的營收月份集合
+    （元素是 `rev_year*100 + rev_month` 的整數）。
+
+    ★ 為什麼需要這道守衛（實測，不是推論）：
+      `monthly_revenue` 是一次性回填的，而回填那天（2026-10-06）
+      9 月營收**只有 176/993 檔已公布**。到了 10-11（9月的 avail_date）之後，
+      `get_monthly_revenue()` 就開始供應那個 18% 的子集——
+      **而「只有 176 檔」與「這個月真的只有 176 家公司」在數字上長得一模一樣。**
+
+      偏誤方向已用最乾淨的方式量過：同樣看 **2026-08（完整月）**，
+      把那 176 檔「早公布者」拆出來，YoY 中位 **+21.8%**，
+      其餘 817 檔 **+13.3%** ⇒ **差 +8.5pp**。
+      同一個月、完整資料、唯一的分組依據是「9月有沒有早公布」
+      ⇒ 那 8.5pp 就是選擇偏誤本身（陷阱50 預測的方向）。
+
+    ⚠️ 這是**阻斷式**的，不是警告——「沒有股利／沒有資料」那一族的教訓
+      （陷阱41/42/45/52）：靜默地少一半資料，比直接不給更危險。
+      寧可那個月整片不顯示，也不要顯示一份偏誤 8.5pp 的子集。
+
+    門檻 0.6 與 `backfill_monthly_revenue.py` 的 `len(rows) < 600` 同一條線
+    （那支腳本早就會標「⚠️ 公布中，之後要重抓」，只是當時沒有擋）。
+    """
+    own = conn is None
+    if own:
+        conn = get_conn()
+    try:
+        rows = conn.execute(
+            'SELECT rev_year*100+rev_month, COUNT(*) FROM monthly_revenue '
+            'GROUP BY 1').fetchall()
+    except Exception:
+        return set()
+    finally:
+        if own:
+            conn.close()
+    if len(rows) < 6:                       # 樣本太少，無法定義「正常筆數」
+        return set()
+    counts = sorted(r[1] for r in rows)
+    median = counts[len(counts) // 2]
+    cutoff = median * min_ratio
+    return {r[0] for r in rows if r[1] < cutoff}
+
+
 def get_monthly_revenue(code, limit=24, as_of=None):
     """
     個股月營收（`monthly_revenue` 表），依「營收月份」**降序**（最新在前）。
@@ -420,6 +467,10 @@ def get_monthly_revenue(code, limit=24, as_of=None):
       ⇒ 用次月 1 日拿到的是「只有 18% 公司、且偏向先公布者（業績通常較好）」，
         那是比單純偷看 10 天**更惡性的選擇偏誤**。
 
+    ★ 2026-10-17 另加**完整度守衛**：筆數明顯不足（< 全市場中位 ×0.6）的
+      營收月份**整片不回傳**，見 `incomplete_revenue_months()`。
+      實測那種月份的 YoY 中位比完整月高 8.5pp（純選擇偏誤）。
+
     回傳 key：rev_year, rev_month, avail_date, revenue, yoy_pct, mom_pct,
               cum_yoy_pct, revenue_last_y
     單位：revenue 為**仟元**（MOPS 原始單位，不要在這裡換算，顯示層自己處理）
@@ -430,14 +481,19 @@ def get_monthly_revenue(code, limit=24, as_of=None):
     conn = get_conn()
     cols = ['rev_year', 'rev_month', 'avail_date', 'revenue', 'yoy_pct',
             'mom_pct', 'cum_yoy_pct', 'revenue_last_y']
+    # 🚨 2026-10-17：多取一些，因為下面會濾掉「公布中」的月份
     rows = conn.execute(
         f'SELECT {", ".join(cols)} FROM monthly_revenue '
         'WHERE code=? AND avail_date<=? '
         'ORDER BY rev_year DESC, rev_month DESC LIMIT ?',
-        (code, as_of, limit)).fetchall()
+        (code, as_of, limit + 6)).fetchall()
+    bad = incomplete_revenue_months(conn)
     conn.close()
     # ⚠️ get_conn() 無 row_factory，必須手動 zip（陷阱12 的通則）
-    return [dict(zip(cols, r)) for r in rows]
+    out = [dict(zip(cols, r)) for r in rows]
+    # ★ 阻斷式：筆數明顯不足的月份整片不供應（理由見 incomplete_revenue_months）
+    out = [x for x in out if x['rev_year'] * 100 + x['rev_month'] not in bad]
+    return out[:limit]
 
 
 def get_chips(code, days=65):
