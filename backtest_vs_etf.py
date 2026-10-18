@@ -189,14 +189,16 @@ def _corporate_actions(seq):
     return acts
 
 
-def buyhold_curve(code, cal, pay_fee=True, verbose=True):
+def buyhold_curve(code, cal, pay_fee=True, verbose=True, days=1200):
     """
     買進持有的資金曲線，對齊 `cal` 的交易日，**已還原分割／減資**。
 
     ⚠️ 該檔若某些交易日沒有資料（0050 在 2025-06 缺 5 天，正好就是分割那幾天），
        **跨過缺口接續計算**，不補假價格、也不製造假跳空（陷阱26 的教訓）。
     """
-    rows = get_prices(code, days=1200)
+    # ⚠️ days 預設 1200（≈2023-07 起）。回測 2018 起時**必須加大**，
+    #    否則買進持有基準會靜默只涵蓋後段——陷阱51 那條通則的第五次。
+    rows = get_prices(code, days=days)
     px = {r['date']: r['close'] for r in rows if r['close']}
     seq = [(d, px[d]) for d in cal if d in px]
     if len(seq) < 2:
