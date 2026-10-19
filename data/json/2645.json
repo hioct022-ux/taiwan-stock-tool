@@ -2,17 +2,6 @@
   "code": "2645",
   "prices": [
     {
-      "date": "2025-02-27",
-      "open": 106.0,
-      "high": 106.5,
-      "low": 105.0,
-      "close": 105.0,
-      "volume": 852196,
-      "value": 89742152.0,
-      "change": -2.0,
-      "change_pct": -1.87
-    },
-    {
       "date": "2025-03-03",
       "open": 105.0,
       "high": 105.5,
@@ -4400,6 +4389,17 @@
       "value": 82266621.0,
       "change": 1.5,
       "change_pct": 0.88
+    },
+    {
+      "date": "2026-10-19",
+      "open": 170.0,
+      "high": 171.0,
+      "low": 167.0,
+      "close": 170.0,
+      "volume": 955686,
+      "value": 161671394.0,
+      "change": -1.0,
+      "change_pct": -0.58
     }
   ],
   "fundamentals": [
@@ -5189,20 +5189,6 @@
     }
   ],
   "chips": [
-    {
-      "date": "2026-07-15",
-      "foreign_buy": 2697,
-      "foreign_sell": 2368,
-      "foreign_net": 330,
-      "trust_buy": 1,
-      "trust_sell": 0,
-      "trust_net": 1,
-      "dealer_buy": 70,
-      "dealer_sell": 110,
-      "dealer_net": -41,
-      "margin_balance": 0,
-      "short_balance": 0
-    },
     {
       "date": "2026-07-16",
       "foreign_buy": 2766,
@@ -6098,6 +6084,20 @@
       "dealer_net": -2,
       "margin_balance": 4260,
       "short_balance": 3
+    },
+    {
+      "date": "2026-10-19",
+      "foreign_buy": 262,
+      "foreign_sell": 396,
+      "foreign_net": -134,
+      "trust_buy": 0,
+      "trust_sell": 49,
+      "trust_net": -49,
+      "dealer_buy": 186,
+      "dealer_sell": 105,
+      "dealer_net": 81,
+      "margin_balance": 0,
+      "short_balance": 0
     }
   ],
   "ownership": {
@@ -6105,6 +6105,16 @@
     "date": "2026-10-16"
   },
   "monthly_revenue": [
+    {
+      "rev_year": 2026,
+      "rev_month": 9,
+      "avail_date": "2026-10-11",
+      "revenue": 1704235,
+      "yoy_pct": 8.73,
+      "mom_pct": -7.78,
+      "cum_yoy_pct": 14.14,
+      "revenue_last_y": 1567324
+    },
     {
       "rev_year": 2026,
       "rev_month": 8,
@@ -6334,17 +6344,7 @@
       "mom_pct": 4.71,
       "cum_yoy_pct": 5.8,
       "revenue_last_y": 1320815
-    },
-    {
-      "rev_year": 2024,
-      "rev_month": 9,
-      "avail_date": "2024-10-11",
-      "revenue": 1307973,
-      "yoy_pct": 3.81,
-      "mom_pct": -6.63,
-      "cum_yoy_pct": 6.05,
-      "revenue_last_y": 1259875
     }
   ],
-  "exported_at": "2026-10-16 21:04"
+  "exported_at": "2026-10-19 16:32"
 }
