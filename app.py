@@ -2063,6 +2063,15 @@ def render_fundamental(result, code, name):
     _qf_rows = _get_qf(code, quarters=12)
 
     # 本機版懶加載：無資料時自動抓一次
+    # ⚠️ 2026-10-20 修：原本 `except Exception: pass` 把失敗整個吞掉，而且鎖
+    #    （_qf_fetched_{code}）在抓取**之前**就設 True ⇒ 只要那一次抓失敗
+    #    （FinMind 逾時、yfinance 連線慢），這個 session 內永遠不會重試，
+    #    畫面只是空白、沒有任何痕跡。而 Streamlit App 常開著數天不重啟。
+    #    實際後果：103 檔自選股有 39 檔（含 2330／2454／2881）季報全缺，
+    #    但本機實測 yfinance 明明有資料 ⇒ 不是資料源問題。
+    #    這是陷阱51「零結果會被印成什麼？」的同一族：
+    #    **失敗必須長得跟成功不一樣。** 補抓用 backfill_quarterly_financials.py。
+    _qf_errkey = f'_qf_err_{code}'
     if IS_LOCAL and not _qf_rows and not st.session_state.get(f'_qf_fetched_{code}'):
         st.session_state[f'_qf_fetched_{code}'] = True
         try:
@@ -2071,8 +2080,38 @@ def render_fundamental(result, code, name):
             if _n > 0:
                 _qf_rows = _get_qf(code, quarters=12)
                 st.toast(f'已取得 {code} 季度財報（{_n} 季）', icon='📊')
+            else:
+                st.session_state[_qf_errkey] = '兩個來源（FinMind／yfinance）都回傳 0 季'
+        except Exception as _qe:
+            st.session_state[_qf_errkey] = f'{type(_qe).__name__}: {_qe}'[:160]
+
+    # 失敗要看得見，否則使用者只會看到一張空圖（本機才顯示，雲端無從補抓）
+    # ★ 但要先分辨「結構性無解」與「補抓失敗」——金融保險業的損益表沒有毛利科目
+    #   （收入是利息淨收益／保費，不走「營收 − 銷貨成本」），而兩條抓取路徑都有
+    #   `if rev and gp` 的守衛 ⇒ 2881／2882／2891 這類永遠補不回來。
+    #   DR（存託憑證）同理，沒有獨立財報。
+    #   把無解的也印成「補抓未成功」，使用者會以為有東西壞了（十九章那條通則）。
+    if IS_LOCAL and not _qf_rows:
+        _qf_struct = None
+        try:
+            from database import get_conn as _gc_qf
+            _cn = _gc_qf()
+            _ir = _cn.execute('SELECT industry FROM stocks WHERE code=?', (code,)).fetchone()
+            _cn.close()
+            if _ir and _ir[0] == '17':
+                _qf_struct = '金融保險業的損益表沒有「毛利」科目（收入是利息淨收益／保費收入）'
+            elif '-DR' in (name or ''):
+                _qf_struct = '存託憑證（DR）沒有獨立財報'
         except Exception:
             pass
+
+        if _qf_struct:
+            st.caption(f'⚪ 此股沒有季度毛利／EPS 資料：{_qf_struct}　⇒ 結構性，不是資料漏抓。'
+                       f'　此項不影響評分（基本面 25% 走 PE/PB/殖利率）')
+        elif st.session_state.get(_qf_errkey):
+            st.caption(f'⚠️ 季度財報自動補抓未成功：{st.session_state[_qf_errkey]}　'
+                       f'｜ 本機可執行 `python3 -u backfill_quarterly_financials.py --apply {code}` 重試　'
+                       f'｜ 此項不影響評分（基本面 25% 走 fundamentals 表的 PE/PB/殖利率）')
 
     # 從 DB 資料建立 q_dates / q_eps
     q_dates, q_eps, _db_source = [], [], False
