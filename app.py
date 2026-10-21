@@ -520,6 +520,68 @@ def _vol20_label(vol20):
         return '高波動', '#64748b'
 
 
+# ── 季度財報的「應有最新季度」 ──────────────────────────────
+# 用途：判斷 stock_quarterly_financials 是否過期（陷阱54 的第二半）。
+# ⚠️ 為什麼需要這個：懶加載原本的條件是「完全沒資料才抓」，
+#    所以每檔股票會永久凍結在「第一次被點進去的那一天」的最新季度
+#    ——6 月抓的停在 2026Q1、8 月中之後抓的才有 2026Q2，而畫面上分不出來。
+#    實測 103 檔自選股：51 檔停 Q1、50 檔有 Q2（含 7769 鴻勁停在 Q1，
+#    而它是市場追蹤頁的監控股）。
+#
+# 法定申報期限（台灣）：
+#   Q1（1~3月）→ 5/15　　Q2 半年報（4~6月）→ 8/14
+#   Q3（7~9月）→ 11/14　 Q4／年報 → 隔年 3/31
+# ★ 這裡用「法定期限」當應有季度，而資料源（FinMind／yfinance）還會再慢
+#   1~2 個月 ⇒ 期限剛過的那段時間會抓不到。因此呼叫端**必須**搭配
+#   `QF_RETRY_DAYS` 的重試間隔，否則期限到了但來源還沒有的那幾週，
+#   每次點進個股頁都會白抓一次（陷阱44 那個「假的補齊迴圈」的反面教訓：
+#   這次不是假裝補得到，而是要避免真的一直去敲）。
+QF_RETRY_DAYS = 7      # 已有資料但過期時，最短重試間隔（天）
+
+
+def _expected_last_period(today=None):
+    """依法定申報期限回傳「現在應該已經公布的最新季度」，例如 '2026Q2'。"""
+    from datetime import date as _d
+    t = today or _d.today()
+    y, md = t.year, (t.month, t.day)
+    if md >= (11, 14):
+        return f'{y}Q3'
+    if md >= (8, 14):
+        return f'{y}Q2'
+    if md >= (5, 15):
+        return f'{y}Q1'
+    if md >= (3, 31):
+        return f'{y - 1}Q4'
+    return f'{y - 1}Q3'
+
+
+def _qf_is_stale(code, today=None):
+    """季度財報是否過期且值得重抓。回傳 (stale: bool, have, want)。
+
+    stale 需同時成立：① DB 最新季度 < 應有季度　② 上次抓取已超過
+    QF_RETRY_DAYS 天。第二個條件是必要的——見上方 `_expected_last_period`
+    的註解（期限已過但來源還沒同步的那幾週）。
+    """
+    try:
+        from database import get_quarterly_financials_last_period as _lp, get_conn as _gc
+        have = _lp(code)
+        want = _expected_last_period(today)
+        if not have or have >= want:
+            return False, have, want
+        cn = _gc()
+        r = cn.execute('SELECT MAX(updated_at) FROM stock_quarterly_financials '
+                       'WHERE code=?', (code,)).fetchone()
+        cn.close()
+        if r and r[0]:
+            from datetime import date as _d, datetime as _dt
+            last = _dt.strptime(str(r[0])[:10], '%Y-%m-%d').date()
+            if ((today or _d.today()) - last).days < QF_RETRY_DAYS:
+                return False, have, want
+        return True, have, want
+    except Exception:
+        return False, None, None
+
+
 def _data_integrity_report(days=30):
     """
     資料完整性檢查（2026-09-08 新增，僅本機）。回傳 {'missing': [...], 'dupes': [...]}。
@@ -2071,19 +2133,41 @@ def render_fundamental(result, code, name):
     #    但本機實測 yfinance 明明有資料 ⇒ 不是資料源問題。
     #    這是陷阱51「零結果會被印成什麼？」的同一族：
     #    **失敗必須長得跟成功不一樣。** 補抓用 backfill_quarterly_financials.py。
+    #
+    # ⚠️ 2026-10-21 修第二個缺陷：條件原本是 `not _qf_rows`（**只有完全沒資料才抓**）
+    #    ⇒ 每檔股票永久凍結在「第一次被點進去那天」的最新季度，之後永遠不更新。
+    #    實測 51 檔停在 2026Q1、50 檔有 2026Q2，差別只是當初哪一天被點到。
+    #    而 `fetch_all()` 完全沒碰這張表（與月營收在陷阱53 之前一樣）。
+    #    ⇒ 改為「沒資料 **或** 季度已過期」；過期判斷見 `_qf_is_stale()`。
     _qf_errkey = f'_qf_err_{code}'
-    if IS_LOCAL and not _qf_rows and not st.session_state.get(f'_qf_fetched_{code}'):
+    _qf_stale, _qf_have, _qf_want = (False, None, None)
+    if IS_LOCAL and _qf_rows:
+        _qf_stale, _qf_have, _qf_want = _qf_is_stale(code)
+    if IS_LOCAL and (not _qf_rows or _qf_stale) and not st.session_state.get(f'_qf_fetched_{code}'):
         st.session_state[f'_qf_fetched_{code}'] = True
         try:
             from fetcher import fetch_quarterly_financials as _fetch_qf
             _n = _fetch_qf(code, years=4)
             if _n > 0:
                 _qf_rows = _get_qf(code, quarters=12)
-                st.toast(f'已取得 {code} 季度財報（{_n} 季）', icon='📊')
-            else:
+                if _qf_stale:
+                    from database import get_quarterly_financials_last_period as _lp2
+                    st.toast(f'{code} 季度財報已更新（{_qf_have} → {_lp2(code) or "?"}）', icon='📊')
+                else:
+                    st.toast(f'已取得 {code} 季度財報（{_n} 季）', icon='📊')
+            elif not _qf_rows:
                 st.session_state[_qf_errkey] = '兩個來源（FinMind／yfinance）都回傳 0 季'
         except Exception as _qe:
             st.session_state[_qf_errkey] = f'{type(_qe).__name__}: {_qe}'[:160]
+
+    # 過期但重抓後來源仍沒有新季度 ⇒ 說清楚是「來源還沒同步」，不是漏抓
+    if IS_LOCAL and _qf_rows and _qf_stale:
+        from database import get_quarterly_financials_last_period as _lp3
+        _now_have = _lp3(code)
+        if _now_have and _qf_want and _now_have < _qf_want:
+            st.caption(f'⏳ 目前最新為 {_now_have}，法定申報期限上應已有 {_qf_want}'
+                       f'——FinMind／yfinance 通常比公司公告再慢 1~2 個月，'
+                       f'每 {QF_RETRY_DAYS} 天會自動重試一次。此項不影響評分。')
 
     # 失敗要看得見，否則使用者只會看到一張空圖（本機才顯示，雲端無從補抓）
     # ★ 但要先分辨「結構性無解」與「補抓失敗」——金融保險業的損益表沒有毛利科目
