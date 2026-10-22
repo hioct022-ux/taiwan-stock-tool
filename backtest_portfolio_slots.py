@@ -53,18 +53,153 @@ from database import (get_watchlist, get_prices, get_fundamentals,
                       get_chips, get_ownership)
 from scorer import full_score
 
-CACHE        = '/tmp/_pf_slots_cache.pkl'
-CACHE_MARKET = '/tmp/_pf_slots_cache_market.pkl'
+def cache_dir():
+    """
+    快取目錄。預設 `/tmp`（維持既有行為），但可用環境變數 `TWSTOOL_CACHE` 改掉。
+
+    ★ 2026-10-21 加這個開關的原因：**/tmp 會被清掉。**
+      10/16~10/18 的交叉驗證跑在本機的 `_pf_slots_cache_market.pkl` 上，
+      10/21 要重用時整個不見了 ⇒ 一份 20~40 分鐘的快取白建。
+      CLAUDE.md 早就把「所有快取都在 /tmp」標成已知的結構問題，這次它咬到了。
+
+      放 /tmp 本身是對的（100MB+ 的 pickle 不該進 git），但**跨天重用的快取
+      要放在不會被清的地方**。建議：
+        export TWSTOOL_CACHE=~/台股分析工具/data/cache
+      （`data/cache/` 已加進 .gitignore）
+
+      ⚠️ 建快取與跑測試**必須用同一個值**，否則會「找不到快取」然後重建。
+         所以所有讀寫快取的腳本都會把解析後的路徑印出來。
+    """
+    d = os.environ.get('TWSTOOL_CACHE', '/tmp')
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+CACHE        = os.path.join(cache_dir(), '_pf_slots_cache.pkl')
+CACHE_MARKET = os.path.join(cache_dir(), '_pf_slots_cache_market.pkl')
 
 # ── 全市場宇宙的篩選條件（2026-09-23 新增，見下方 build_cache 的說明）──
 UNI_MIN_TURNOVER = 5e7      # 近一年日均成交金額 ≥ 5,000 萬元
 UNI_SINCE        = '2025-09-01'
 UNI_MIN_DAYS     = 180
 
+# ── 點時間宇宙（2026-10-21 新增，見 pit_universe 的說明）──
+PIT_LOOKBACK = 130          # 回看幾個交易日算流動性（與 backtest_structure_bear 一致）
+PIT_MIN_DAYS = 60           # 回看窗內至少要有幾天有成交
+PIT_START    = '2018-01-01'
+
+
+def listed_codes(conn):
+    """
+    上市普通股的集合——**判準是「有 chips」，不是查 stocks 表。**
+
+    ★ 2026-10-21 新增。`stocks` 是**今天的掛牌清單**，所以
+      「`mk.get(code)=='TWSE'`」這個寫法會把 2018 之後退場的股票
+      整批判成非上市 ⇒ 它們從來沒有進過任何回測的宇宙。
+      實測：`prices` 裡 2018 起的 4 碼普通股有 2,040 檔，
+      其中 **73 檔在 `stocks` 查不到**（21 檔達流動性門檻、18 檔是歷史退場），
+      含 **6452 康友-KY**（2020-08 財報造假下市，日均成交 2.89 億，完全達標）。
+
+    `chips` 的來源是 TWSE T86，而 **T86 只收上市** ⇒ 「有 chips」是一個
+    不依賴「今天的狀態」的乾淨判準。實測對照：
+      18/18 已退場股都有 chips（2017-12 起）；
+      上櫃 6488／3324／4979 的 chips 筆數 = 0 / 0 / 0。
+    """
+    return set(r[0] for r in conn.execute(
+        "SELECT DISTINCT code FROM chips "
+        "WHERE length(code)=4 AND code GLOB '[0-9][0-9][0-9][0-9]' "
+        "AND code NOT LIKE '00%'"))
+
+
+def pit_universe(conn, min_turnover=UNI_MIN_TURNOVER, start=PIT_START):
+    """
+    **點時間宇宙**：每月第一個交易日依「過去 PIT_LOOKBACK 日的流動性」重算。
+    回傳 (months, union)：
+      months = [(該月第一個交易日, tuple(codes)), ...]   ← 升序
+      union  = sorted(所有月份的聯集)                    ← 快取要算的檔數
+
+    ═══ 為什麼需要它（2026-10-21）═══
+    `market_universe()` 用的是 `UNI_SINCE='2025-09-01'` 起的日均成交
+    ⇒ **任何在那之前消失的股票，`n>=180` 必然不成立**，一律被排除。
+    這不是流動性篩選，是「用今天的狀態定義過去的宇宙」——
+    與 2026-09-24 那條「回測宇宙的組成時間必須早於回測期間的起點」
+    是同一條通則，只是那次出現在**自選股**、這次出現在**股票母體**。
+
+    ⚠️ 連帶更正：`backtest_structure_bear.py` 的 `uni_at` 雖然叫
+    「point-in-time 宇宙」，但它的成員資格仍然是 `mk.get(code)=='TWSE'`
+    ⇒ **10/07 與 10/08 那兩節也漏掉同一批股票**，只做對了「時間」那一半。
+
+    ⚠️ 已知邊界：**全市場個股價格只回填到 2018-01-02**（TAIEX 有 2016-10，
+    個股沒有）⇒ 2018 年前 60 個交易日湊不滿回看窗，2018 的月宇宙
+    平均只有 192 檔（2019 起 265~496 檔）。那不是 bug，是價格涵蓋的邊界；
+    **解讀 2018 的差異時要把這一項與 PIT 本身分開**。
+    """
+    listed = listed_codes(conn)
+    cal = [r[0] for r in conn.execute(
+        "SELECT date FROM prices WHERE code='TAIEX' ORDER BY date")]
+    i0 = next((i for i, d in enumerate(cal) if d >= start), 0)
+
+    months, prev_m = [], None
+    for i in range(i0, len(cal)):
+        d = cal[i]
+        if d[:7] == prev_m:
+            continue
+        prev_m = d[:7]
+        lo = cal[max(0, i - PIT_LOOKBACK)]
+        rows = conn.execute(
+            "SELECT code, COUNT(*) k, AVG(value) av FROM prices "
+            "WHERE date>=? AND date<? AND code!='TAIEX' "
+            "GROUP BY code HAVING k>=? AND av>=?",
+            (lo, d, PIT_MIN_DAYS, min_turnover)).fetchall()
+        months.append((d, tuple(sorted(r[0] for r in rows if r[0] in listed))))
+
+    union = sorted(set().union(*(set(m[1]) for m in months)) if months else set())
+    return months, union
+
+
+def pit_lookup(months):
+    """把 months 轉成 lookup(date) -> frozenset；日期早於第一個月回空集合。"""
+    from bisect import bisect_right
+    keys = [m[0] for m in months]
+    sets = [frozenset(m[1]) for m in months]
+    empty = frozenset()
+
+    def fn(d):
+        k = bisect_right(keys, d) - 1
+        return sets[k] if k >= 0 else empty
+    return fn
+
+
+def assert_pit_has_delisted(conn, union, min_n=10):
+    """
+    **阻斷式守衛**：點時間宇宙裡必須含有「今天的 `stocks` 表查不到」的股票。
+
+    若為 0，代表上市判準又悄悄退回「查 current listing」——而那個錯誤
+    **不會報錯、結果看起來完全正常**（陷阱41/42/45 的共同形狀）。
+    所以這裡用 `sys.exit` 而不是印警告（陷阱51 那條「對帳要阻斷式」）。
+    """
+    cur = set(r[0] for r in conn.execute("SELECT code FROM stocks"))
+    gone = sorted(c for c in union if c not in cur)
+    print(f'  點時間宇宙 {len(union)} 檔，其中「今天已不在 stocks」的 {len(gone)} 檔'
+          f'{"：" + " ".join(gone[:12]) if gone else ""}')
+    if len(gone) < min_n:
+        print(f'\n🚨 **只有 {len(gone)} 檔已退場股（門檻 {min_n}）** ⇒ 上市判準'
+              f'可能退回查 stocks 表，宇宙又變成倖存者。中止。')
+        sys.exit(1)
+    return gone
+
 
 def market_universe(conn, min_turnover=UNI_MIN_TURNOVER):
     """
     全市場回測用的標的宇宙：上市普通股 + 流動性門檻。
+
+    🚨 **這支函式帶著倖存者偏誤，新的測試請改用 `pit_universe()`（2026-10-21）。**
+       流動性是用 `UNI_SINCE='2025-09-01'` 起的日均成交算的 ⇒ 任何在那之前
+       消失的股票 `n>=UNI_MIN_DAYS` 必然不成立，一律被排除；而 `market='TWSE'`
+       又是查**今天的** `stocks` 表。兩個條件都擋，後者是決定性的。
+       實測被漏掉的有 **18 檔歷史退場股**（含 6452 康友-KY，2020-08 財報造假
+       下市、日均成交 2.89 億）。保留本函式**只為了與既有數字對帳**
+       （★10%／現行階梯 應跑出 15,169~15,176 筆、alpha +0.31%）。
 
     ⚠️ 三道篩選都是刻意的：
       1. `market='TWSE'` —— 籌碼（T86）不含上櫃，放上櫃進來會讓 35% 權重
@@ -218,7 +353,8 @@ def build_cache(universe='watchlist', days=600, price_win=300):
 
 # ════════════════ 第二段：組合模擬 ════════════════
 def simulate(cache, rank_key, max_positions, label, score_filter=None,
-             entry_filter=None, threshold_fn=None, stop_ratio=None):
+             entry_filter=None, threshold_fn=None, stop_ratio=None,
+             pit_at=None, cand_probe=None):
     """
     rank_key      : callable(code, date, stocks) -> 排序用的 tuple（小的先選）
     max_positions : None = 無上限（＝現行回測行為）
@@ -250,6 +386,26 @@ def simulate(cache, rank_key, max_positions, label, score_filter=None,
                     ——8/27 那次校準是自選股（倖存者偏誤，9/24 確認）
                     ＋全多頭，而那節自己寫著「真的崩盤時 10% 會比 8%
                     每檔多賠 2pp，從未驗證」。
+    pit_at        : None（預設）= 完全不改變行為 ⇒ **與改版前位元級相同**。
+                    給 callable(date) -> set（用 `pit_lookup()` 產生）則
+                    **只有當天在點時間宇宙裡的股票才可以進場**。
+                    2026-10-21 新增，用來拆開「倖存者偏誤 × 持有長度」
+                    ——10/18 標著最嚴重的那條限制。
+
+                    ★ 刻意只擋**進場**、不強制出場：點時間宇宙回答的是
+                      「那一天你買得到嗎」，不是「現在還該不該持有」。
+                      已持有的部位照既有規則（停損／到期）走完。
+    cand_probe    : None（預設）= 不做任何事 ⇒ **與改版前位元級相同**。
+                    給 callable(date, n_cands, free) 則在候選算完、尚未依
+                    `rank_key` 排序取前 `free` 名之前呼叫一次。
+                    2026-10-22 新增，用來量 10/14 立的那個便宜判準
+                    ——「**單日候選 ≥ 槽位數的天數比例**」。
+                    它回答的是「篩選器是不是篩太兇、讓槽位填不滿」，
+                    而那件事**只有在組合層級看得見**（per-trade 層級只統計
+                    已經成交的交易，看不到閒置的槽位）。
+
+                    ⚠️ `n_cands` 已排除「當天已持有」的股票，所以它是
+                      「**還能再買幾檔可選**」，不是「達標幾檔」。
     """
     stocks     = cache['stocks']
     market_net = cache['market_net']
@@ -294,9 +450,13 @@ def simulate(cache, rank_key, max_positions, label, score_filter=None,
         if free <= 0:
             continue
 
+        pit_set = None if pit_at is None else pit_at(d)
+
         cands = []
         for code, st_ in stocks.items():
             if code in held:
+                continue
+            if pit_set is not None and code not in pit_set:
                 continue
             i = st_['idx'].get(d)
             if i is None or i + 1 >= len(st_['prices']):
@@ -312,6 +472,9 @@ def simulate(cache, rank_key, max_positions, label, score_filter=None,
             if entry_filter is not None and not entry_filter(code, d):
                 continue
             cands.append(code)
+
+        if cand_probe is not None:
+            cand_probe(d, len(cands), free)
 
         cands.sort(key=lambda c: rank_key(c, d, stocks))
         for code in cands[:free]:
@@ -408,9 +571,102 @@ def main(path=CACHE):
           f'{neutral["alpha"] - base["alpha"]:+.2f}pp（筆數 {neutral["n"]} vs {base["n"]}）')
 
 
+def _selftest_pit():
+    """
+    `pit_at` 的自我測試——**成對造情境**（照 2026-10-07 那條通則：
+    只驗「有效果」那一邊，可能是方法把真訊號也殺掉了）。
+
+      ① pit_at=None            ← 基準
+      ② pit_at=「全部都在」      ← 必須與 ① **完全相同**（位元級）
+      ③ pit_at=「排除某一檔」    ← 那一檔必須消失，其餘必須保留
+
+    另外驗 `pit_lookup()` 的 bisect：日期早於第一個月 ⇒ 空集合（不可進場）。
+    """
+    import random
+    print('=' * 60)
+    print('pit_at 自我測試（合成資料）')
+    print('=' * 60)
+
+    rnd = random.Random(1234)
+    dates = [f'2020-{m:02d}-{d:02d}' for m in range(1, 7) for d in range(1, 21)]
+    codes = [f'{1000+k}' for k in range(8)]
+    stocks = {}
+    for k, c in enumerate(codes):
+        px, cur = [], 100.0 + k
+        for d in dates:
+            cur *= 1 + rnd.uniform(-0.02, 0.025)
+            px.append({'date': d, 'open': cur, 'high': cur * 1.01,
+                       'low': cur * 0.995, 'close': cur})
+        # ⚠️ 評分刻意浮動：若全給 80 分，續抱門檻 65 永遠成立 ⇒ 只會有
+        #    最初那幾筆（實測 3 筆），identity 檢查幾乎沒有鑑別力。
+        stocks[c] = {'name': c, 'prices': px,
+                     'idx': {p['date']: i for i, p in enumerate(px)},
+                     'score': {d: rnd.choice([40, 55, 68, 72, 85]) for d in dates},
+                     'vol': {}, 'parts': {}}
+    cache = {'stocks': stocks, 'market_net': {d: -5 for d in dates},
+             'tpx_dates': dates,
+             'tpx_close': {d: 10000.0 for d in dates}}
+    rk = lambda c, d, s: c
+
+    def sig(trades):
+        return sorted((t['code'], t['entry_date'], round(t['pnl'], 9))
+                      for t in trades)
+
+    _, t1 = simulate(cache, rk, 3, 'base')
+    allset = frozenset(codes)
+    _, t2 = simulate(cache, rk, 3, 'all', pit_at=lambda d: allset)
+    ok2 = sig(t1) == sig(t2)
+    print(f'② 「全部都在」與基準相同：{"✅" if ok2 else "🚨 不同"}'
+          f'（{len(t1)} vs {len(t2)} 筆）')
+
+    drop = codes[0]
+    sub = frozenset(c for c in codes if c != drop)
+    _, t3 = simulate(cache, rk, 3, 'drop', pit_at=lambda d: sub)
+    gone = all(t['code'] != drop for t in t3)
+    had  = any(t['code'] == drop for t in t1)
+    print(f'③ 排除 {drop}：基準有它={had}　排除後沒有它={gone}　'
+          f'{"✅" if (had and gone) else "🚨"}')
+
+    # ④ pit_lookup 的 bisect 邊界
+    fn = pit_lookup([('2020-03-02', ('1001', '1002')),
+                     ('2020-05-04', ('1003',))])
+    b = [(fn('2020-01-15') == frozenset(), '早於第一個月 ⇒ 空集合'),
+         (fn('2020-03-02') == frozenset({'1001', '1002'}), '當月第一天'),
+         (fn('2020-04-30') == frozenset({'1001', '1002'}), '沿用上一個月'),
+         (fn('2020-05-04') == frozenset({'1003'}), '換月'),
+         (fn('2026-12-31') == frozenset({'1003'}), '最後一個月之後')]
+    for okk, lab in b:
+        print(f'④ pit_lookup {lab}：{"✅" if okk else "🚨"}')
+
+    allok = ok2 and had and gone and all(x[0] for x in b)
+    print()
+    print('✅ 全部通過' if allok else '🚨 有項目失敗')
+    return allok
+
+
 if __name__ == '__main__':
     args = sys.argv[1:]
     mkt = 'market' in args
+    if 'selftest' in args:
+        sys.exit(0 if _selftest_pit() else 1)
+    if 'pit' in args and 'cache' not in args:
+        # 只印點時間宇宙的統計與守衛，不建快取（便宜，可先確認前提）
+        from database import get_conn
+        _c = get_conn()
+        _m, _u = pit_universe(_c)
+        _sz = [len(x[1]) for x in _m]
+        print(f'點時間宇宙：{len(_m)} 個月，平均 {sum(_sz)/len(_sz):.0f} 檔'
+              f'（{min(_sz)}~{max(_sz)}）')
+        import collections as _co
+        _by = _co.defaultdict(list)
+        for d, cs in _m:
+            _by[d[:4]].append(len(cs))
+        for y in sorted(_by):
+            print(f'  {y}  平均 {sum(_by[y])/len(_by[y]):>5.0f} 檔'
+                  f'（{min(_by[y])}~{max(_by[y])}）')
+        assert_pit_has_delisted(_c, _u)
+        _c.close()
+        sys.exit(0)
     if 'cache' in args:
         # ⚠️ `days` 必須可從 CLI 指定——這是陷阱51 那條通則的第四次。
         #    `build_cache()` 的預設是 600 天（＝2024-05 起），而 2018~2026 是

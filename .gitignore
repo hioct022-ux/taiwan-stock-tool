@@ -28,3 +28,8 @@ data/*.bak-*
 data/.fuse_hidden*
 台股分析工具_backup/
 backfill_log.txt
+
+# 回測快取（100MB+ 的 pickle，不進 git）
+# 預設在 /tmp，但 /tmp 會被清掉 ⇒ 跨天重用的快取改放這裡：
+#   export TWSTOOL_CACHE=~/台股分析工具/data/cache
+data/cache/

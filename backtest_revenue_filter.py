@@ -110,7 +110,18 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # ⚠️ pickle 的來源：這份快取**由本腳本自己的 `cache` 子命令寫入 /tmp**，
 #    不是外部或網路輸入，與既有的 `backtest_portfolio_slots.py` 同一模式。
 #    內容是純 dict/list/float（無自訂類別），改用 JSON 也可以但會大好幾倍、慢很多。
-CACHE = '/tmp/_rev_filter_cache.pkl'
+#   快取目錄預設 /tmp，可用 TWSTOOL_CACHE 改成不會被清掉的地方
+#   （見 backtest_portfolio_slots.cache_dir() 的說明——2026-10-21 /tmp 被清、
+#     一份 20~40 分鐘的快取白建）。
+import backtest_portfolio_slots as _P0
+_CD = _P0.cache_dir()
+
+CACHE = os.path.join(_CD, '_rev_filter_cache.pkl')
+
+# ★ 2026-10-21：點時間宇宙版的快取**另存一份**，不覆蓋舊的。
+#   理由：舊快取是唯一能對帳既有數字的東西（★10%／現行階梯 ⇒ 15,176 筆、
+#   alpha +0.31%）。把它蓋掉就再也無法回答「差異是宇宙造成的，還是程式改壞了」。
+CACHE_PIT = os.path.join(_CD, '_rev_filter_cache_pit.pkl')
 
 DAYS       = 2600    # 要撈到 2018 之前（TAIEX 實際有 2016-10 起）
 # ★ 回測起點**必須 ≥ 2018-01-01**（陷阱51 限制第 5 條）：
@@ -219,15 +230,16 @@ def build_revenue_ranks(conn, codes):
 #   殺掉、連進度都沒印出來**。改成「每塊 48 檔、各自存檔、最後合併」
 #   ⇒ 每塊約 90s，穩穩落在上限內，中斷了只要重跑那一塊。
 #   本機執行不受此限，可直接 `cache`（不帶 --chunk）一次跑完。
-CHUNK_N = 48
-META    = '/tmp/_rev_meta.pkl'
+CHUNK_N  = 48
+META     = os.path.join(_CD, '_rev_meta.pkl')
+META_PIT = os.path.join(_CD, '_rev_meta_pit.pkl')
 
 
-def _chunk_path(k):
-    return f'/tmp/_rev_chunk_{k}.pkl'
+def _chunk_path(k, pit=False):
+    return os.path.join(_CD, f'_rev_chunk{"_pit" if pit else ""}_{k}.pkl')
 
 
-def _build_chunk(chunk, meta):
+def _build_chunk(chunk, meta, pit=False):
     from multiprocessing import Pool
     codes, names = meta['codes'], meta['names']
     ks = (range((len(codes) + CHUNK_N - 1) // CHUNK_N)
@@ -246,18 +258,18 @@ def _build_chunk(chunk, meta):
                     out[res[0]] = res[1]
                 if n % 32 == 0 or n == len(sub):
                     print(f'    [{n}/{len(sub)}] 已完成 {len(out)} 檔', flush=True)
-        with open(_chunk_path(k), 'wb') as f:
+        with open(_chunk_path(k, pit), 'wb') as f:
             pickle.dump(out, f)
-        mb = os.path.getsize(_chunk_path(k)) / 1e6
+        mb = os.path.getsize(_chunk_path(k, pit)) / 1e6
         print(f'  ✅ 第 {k} 塊已存（{len(out)} 檔、{mb:.0f} MB）')
 
 
-def _merge(meta):
+def _merge(meta, pit=False):
     codes = meta['codes']
     n_chunks = (len(codes) + CHUNK_N - 1) // CHUNK_N
     stocks, missing = {}, []
     for k in range(n_chunks):
-        pth = _chunk_path(k)
+        pth = _chunk_path(k, pit)
         if not os.path.exists(pth):
             missing.append(k)
             continue
@@ -269,38 +281,45 @@ def _merge(meta):
         print(f'🚨 **缺第 {missing} 塊，不合併。**')
         print('   合併不完整的快取會讓宇宙悄悄縮小，而結果看起來完全正常。')
         return
-    with open(CACHE, 'wb') as f:
+    out = CACHE_PIT if pit else CACHE
+    with open(out, 'wb') as f:
         pickle.dump({'market_net': meta['market_net'],
                      'tpx_close': meta['tpx_close'],
                      'tpx_dates': meta['tpx_dates'], 'stocks': stocks,
                      'avail': meta['avail'], 'rev_rank': meta['rev_rank'],
-                     'rev_yoy': meta['rev_yoy'], 'universe': 'market_long'}, f)
+                     'rev_yoy': meta['rev_yoy'],
+                     # ★ 2026-10-21：點時間宇宙的逐月成員（只存 106 個月份，
+                     #   不存 2,137 天 × 400 檔），用 P.pit_lookup() 展開。
+                     'pit_months': meta.get('pit_months'),
+                     'universe': 'market_pit' if pit else 'market_long'}, f)
     sp = sum(len(v['score']) for v in stocks.values())
-    mb = os.path.getsize(CACHE) / 1e6
+    mb = os.path.getsize(out) / 1e6
     print('')
-    print(f'✅ 快取已合併 {CACHE}')
+    print(f'✅ 快取已合併 {out}')
     print(f'   {len(stocks)} / {len(codes)} 檔　{sp:,} 個評分點　{mb:.0f} MB')
     if len(stocks) < len(codes) * 0.9:
         pctv = len(stocks) / len(codes) * 100
         print(f'   ⚠️ 只有 {pctv:.0f}% 的標的建成（其餘歷史筆數不足）')
 
 
-def build_cache(chunk=None, merge=False):
+def build_cache(chunk=None, merge=False, pit=False):
     from multiprocessing import Pool
     from database import get_conn, get_prices
     import backtest_portfolio_slots as P
     import backtest_stocks as bs
 
+    meta_path = META_PIT if pit else META
     print('=' * 72)
-    print('建快取：2018 起、全市場、含月營收產業內排名')
+    print('建快取：2018 起、全市場、含月營收產業內排名'
+          + ('　★點時間宇宙（含已退場股）' if pit else ''))
     print('=' * 72)
     print(f'DAYS={DAYS}　PRICE_WIN={PRICE_WIN}')
 
-    if os.path.exists(META):
-        with open(META, 'rb') as f:
+    if os.path.exists(meta_path):
+        with open(meta_path, 'rb') as f:
             meta = pickle.load(f)
-        print(f'（沿用既有 meta：{META}　宇宙 {len(meta["codes"])} 檔）')
-        return _merge(meta) if merge else _build_chunk(chunk, meta)
+        print(f'（沿用既有 meta：{meta_path}　宇宙 {len(meta["codes"])} 檔）')
+        return _merge(meta, pit) if merge else _build_chunk(chunk, meta, pit)
 
     print('計算大盤訊號（S1–S8 逐日回溯）...')
     market_net = bs._build_market_signals(days=DAYS)
@@ -314,10 +333,19 @@ def build_cache(chunk=None, merge=False):
         return
 
     conn = get_conn()
-    codes = P.market_universe(conn)
     names = dict(conn.execute('SELECT code, name FROM stocks').fetchall())
-    print(f'\n宇宙：{len(codes)} 檔（上市普通股、日均成交 ≥ '
-          f'{P.UNI_MIN_TURNOVER/1e8:.2f} 億）')
+    pit_months = None
+    if pit:
+        print('\n計算點時間宇宙（每月重算、上市判準＝有 chips）...')
+        pit_months, codes = P.pit_universe(conn)
+        sz = [len(m[1]) for m in pit_months]
+        print(f'  {len(pit_months)} 個月，月宇宙平均 {sum(sz)/len(sz):.0f} 檔'
+              f'（{min(sz)}~{max(sz)}）')
+        P.assert_pit_has_delisted(conn, codes)   # 阻斷式，缺了就 sys.exit
+    else:
+        codes = P.market_universe(conn)
+        print(f'\n宇宙：{len(codes)} 檔（上市普通股、日均成交 ≥ '
+              f'{P.UNI_MIN_TURNOVER/1e8:.2f} 億）')
     avail, rev_rank, rev_yoy = build_revenue_ranks(conn, codes)
     conn.close()
     print(f'月營收：{len(avail)} 個營收月　{avail[0][1]} ~ {avail[-1][1]}'
@@ -325,13 +353,14 @@ def build_cache(chunk=None, merge=False):
 
     meta = {'market_net': market_net, 'tpx_close': tpx_close,
             'tpx_dates': tpx_dates, 'codes': codes, 'names': names,
-            'avail': avail, 'rev_rank': rev_rank, 'rev_yoy': rev_yoy}
-    with open(META, 'wb') as f:
+            'avail': avail, 'rev_rank': rev_rank, 'rev_yoy': rev_yoy,
+            'pit_months': pit_months}
+    with open(meta_path, 'wb') as f:
         pickle.dump(meta, f)
-    print(f'✅ meta 已存 {META}（大盤訊號＋宇宙＋月營收，只算一次）')
+    print(f'✅ meta 已存 {meta_path}（大盤訊號＋宇宙＋月營收，只算一次）')
     nk = (len(codes) + CHUNK_N - 1) // CHUNK_N
     print(f'接下來分 {nk} 塊建個股快取。')
-    return _merge(meta) if merge else _build_chunk(chunk, meta)
+    return _merge(meta, pit) if merge else _build_chunk(chunk, meta, pit)
 
 
 # ════════════════════════════════════════════════════════════════
@@ -714,6 +743,7 @@ if __name__ == '__main__':
     if cmd == 'cache':
         _ch = (int(sys.argv[sys.argv.index('--chunk') + 1])
                if '--chunk' in sys.argv else None)
-        build_cache(chunk=_ch, merge='--merge' in sys.argv)
+        build_cache(chunk=_ch, merge='--merge' in sys.argv,
+                    pit='--pit' in sys.argv)
     else:
         run()
