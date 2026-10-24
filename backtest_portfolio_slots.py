@@ -45,7 +45,7 @@
 
   sandbox 環境請先把 *.py 與 data/stock.db 複製到 /tmp 再跑（FUSE+SQLite 極慢）。
 """
-import sys, os, pickle, statistics as stt
+import sys, os, pickle, random, statistics as stt
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import backtest_stocks as bs
@@ -354,7 +354,7 @@ def build_cache(universe='watchlist', days=600, price_win=300):
 # ════════════════ 第二段：組合模擬 ════════════════
 def simulate(cache, rank_key, max_positions, label, score_filter=None,
              entry_filter=None, threshold_fn=None, stop_ratio=None,
-             pit_at=None, cand_probe=None):
+             pit_at=None, cand_probe=None, renew=None):
     """
     rank_key      : callable(code, date, stocks) -> 排序用的 tuple（小的先選）
     max_positions : None = 無上限（＝現行回測行為）
@@ -406,6 +406,44 @@ def simulate(cache, rank_key, max_positions, label, score_filter=None,
 
                     ⚠️ `n_cands` 已排除「當天已持有」的股票，所以它是
                       「**還能再買幾檔可選**」，不是「達標幾檔」。
+    renew         : None（預設）= 用模組常數 `RENEW_THRESHOLD`（現行 65）
+                    ⇒ **與改版前位元級相同**。
+                    給數字（60／55／50…）⇒ 取代續抱門檻。
+                    給 `'profit'` ⇒ **到期時只要仍獲利就續抱**（不看評分），
+                    與 `backtest_structure_bear.py` 的「續抱代理」同一條規則。
+                    給 `('rand', p, salt)` ⇒ **★★ 中性對照**：到期時以固定機率
+                    p 續抱、**完全不看任何資訊**，只為了把持有長度拉到與
+                    被測規則相同。續抱決定由 `(salt, code, i)` 決定，
+                    **與排序用的 seed 無關** ⇒ 100 條配對之間共用同一組
+                    續抱決定，配對的差額只來自排序運氣，不會混進
+                    「對照組自己也在隨機」這第二個噪音源。
+                    2026-10-23 新增。
+                    給 `('shuffle', thr, salt)` ⇒ **★★★ 決定性的中性對照**：
+                    用**別人的評分**當續抱依據（每檔固定指派到另一檔）。
+                    ⇒ 出場的**時機分布、自相關、橫斷面分布全部保留**，
+                    但對這一檔完全沒有資訊。
+                    2026-10-24 新增，起因見十五章「放寬續抱條件」那節：
+                    `('rand', p)` 只對齊了「平均持有長度」，沒對齊
+                    「出場時機的分布」——固定危險率會**隨機砍掉正在複利的
+                    贏家**，而真規則的出場是罕見事件。那個沒對齊的維度
+                    足以製造一個假的 ✅（實測 N30 vs R995 是 85/100、
+                    p=0.000，但同一輪的排序顯示「評分用得越少優勢越大」
+                    ⇒ 與「評分有資訊」直接矛盾）。
+
+                    ═══ 為什麼要測這個 ═══
+                    10/07 的結構測試量到**續抱是整個結構裡最強的一項**
+                    （換手 1,102→57 次、Δ報酬 +169pp、20/20）；
+                    10/18 的資金曲線又量到**一個完全沒有資訊的隨機數，
+                    只要同樣拉長持有期，就能拿到大部分的效果**
+                    （R50a vs A1 = +493pp、20/20）。
+                    兩條獨立的路指向同一件事：**「抱更久」本身就是效果來源，
+                    而那不需要月營收、也不必動 `scorer.py`。**
+
+                    ⚠️ 解讀時必須用**資金曲線**，不是 per-trade alpha
+                      ——放寬續抱會改變持有長度，而 per-trade alpha 沒有
+                      除以持有天數 ⇒ 抱久一點 alpha 自然變大（10/18 的教訓）。
+                    ⚠️ 中性對照必須在**持有長度**這一維對齊，而且要跑
+                      **兩個隨機實現**（單一實現的噪音足以翻轉判定）。
     """
     stocks     = cache['stocks']
     market_net = cache['market_net']
@@ -413,6 +451,30 @@ def simulate(cache, rank_key, max_positions, label, score_filter=None,
     dates      = cache['tpx_dates']
 
     _sr = STOP_LOSS_RATIO if stop_ratio is None else stop_ratio
+    # renew=None ⇒ 與改版前完全相同的那一條路；其餘三種分支見 docstring
+    _rn_profit = (renew == 'profit')
+    _rn_rand   = isinstance(renew, tuple) and renew and renew[0] == 'rand'
+    _rn_p, _rn_salt = (renew[1], renew[2]) if _rn_rand else (None, None)
+    # ★★★ ('shuffle', thr, salt)：用**別人的評分**當續抱依據（2026-10-24）
+    #   把每檔股票指派到另一檔（固定的隨機置換），續抱時查那一檔的評分。
+    #   ⇒ 出場同樣是「罕見、成群出現」（分布／自相關／橫斷面都保留），
+    #     但對**這一檔**完全沒有資訊。這是 ('rand', p) 配不上的那個維度。
+    _rn_shuf = isinstance(renew, tuple) and renew and renew[0] == 'shuffle'
+    _rn_map = None
+    if _rn_shuf:
+        _rn_thr_s = renew[1]
+        _keys = sorted(stocks)                      # ⚠️ sorted（10/16 的 bug）
+        _shuf = list(_keys)
+        random.Random(f'shuffle|{renew[2]}').shuffle(_shuf)
+        # 避免自我指派（那等於沒打亂）：與下一個互換
+        for _i, _c in enumerate(_shuf):
+            if _c == _keys[_i]:
+                _j = (_i + 1) % len(_shuf)
+                _shuf[_i], _shuf[_j] = _shuf[_j], _shuf[_i]
+        _rn_map = dict(zip(_keys, _shuf))
+    _rn_thr    = (RENEW_THRESHOLD if (renew is None or _rn_profit or _rn_rand
+                                      or _rn_shuf)
+                  else renew)
     held, trades = {}, []
 
     for d in dates:
@@ -434,7 +496,24 @@ def simulate(cache, rank_key, max_positions, label, score_filter=None,
 
             if i - pos['entry_idx'] >= HOLD_DAYS:
                 sc = st_['score'].get(d, 0)
-                if sc >= RENEW_THRESHOLD:        # 續抱（策略C）
+                # ★ 續抱判斷。`'profit'` 那條**刻意用收盤價與最初進場價比**
+                #   （不是與本輪起算價比）——與 `renew_position()` 的語意一致：
+                #   續抱只重設計時起點，不動 `entry_price`（陷阱47）。
+                if _rn_shuf:
+                    # 查「別人的」評分；那一檔當日沒資料就視為不續抱（與
+                    # `st_['score'].get(d, 0)` 的既有慣例一致）
+                    _other = stocks[_rn_map[code]]['score'].get(d, 0)
+                    _keep = _other >= _rn_thr_s
+                elif _rn_rand:
+                    # ★★ 中性對照：以固定機率 p 續抱，**完全不看任何資訊**。
+                    #    決定值由 (salt, code, i) 決定 ⇒ 與 `pref` 的 seed 無關
+                    #    ⇒ 100 條配對共用同一組續抱決定，配對只差在排序運氣。
+                    _keep = random.Random(f'{_rn_salt}|{code}|{i}').random() < _rn_p
+                elif _rn_profit:
+                    _keep = p['close'] > ep
+                else:
+                    _keep = sc >= _rn_thr
+                if _keep:                        # 續抱（策略C）
                     pos['entry_idx'] = i
                     pos['renewed'] = pos.get('renewed', 0) + 1
                     continue
@@ -638,7 +717,96 @@ def _selftest_pit():
     for okk, lab in b:
         print(f'④ pit_lookup {lab}：{"✅" if okk else "🚨"}')
 
-    allok = ok2 and had and gone and all(x[0] for x in b)
+    # ⑤ renew 參數（2026-10-23）——同樣成對驗，不只驗「有效果」那一邊
+    _, t5a = simulate(cache, rk, 3, 'renew=None')
+    _, t5b = simulate(cache, rk, 3, 'renew=65', renew=RENEW_THRESHOLD)
+    ok5 = sig(t5a) == sig(t5b)
+    print(f'⑤ renew=None 與 renew={RENEW_THRESHOLD} 相同：'
+          f'{"✅" if ok5 else "🚨 不同"}（{len(t5a)} vs {len(t5b)} 筆）')
+
+    def _renewals(tr):
+        return sum(t.get('renewed', 0) for t in tr)
+
+    _, t50 = simulate(cache, rk, 3, 'renew=50', renew=50)
+    more = _renewals(t50) > _renewals(t5a)
+    print(f'⑥ 放寬到 50 分 ⇒ 續抱次數變多：{_renewals(t5a)} → {_renewals(t50)}'
+          f'　{"✅" if more else "🚨"}')
+
+    # ⑦ 'profit' 的方向性：**成對造情境**（照 10/07 那條）
+    #    世界A：到期時一定獲利 ⇒ 必須續抱（0 筆「持滿」出場）
+    #    世界B：到期時一定虧損 ⇒ 必須不續抱
+    def _world(up):
+        dd = [f'2021-{m:02d}-{k:02d}' for m in range(1, 4) for k in range(1, 21)]
+        px = []
+        cur = 100.0
+        for n, x in enumerate(dd):
+            cur = cur * 1.01 if up else cur * 0.995   # 單調，且不觸發 -10% 停損
+            px.append({'date': x, 'open': cur, 'high': cur * 1.001,
+                       'low': cur * 0.999, 'close': cur})
+        s = {'A': {'name': 'A', 'prices': px,
+                   'idx': {p['date']: i for i, p in enumerate(px)},
+                   # ⚠️ 評分要 ≥ 階梯門檻才進得場（否則連一筆交易都沒有，
+                   #    ⑦ 會變成「兩邊都 0 次」而看起來像程式壞了）。
+                   #    `renew='profit'` 的續抱判斷不看評分，所以設高不影響本測試。
+                   'score': {x: 80 for x in dd},
+                   'vol': {}, 'parts': {}}}
+        return {'stocks': s, 'market_net': {x: -5 for x in dd}, 'tpx_dates': dd,
+                'tpx_close': {x: 10000.0 for x in dd}}
+
+    _, tu = simulate(_world(True), rk, 1, 'up', renew='profit')
+    _, td = simulate(_world(False), rk, 1, 'down', renew='profit')
+    up_renew = _renewals(tu) > 0 and all(t['exit_reason'] != f'持滿{HOLD_DAYS}日'
+                                         for t in tu)
+    dn_exit  = _renewals(td) == 0 and any(t['exit_reason'] == f'持滿{HOLD_DAYS}日'
+                                          for t in td)
+    print(f"⑦ renew='profit' 獲利時續抱：{'✅' if up_renew else '🚨'}"
+          f"（續抱 {_renewals(tu)} 次）")
+    print(f"⑦ renew='profit' 虧損時出場：{'✅' if dn_exit else '🚨'}"
+          f"（續抱 {_renewals(td)} 次）")
+
+    # ⑧ ('rand', p, salt) 中性對照的三個必要性質
+    _, tr0 = simulate(cache, rk, 3, 'rand p=0', renew=('rand', 0.0, 's'))
+    _, tr1 = simulate(cache, rk, 3, 'rand p=1', renew=('rand', 1.0, 's'))
+    _, tr5 = simulate(cache, rk, 3, 'rand p=.5', renew=('rand', 0.5, 's'))
+    _, tr5b = simulate(cache, rk, 3, 'rand p=.5', renew=('rand', 0.5, 's'))
+    _, tr5c = simulate(cache, rk, 3, 'rand p=.5', renew=('rand', 0.5, 'other'))
+    p0 = _renewals(tr0) == 0                      # p=0 ⇒ 從不續抱
+    p1 = _renewals(tr1) > _renewals(tr5) > 0      # p 越大續抱越多
+    det = sig(tr5) == sig(tr5b)                   # 同 salt ⇒ 確定性（配對前提）
+    slt = sig(tr5) != sig(tr5c)                   # 換 salt ⇒ 真的是另一個實現
+    print(f"⑧ ('rand',p) p=0 從不續抱：{'✅' if p0 else '🚨'}　"
+          f"單調 {_renewals(tr0)}/{_renewals(tr5)}/{_renewals(tr1)}："
+          f"{'✅' if p1 else '🚨'}")
+    print(f"⑧ 同 salt 可重現：{'✅' if det else '🚨'}　"
+          f"換 salt 是另一個實現：{'✅' if slt else '🚨'}")
+
+    # ⑨ ('shuffle', thr, salt)：決定性的中性對照（2026-10-24）
+    #   必須驗三件事，第三件最重要——**它真的在用別人的評分**。
+    _, th1 = simulate(cache, rk, 3, 'shuf', renew=('shuffle', 65, 's'))
+    _, th2 = simulate(cache, rk, 3, 'shuf', renew=('shuffle', 65, 's'))
+    _, th3 = simulate(cache, rk, 3, 'shuf', renew=('shuffle', 65, 'other'))
+    sh_det = sig(th1) == sig(th2)                 # 同 salt ⇒ 確定性
+    sh_slt = sig(th1) != sig(th3)                 # 換 salt ⇒ 另一個置換
+    sh_dif = sig(th1) != sig(t5b)                 # ★ 與「用自己的評分」不同
+    print(f"⑨ ('shuffle') 同 salt 可重現：{'✅' if sh_det else '🚨'}　"
+          f"換 salt 不同：{'✅' if sh_slt else '🚨'}")
+    print(f"⑨ 與 renew=65（用自己的評分）**不同**："
+          f"{'✅' if sh_dif else '🚨 一樣 ⇒ 置換沒生效，等於沒測到東西'}")
+    # ★ 沒有任何股票被指派到自己——否則那幾檔等於沒打亂
+    _k = sorted(cache['stocks'])
+    _s = list(_k)
+    random.Random('shuffle|s').shuffle(_s)
+    for _i, _c in enumerate(_s):
+        if _c == _k[_i]:
+            _j = (_i + 1) % len(_s)
+            _s[_i], _s[_j] = _s[_j], _s[_i]
+    sh_self = all(a != b for a, b in zip(_k, _s))
+    print(f"⑨ 無自我指派：{'✅' if sh_self else '🚨'}（{len(_k)} 檔）")
+
+    allok = (ok2 and had and gone and all(x[0] for x in b)
+             and ok5 and more and up_renew and dn_exit
+             and p0 and p1 and det and slt
+             and sh_det and sh_slt and sh_dif and sh_self)
     print()
     print('✅ 全部通過' if allok else '🚨 有項目失敗')
     return allok
