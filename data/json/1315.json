@@ -2,17 +2,6 @@
   "code": "1315",
   "prices": [
     {
-      "date": "2025-02-21",
-      "open": 69.2,
-      "high": 69.8,
-      "low": 69.2,
-      "close": 69.8,
-      "volume": 12598,
-      "value": 874926.0,
-      "change": 0.6,
-      "change_pct": 0.87
-    },
-    {
       "date": "2025-02-24",
       "open": 68.6,
       "high": 70.2,
@@ -4400,6 +4389,17 @@
       "value": 4289867.0,
       "change": -2.4,
       "change_pct": -3.23
+    },
+    {
+      "date": "2026-10-28",
+      "open": 72.9,
+      "high": 73.5,
+      "low": 72.2,
+      "close": 72.6,
+      "volume": 21516,
+      "value": 1562435.0,
+      "change": 0.6,
+      "change_pct": 0.83
     }
   ],
   "fundamentals": [
@@ -5221,23 +5221,16 @@
       "pe": 29.51,
       "pb": 0.51,
       "dividend_yield": 6.25
+    },
+    {
+      "date": "2026-10-27",
+      "eps_ttm": 2.44,
+      "pe": 29.51,
+      "pb": 0.51,
+      "dividend_yield": 6.25
     }
   ],
   "chips": [
-    {
-      "date": "2026-07-22",
-      "foreign_buy": 6,
-      "foreign_sell": 6,
-      "foreign_net": 0,
-      "trust_buy": 0,
-      "trust_sell": 0,
-      "trust_net": 0,
-      "dealer_buy": 0,
-      "dealer_sell": 7,
-      "dealer_net": -7,
-      "margin_balance": 18,
-      "short_balance": 0
-    },
     {
       "date": "2026-07-23",
       "foreign_buy": 3,
@@ -6133,11 +6126,25 @@
       "dealer_net": 0,
       "margin_balance": 50,
       "short_balance": 0
+    },
+    {
+      "date": "2026-10-28",
+      "foreign_buy": 3,
+      "foreign_sell": 11,
+      "foreign_net": -8,
+      "trust_buy": 0,
+      "trust_sell": 0,
+      "trust_net": 0,
+      "dealer_buy": 0,
+      "dealer_sell": 0,
+      "dealer_net": 0,
+      "margin_balance": 0,
+      "short_balance": 0
     }
   ],
   "ownership": {
     "foreign_pct": 1.24,
-    "date": "2026-10-22"
+    "date": "2026-10-27"
   },
   "monthly_revenue": [
     {
@@ -6381,5 +6388,5 @@
       "revenue_last_y": 136905
     }
   ],
-  "exported_at": "2026-10-27 20:43"
+  "exported_at": "2026-10-28 16:32"
 }
