@@ -2,17 +2,6 @@
   "code": "2327",
   "prices": [
     {
-      "date": "2025-02-26",
-      "open": 577.0,
-      "high": 583.0,
-      "low": 575.0,
-      "close": 583.0,
-      "volume": 2880305,
-      "value": 1671370263.0,
-      "change": 2.0,
-      "change_pct": 0.34
-    },
-    {
       "date": "2025-02-27",
       "open": 584.0,
       "high": 585.0,
@@ -4400,6 +4389,17 @@
       "value": 14149192126.0,
       "change": 26.0,
       "change_pct": 4.99
+    },
+    {
+      "date": "2026-10-29",
+      "open": 544.0,
+      "high": 548.0,
+      "low": 525.0,
+      "close": 543.0,
+      "volume": 29920856,
+      "value": 16095782709.0,
+      "change": -4.0,
+      "change_pct": -0.73
     }
   ],
   "fundamentals": [
@@ -5224,27 +5224,20 @@
     },
     {
       "date": "2026-10-27",
+      "eps_ttm": 14.14,
+      "pe": 36.84,
+      "pb": 6.36,
+      "dividend_yield": 1.1
+    },
+    {
+      "date": "2026-10-28",
       "eps_ttm": 14.85,
-      "pe": 35.08,
-      "pb": 6.06,
-      "dividend_yield": 1.15
+      "pe": 36.84,
+      "pb": 6.36,
+      "dividend_yield": 1.1
     }
   ],
   "chips": [
-    {
-      "date": "2026-07-23",
-      "foreign_buy": 24982,
-      "foreign_sell": 25248,
-      "foreign_net": -267,
-      "trust_buy": 32,
-      "trust_sell": 183,
-      "trust_net": -151,
-      "dealer_buy": 1315,
-      "dealer_sell": 1218,
-      "dealer_net": 97,
-      "margin_balance": 0,
-      "short_balance": 0
-    },
     {
       "date": "2026-07-24",
       "foreign_buy": 15860,
@@ -6138,13 +6131,27 @@
       "dealer_buy": 380,
       "dealer_sell": 44,
       "dealer_net": 336,
+      "margin_balance": 45632,
+      "short_balance": 383
+    },
+    {
+      "date": "2026-10-29",
+      "foreign_buy": 9328,
+      "foreign_sell": 13180,
+      "foreign_net": -3853,
+      "trust_buy": 235,
+      "trust_sell": 61,
+      "trust_net": 174,
+      "dealer_buy": 823,
+      "dealer_sell": 192,
+      "dealer_net": 632,
       "margin_balance": 0,
       "short_balance": 0
     }
   ],
   "ownership": {
-    "foreign_pct": 41.95,
-    "date": "2026-10-27"
+    "foreign_pct": 42.29,
+    "date": "2026-10-28"
   },
   "monthly_revenue": [
     {
@@ -6388,5 +6395,5 @@
       "revenue_last_y": 9061774
     }
   ],
-  "exported_at": "2026-10-28 16:32"
+  "exported_at": "2026-10-29 16:35"
 }
