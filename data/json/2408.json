@@ -2,17 +2,6 @@
   "code": "2408",
   "prices": [
     {
-      "date": "2025-03-13",
-      "open": 41.05,
-      "high": 43.85,
-      "low": 41.0,
-      "close": 41.6,
-      "volume": 151407976,
-      "value": 6417244548.0,
-      "change": 1.05,
-      "change_pct": 2.59
-    },
-    {
       "date": "2025-03-14",
       "open": 42.1,
       "high": 43.2,
@@ -4396,10 +4385,21 @@
       "high": 462.5,
       "low": 424.5,
       "close": 456.5,
-      "volume": 34897203,
-      "value": 15659846480.0,
+      "volume": 34959203,
+      "value": 15690299480.0,
       "change": 2.0,
       "change_pct": 0.44
+    },
+    {
+      "date": "2026-11-03",
+      "open": 438.0,
+      "high": 442.5,
+      "low": 411.0,
+      "close": 411.0,
+      "volume": 51250064,
+      "value": 21704230278.0,
+      "change": -45.5,
+      "change_pct": -9.97
     }
   ],
   "fundamentals": [
@@ -5246,26 +5246,19 @@
     {
       "date": "2026-11-01",
       "eps_ttm": 0.0,
-      "pe": 17.64,
-      "pb": 4.86,
+      "pe": 17.71,
+      "pb": 4.88,
+      "dividend_yield": 0.3
+    },
+    {
+      "date": "2026-11-02",
+      "eps_ttm": 25.78,
+      "pe": 17.71,
+      "pb": 4.88,
       "dividend_yield": 0.3
     }
   ],
   "chips": [
-    {
-      "date": "2026-07-28",
-      "foreign_buy": 4557,
-      "foreign_sell": 10131,
-      "foreign_net": -5574,
-      "trust_buy": 232,
-      "trust_sell": 1752,
-      "trust_net": -1520,
-      "dealer_buy": 1140,
-      "dealer_sell": 651,
-      "dealer_net": 489,
-      "margin_balance": 0,
-      "short_balance": 0
-    },
     {
       "date": "2026-07-29",
       "foreign_buy": 11677,
@@ -6150,22 +6143,36 @@
     },
     {
       "date": "2026-11-02",
-      "foreign_buy": 13382,
-      "foreign_sell": 12476,
+      "foreign_buy": 13394,
+      "foreign_sell": 12488,
       "foreign_net": 905,
       "trust_buy": 262,
-      "trust_sell": 218,
-      "trust_net": 44,
+      "trust_sell": 225,
+      "trust_net": 37,
       "dealer_buy": 963,
       "dealer_sell": 827,
       "dealer_net": 136,
+      "margin_balance": 59708,
+      "short_balance": 1714
+    },
+    {
+      "date": "2026-11-03",
+      "foreign_buy": 9713,
+      "foreign_sell": 22997,
+      "foreign_net": -13284,
+      "trust_buy": 125,
+      "trust_sell": 1131,
+      "trust_net": -1006,
+      "dealer_buy": 1569,
+      "dealer_sell": 2010,
+      "dealer_net": -441,
       "margin_balance": 0,
       "short_balance": 0
     }
   ],
   "ownership": {
-    "foreign_pct": 15.16,
-    "date": "2026-10-30"
+    "foreign_pct": 15.18,
+    "date": "2026-11-02"
   },
   "monthly_revenue": [
     {
@@ -6409,5 +6416,5 @@
       "revenue_last_y": 2668030
     }
   ],
-  "exported_at": "2026-11-02 16:32"
+  "exported_at": "2026-11-03 16:33"
 }
