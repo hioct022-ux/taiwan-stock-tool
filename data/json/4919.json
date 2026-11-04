@@ -2,17 +2,6 @@
   "code": "4919",
   "prices": [
     {
-      "date": "2025-03-14",
-      "open": 90.9,
-      "high": 91.5,
-      "low": 89.7,
-      "close": 91.3,
-      "volume": 675760,
-      "value": 61294274.0,
-      "change": 1.0,
-      "change_pct": 1.11
-    },
-    {
       "date": "2025-03-17",
       "open": 91.8,
       "high": 92.5,
@@ -4400,6 +4389,17 @@
       "value": 1006604240.0,
       "change": -11.5,
       "change_pct": -9.66
+    },
+    {
+      "date": "2026-11-04",
+      "open": 108.0,
+      "high": 110.0,
+      "low": 100.5,
+      "close": 108.5,
+      "volume": 8103864,
+      "value": 860185175.0,
+      "change": 1.0,
+      "change_pct": 0.93
     }
   ],
   "fundamentals": [
@@ -5254,25 +5254,18 @@
       "date": "2026-11-02",
       "eps_ttm": 0.0,
       "pe": 0.0,
-      "pb": 3.22,
+      "pb": 2.98,
+      "dividend_yield": 0.0
+    },
+    {
+      "date": "2026-11-03",
+      "eps_ttm": 0.0,
+      "pe": 0.0,
+      "pb": 2.98,
       "dividend_yield": 0.0
     }
   ],
   "chips": [
-    {
-      "date": "2026-07-29",
-      "foreign_buy": 3480,
-      "foreign_sell": 1777,
-      "foreign_net": 1703,
-      "trust_buy": 0,
-      "trust_sell": 0,
-      "trust_net": 0,
-      "dealer_buy": 132,
-      "dealer_sell": 156,
-      "dealer_net": -24,
-      "margin_balance": 0,
-      "short_balance": 0
-    },
     {
       "date": "2026-07-30",
       "foreign_buy": 5927,
@@ -6166,13 +6159,27 @@
       "dealer_buy": 117,
       "dealer_sell": 414,
       "dealer_net": -298,
+      "margin_balance": 15662,
+      "short_balance": 947
+    },
+    {
+      "date": "2026-11-04",
+      "foreign_buy": 3694,
+      "foreign_sell": 3338,
+      "foreign_net": 356,
+      "trust_buy": 41,
+      "trust_sell": 0,
+      "trust_net": 41,
+      "dealer_buy": 196,
+      "dealer_sell": 448,
+      "dealer_net": -252,
       "margin_balance": 0,
       "short_balance": 0
     }
   ],
   "ownership": {
-    "foreign_pct": 1.41,
-    "date": "2026-11-02"
+    "foreign_pct": 1.48,
+    "date": "2026-11-03"
   },
   "monthly_revenue": [
     {
@@ -6416,5 +6423,5 @@
       "revenue_last_y": 2865741
     }
   ],
-  "exported_at": "2026-11-03 16:33"
+  "exported_at": "2026-11-04 16:33"
 }
