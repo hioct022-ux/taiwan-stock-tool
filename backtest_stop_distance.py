@@ -44,6 +44,7 @@
    python3 -u backtest_stop_distance.py              # per-trade + 配對（100 條）
    python3 -u backtest_stop_distance.py pertrade     # 只跑 per-trade（快）
    python3 -u backtest_stop_distance.py paired seeds=100 seedbase=8000
+   python3 -u backtest_stop_distance.py win=2026-10-07:2026-11-05   # 樣本外檢驗 Q5
 """
 import sys, random, statistics as stt
 
@@ -90,6 +91,7 @@ def _spans_ca(t, ca):
 
 
 SEED_BASE = 7000
+WIN       = None         # 2026-11-05：CLI `win=起:迄`，None ⇒ 行為完全不變
 N_SEEDS   = 100          # 10/16 的教訓：20 條在這個效果量級上沒有解析度
 BEAR_YEARS = ('2018', '2020', '2022')
 
@@ -115,6 +117,7 @@ def run_pertrade(cache):
     out = {}
     for label, sr in STOPS:
         _, tr = P.simulate(cache, lambda c, d, s: (c,), None, label, stop_ratio=sr)
+        tr = P.in_win(tr, WIN)          # WIN=None ⇒ 原樣
         st_ = P.stat(tr, tpx)
         if not st_:
             print(f'  {label:<22}（無交易）')
@@ -147,6 +150,14 @@ def run_pertrade(cache):
   雜訊帶（從現行 10% 那組重抽 n={ns:,}，600 次）：{lo:+.2f}% ~ {hi:+.2f}%（帶寬 {hi-lo:.2f}pp）
   六組 alpha 全距：{rng:.2f}pp
   ⇒ {"★ 全距超出雜訊帶 ⇒ 可以解讀" if rng > hi - lo else "⚪ 全距在雜訊帶內 ⇒ **不可解讀**"}''')
+
+    if WIN:
+        # 窗口模式：逐年表沒有意義；改印「回測結束」占比（窗口尾端進場的交易沒走完）
+        for lb, v in out.items():
+            ne = sum(1 for t in v['trades'] if t['exit_reason'] == '回測結束')
+            print(f'  {lb:<22}其中「回測結束」（未走完）{ne}/{len(v["trades"])} 筆')
+        print('  ⚠️ 九年基準的 10% 停損率是 14.4%（十五章 10/16 那節）')
+        return out
 
     # ── 逐年 alpha：這是本次的重點 ──
     print('\n' + '=' * 96)
@@ -200,7 +211,7 @@ def run_paired(cache):
             pref = {c: rnd.random() for c in sorted(cache['stocks'])}
             _, tr = P.simulate(cache, lambda c, d, s, _p=pref: (_p[c],),
                                5, label, stop_ratio=sr)
-            s = P.stat(tr, tpx)
+            s = P.stat(P.in_win(tr, WIN), tpx)
             per.append(s['alpha'] if s else 0.0)
         runs[label] = per
         print(f'  {label:<22}中位 alpha {stt.median(per):+.2f}%'
@@ -233,7 +244,8 @@ def run_paired(cache):
 
 
 def main():
-    global SEED_BASE, N_SEEDS
+    global SEED_BASE, N_SEEDS, WIN
+    WIN = P.parse_win(sys.argv[1:])
     for a in sys.argv[1:]:
         if a.startswith('seedbase='):
             SEED_BASE = int(a.split('=', 1)[1]); print(f'★ seed base = {SEED_BASE}')
@@ -246,6 +258,7 @@ def main():
     print('停損距離重驗：全市場 + 三個空頭年 + 配對設計（2026-10-16）')
     print('=' * 96)
     cache = load()          # ★ 阻斷式：三個空頭年沒全在就 sys.exit
+    P.require_win(cache, WIN)   # ★ 阻斷式：沒涵蓋到窗口終點就 sys.exit
 
     if arg in ('all', 'pertrade'):
         run_pertrade(cache)

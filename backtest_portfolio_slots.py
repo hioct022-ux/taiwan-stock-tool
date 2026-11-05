@@ -578,6 +578,46 @@ def simulate(cache, rank_key, max_positions, label, score_filter=None,
     return label, trades
 
 
+def parse_win(args):
+    """
+    2026-11-05 新增（樣本外檢驗 Q5/Q6 用）。CLI 參數 `win=YYYY-MM-DD:YYYY-MM-DD`
+    ⇒ 回傳 (起, 迄)；沒給 ⇒ None（所有腳本行為**完全不變**）。
+
+    ★ 刻意只放一份在這裡，各腳本共用——陷阱34／43「同一邏輯多份實作」的教訓。
+    """
+    raw = next((a.split('=', 1)[1] for a in args if a.startswith('win=')), None)
+    if not raw:
+        return None
+    s, e = raw.split(':')
+    return (s, e)
+
+
+def in_win(trades, win):
+    """
+    只留「進場日落在窗內」的交易。win=None ⇒ 原樣回傳（不複製、不改動）。
+
+    ⚠️ 模擬本身仍跑完整歷史（部位、槽位、續抱都照真實路徑走），
+       只在**統計時**篩選 ⇒ 不會因為從窗口第一天「空倉起跑」而失真。
+    """
+    if not win:
+        return trades
+    s, e = win
+    return [t for t in trades if s <= t['entry_date'] <= e]
+
+
+def require_win(cache, win):
+    """阻斷式：快取沒涵蓋到窗口終點就中止（陷阱51：入口就檢查涵蓋期間）"""
+    if not win:
+        return
+    ds = cache['tpx_dates']
+    if ds[-1] < win[1]:
+        print(f'🚨 快取只到 {ds[-1]}，沒有涵蓋窗口終點 {win[1]} ⇒ 中止。'
+              f'\n   請先重建快取（cache market days=2600）再跑。')
+        sys.exit(1)
+    print(f'  ★ 窗口 {win[0]} ~ {win[1]}（只統計這段期間**進場**的交易；'
+          f'模擬照跑完整歷史）　快取到 {ds[-1]} ✅')
+
+
 def stat(trades, tpx_close, key='pnl'):
     """
     key='pnl'      ：未調整收盤價的報酬 ← **預設，與既有所有回測數字同基準**

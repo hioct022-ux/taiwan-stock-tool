@@ -5446,7 +5446,13 @@ N30 vs S20 （打亂評分、同持有長度）  +37.71／+36.17　59／60 /100�
 1. 確認 DB 到 11/05 完整（T86 排行目前停在 11/04，先補）
 2. `export TWSTOOL_CACHE=~/台股分析工具/data/cache` → 重建含已下市股的點時間快取，涵蓋到 **2026-11-05**
 3. Q1~Q3 只需 `_build_market_signals()` 的逐日 net ＋ TAIEX，**不需要個股快取，最快**，先跑
-4. Q4 用 `backtest_structure_bear.py`；Q5 用 `backtest_stop_distance.py`；Q6 用 `verify_revenue_component.py`，三者都加 `start=2026-10-07 end=2026-11-05`
+4. Q4 用 `backtest_structure_bear.py`；Q5 用 `backtest_stop_distance.py`；Q6 用 `verify_revenue_component.py`
+   ⇒ 2026-11-05 實作：共用參數 **`win=2026-10-07:2026-11-05`**（`backtest_portfolio_slots.parse_win／in_win／require_win`，單一實作）。
+   **模擬照跑完整歷史、只在統計時篩「窗口內進場」的交易**（不從窗口第一天空倉起跑）；
+   沒給 `win` ⇒ 原樣回傳同一個物件，既有行為完全不變（合成資料四項自我檢查通過）；
+   快取沒涵蓋到 11/05 ⇒ 阻斷式中止。
+   順手修掉 `backtest_market_ladder.CACHE_CANDIDATES` **寫死 `/tmp`**（陷阱56 加了 `cache_dir()` 但這裡沒跟上），
+   並改成挑**最近修改**的快取（避免讀到 10/21 的舊檔）。
 5. 結果**只填在下面那張表**，然後才寫解讀
 
 #### 結果（Q1~Q3：2026-11-05 執行；登記 commit `1c6dee0` 早於本次執行）

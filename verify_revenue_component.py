@@ -20,6 +20,7 @@
     python3 -u verify_revenue_component.py cache=/tmp/_pf_slots_cache_market.pkl
     python3 -u verify_revenue_component.py seedbase=8000 seeds=100
     python3 -u verify_revenue_component.py selftest                     # 見下
+    python3 -u verify_revenue_component.py cache=… win=2026-10-07:2026-11-05   # 樣本外 Q6
 
 ★ selftest 模式（驗證「掛排名」這段程式本身）
 ───────────────────────────────────────────────────────────────────
@@ -63,7 +64,7 @@ def attach_ranks(cache):
     return cache, True
 
 
-def run(cache, seedbase, nseeds, quiet=False):
+def run(cache, seedbase, nseeds, quiet=False, win=None, pertrade=False):
     tpx, rev_rank = cache['tpx_close'], cache['rev_rank']
     latest_ym = make_rev_lookup(cache)
 
@@ -82,12 +83,24 @@ def run(cache, seedbase, nseeds, quiet=False):
     for i, (label, w, inv, efk) in enumerate(RULES):
         cc = cache if w is None else C.growth_cache(cache, w, rank_of, invert=inv)
         ef = efs[efk]
+        if pertrade:
+            # 2026-11-05：樣本外檢驗 Q6 的 per-trade（不限檔數 ⇒ 排序無關、確定性）
+            _, trp = P.simulate(cc, lambda c, d, s: (c,), None, label, entry_filter=ef)
+            trp = P.in_win(trp, win)
+            stp = P.stat(trp, tpx)
+            if stp:
+                ne = sum(1 for t in trp if t['exit_reason'] == '回測結束')
+                print(f'  [per-trade] {label:<34}{stp["n"]:>6,} 筆　報酬 {stp["ret"]:+.2f}%'
+                      f'　同期大盤 {stp["mkt"]:+.2f}%　alpha {stp["alpha"]:+.2f}%'
+                      f'　停損率 {stp["stop"]:.1f}%　未走完 {ne}')
+            else:
+                print(f'  [per-trade] {label:<34}（窗口內無交易）')
         vals = []
         for sd in range(nseeds):
             rnd = random.Random(seedbase + sd)
             pref = {c: rnd.random() for c in sorted(cc['stocks'])}  # ⚠️ sorted（10/16 的 bug）
             _, tr = P.simulate(cc, lambda c, d, s: (pref[c],), SLOTS, label, entry_filter=ef)
-            st = P.stat(tr, tpx)
+            st = P.stat(P.in_win(tr, win), tpx)      # win=None ⇒ 原樣
             vals.append(st['alpha'] if st else 0.0)
         if w is not None:
             del cc
@@ -143,6 +156,7 @@ def main():
     path = next((a.split('=', 1)[1] for a in args if a.startswith('cache=')), CACHE)
     seedbase = next((int(a.split('=')[1]) for a in args if a.startswith('seedbase=')), 7000)
     nseeds = next((int(a.split('=')[1]) for a in args if a.startswith('seeds=')), 100)
+    win = P.parse_win(args)          # 2026-11-05：`win=起:迄`，None ⇒ 行為完全不變
 
     if 'selftest' in args:
         # 刻意拿掉 rev_rank 再掛回去，兩邊必須完全相同
@@ -166,9 +180,13 @@ def main():
     print('重驗：月營收 YoY「當第四個分項」vs「當篩選門檻」（2026-10-18 的結論）')
     print('=' * 88)
     cache = load(path)
+    P.require_win(cache, win)
     cache, _ = attach_ranks(cache)
+    if win:
+        print('\n【per-trade（不限檔數）】')
+        run(cache, seedbase, 1, quiet=True, win=win, pertrade=True)
     print(f'\n【5 檔配置・{nseeds} 條配對（seed {seedbase}~{seedbase + nseeds - 1}）')
-    runs = run(cache, seedbase, nseeds)
+    runs = run(cache, seedbase, nseeds, win=win)
     report(runs, nseeds)
     print('\n★ 10/18 在 _rev_filter_cache ＋ seed 7000 上的結果（對照用）：')
     print('    第四個分項 vs 篩選門檻  +0.37pp  78/100  p=0.000  ✅')

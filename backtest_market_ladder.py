@@ -88,10 +88,13 @@ import backtest_portfolio_slots as P
 #
 # ★ 依序尋找候選快取——本測試**只需要** stocks／market_net／tpx_close／tpx_dates，
 #   不需要月營收排名 ⇒ 兩種快取都能用。
-CACHE_CANDIDATES = [
-    '/tmp/_rev_filter_cache.pkl',        # backtest_revenue_filter.py cache（含月營收）
-    '/tmp/_pf_slots_cache_market.pkl',   # backtest_portfolio_slots.py cache market
-]
+#   ⚠️ 2026-11-05 修：原本寫死 `/tmp`，設了 TWSTOOL_CACHE 之後會找不到
+#      （陷阱56 加了 cache_dir()，但這裡沒跟上——「第二條路徑」那條通則又一次）。
+#      現在先找 cache_dir()，再退回 /tmp。
+CACHE_CANDIDATES = []
+for _d in dict.fromkeys([P.cache_dir(), '/tmp']):
+    CACHE_CANDIDATES += [os.path.join(_d, '_rev_filter_cache.pkl'),        # 含月營收
+                         os.path.join(_d, '_pf_slots_cache_market.pkl')]   # cache market
 START   = '2018-01-02'                   # 陷阱51 限制第 5 條
 N_SEEDS = 20                             # 20 條才有容錯空間（見下方檢定力）
 
@@ -159,7 +162,10 @@ def load():
       快取若沒涵蓋三個空頭年就 **sys.exit**，不讓它靜默跑出一份
       「看起來正常、但其實只有多頭」的結果。
     """
-    path = next((p for p in CACHE_CANDIDATES if os.path.exists(p)), None)
+    # 2026-11-05：改挑「最近修改」的那一份，而不是清單裡第一個存在的
+    #   ——快取資料夾可能同時留著舊的 _rev_filter_cache（到 10/21）與剛重建的新快取。
+    _ex = [p for p in CACHE_CANDIDATES if os.path.exists(p)]
+    path = max(_ex, key=os.path.getmtime) if _ex else None
     if path is None:
         print('❌ 找不到任何可用的快取。試過：')
         for p in CACHE_CANDIDATES:
