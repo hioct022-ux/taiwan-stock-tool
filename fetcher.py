@@ -1239,7 +1239,11 @@ def fetch_fundamentals_tpex_all():
             print(f'上櫃基本面 API 無回應（status={r.status_code}）')
             return
         data = r.json()
-        today = datetime.now().strftime('%Y-%m-%d')
+        # 週末更新時不可用「今天」當日期（陷阱57：曾產生 880 筆週日資料列）
+        _d = datetime.now()
+        while _d.weekday() >= 5:
+            _d -= timedelta(days=1)
+        today = _d.strftime('%Y-%m-%d')
 
         # 建立 code→資料 查找表
         tpex_map = {}
@@ -2142,16 +2146,31 @@ _BWIBBU_ALL_URL = ('https://www.twse.com.tw/exchangeReport/BWIBBU_ALL'
 
 def _bwibbu_title_date(title):
     """
-    從 BWIBBU_ALL 回應的 title 取出**真正的報表日期**。
-    title 形如：'115/09/7 個股日本益比、殖利率及股價淨值比'（民國年，日不補零）。
+    從 BWIBBU_ALL 的 title 取出**報表日期**（已校正）。
+    title 形如：'115/11/15 個股日本益比、殖利率及股價淨值比'（民國年，日不補零）。
     取不到回傳 None。
+
+    🚨 2026-11-17 更正（陷阱57，推翻陷阱44 的結論）：**title 的日期比實際報表
+    早一個日曆日**，不是 `date` 欄位晚一天。證據（2026-09-08~11-16，35,297 對）：
+      相鄰兩份報表的隱含 EPS（close/pe）一致率
+        把 title 當報表日       12.6%
+        把 title + 1 天當報表日  97.6%
+    title 甚至出現過「115/10/0」（＝10/01 的報表）這種不存在的日期。
+    ⇒ 報表日 = title + 1 個日曆日；落在週末就往回推到週五
+      （週日更新時 title 是週六、實際資料是週五的）。
     """
     import re as _re
+    from datetime import date as _date, timedelta as _td
     m = _re.match(r'\s*(\d{2,3})/(\d{1,2})/(\d{1,2})', str(title or ''))
     if not m:
         return None
     try:
-        return f'{int(m.group(1)) + 1911}-{int(m.group(2)):02d}-{int(m.group(3)):02d}'
+        y, mo, d = int(m.group(1)) + 1911, int(m.group(2)), int(m.group(3))
+        # 用「當月1日 + d 天」而不是 date(y,mo,d)+1：title 會出現 day=0
+        real = _date(y, mo, 1) + _td(days=d)
+        while real.weekday() >= 5:          # 週六日 → 往回到週五
+            real -= _td(days=1)
+        return real.isoformat()
     except Exception:
         return None
 
@@ -2167,12 +2186,10 @@ def _fetch_bwibbu_all():
        STOCK_DAY_ALL 是同一個坑。所以**這支 API 無法補歷史**，漏掉的日期永久補不回來，
        唯一的補救是每天都跑一次更新。故意不做「假的補齊迴圈」讓人誤以為補得回來。
 
-    2. **回應的 `date` 欄位比實際報表日期晚一個交易日** —— 實測 date 欄寫 20260908，
-       title 卻寫「115/09/7」。用 `close(前一交易日)/pe` 反推 EPS 才會是穩定值
-       （2330 恆為 86.25~86.28、2317 恆為 15.165~15.174），用 `close(當日)/pe` 則亂跳，
-       證明 title 才是對的。
-       → **一律以 title 的日期為準**；title 解析不出來就當失敗，
-         不退回去用 date 欄位（寧可少存一天，也不要靜默標錯日期——陷阱41/42 的教訓）。
+    2. ~~回應的 `date` 欄位比實際報表日期晚一個交易日，以 title 為準~~
+       **❌ 2026-11-17 推翻（陷阱57）：反過來，是 title 早一個日曆日。**
+       相鄰報表隱含 EPS 一致率：用 title 12.6%、用 title+1 天 97.6%（35,297 對）。
+       日期換算集中在 `_bwibbu_title_date()`；title 解析不出來仍當失敗。
     """
     try:
         r = requests.get(_BWIBBU_ALL_URL, headers=HEADERS, timeout=20, verify=False)

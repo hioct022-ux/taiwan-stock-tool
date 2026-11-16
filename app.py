@@ -642,6 +642,21 @@ def _data_integrity_report(days=30):
             except Exception:
                 continue
 
+        # 上櫃收盤「部分缺漏」（2026-11-17，陷阱57 同批發現）：上市那半會由 MI_INDEX
+        # 補回，那天就「有資料」了，上面的檢查看不到上櫃整天消失。
+        # ⇒ 另外比對上櫃檔數，低於中位數一半就算缺。
+        try:
+            _tp = dict(conn.execute(
+                "SELECT p.date, COUNT(*) FROM prices p JOIN stocks s ON s.code=p.code "
+                "WHERE s.market='TPEx' AND p.date>=? GROUP BY p.date", (tdays[0],)).fetchall())
+            _vals = sorted(_tp.get(d, 0) for d in tdays)
+            _med = _vals[len(_vals) // 2]
+            _tp_miss = [d for d in tdays if _med >= 100 and _tp.get(d, 0) < _med * 0.5]
+            if _tp_miss:
+                missing.append(('上櫃收盤', _tp_miss))
+        except Exception:
+            pass
+
         # 重複日偵測（陷阱42）：分市場檢查相鄰交易日四欄全等的比例
         dupes = []
         for i in range(1, len(tdays)):
@@ -680,6 +695,7 @@ _INTEGRITY_FIX = {
     '融資融券':   '按「🔄 手動更新資料」會自動補齊',
     '台指期法人': '按「🔄 手動更新資料」會自動補齊',
     '選擇權P/C':  '按「🔄 手動更新資料」會自動補齊',
+    '上櫃收盤':   '按更新補不回來（TPEx 不能指定日期）：python3 repair_tpex_missing.py --apply --all',
 }
 # 2026-09-09：六項全都改成「按更新就會自動補」——補齊邏輯從「MAX(date)+1」改為
 # 「與 TAIEX 交易日日曆逐日比對」之後，中間的洞也抓得到了（見陷阱45）。
