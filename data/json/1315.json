@@ -2,17 +2,6 @@
   "code": "1315",
   "prices": [
     {
-      "date": "2025-03-18",
-      "open": 70.1,
-      "high": 70.2,
-      "low": 70.0,
-      "close": 70.0,
-      "volume": 7046,
-      "value": 494017.0,
-      "change": 0.2,
-      "change_pct": 0.29
-    },
-    {
       "date": "2025-03-19",
       "open": 70.0,
       "high": 70.6,
@@ -4400,6 +4389,17 @@
       "value": 2695516.0,
       "change": 0.1,
       "change_pct": 0.14
+    },
+    {
+      "date": "2026-11-18",
+      "open": 69.6,
+      "high": 69.8,
+      "low": 69.1,
+      "close": 69.4,
+      "volume": 19151,
+      "value": 1330711.0,
+      "change": -0.3,
+      "change_pct": -0.43
     }
   ],
   "fundamentals": [
@@ -5305,23 +5305,16 @@
       "pe": 32.57,
       "pb": 0.41,
       "dividend_yield": 6.46
+    },
+    {
+      "date": "2026-11-18",
+      "eps_ttm": 2.14,
+      "pe": 32.43,
+      "pb": 0.41,
+      "dividend_yield": 6.48
     }
   ],
   "chips": [
-    {
-      "date": "2026-08-12",
-      "foreign_buy": 4,
-      "foreign_sell": 10,
-      "foreign_net": -6,
-      "trust_buy": 0,
-      "trust_sell": 0,
-      "trust_net": 0,
-      "dealer_buy": 0,
-      "dealer_sell": 0,
-      "dealer_net": 0,
-      "margin_balance": 14,
-      "short_balance": 0
-    },
     {
       "date": "2026-08-13",
       "foreign_buy": 1,
@@ -6217,11 +6210,25 @@
       "dealer_net": 0,
       "margin_balance": 22,
       "short_balance": 0
+    },
+    {
+      "date": "2026-11-18",
+      "foreign_buy": 8,
+      "foreign_sell": 15,
+      "foreign_net": -7,
+      "trust_buy": 0,
+      "trust_sell": 0,
+      "trust_net": 0,
+      "dealer_buy": 4,
+      "dealer_sell": 0,
+      "dealer_net": 4,
+      "margin_balance": 22,
+      "short_balance": 0
     }
   ],
   "ownership": {
     "foreign_pct": 1.24,
-    "date": "2026-11-17"
+    "date": "2026-11-18"
   },
   "monthly_revenue": [
     {
@@ -6465,5 +6472,5 @@
       "revenue_last_y": 173834
     }
   ],
-  "exported_at": "2026-11-17 21:55"
+  "exported_at": "2026-11-18 21:57"
 }

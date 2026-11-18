@@ -2,17 +2,6 @@
   "code": "2303",
   "prices": [
     {
-      "date": "2025-03-28",
-      "open": 44.6,
-      "high": 44.6,
-      "low": 44.1,
-      "close": 44.55,
-      "volume": 38051275,
-      "value": 1690370715.0,
-      "change": -0.25,
-      "change_pct": -0.56
-    },
-    {
       "date": "2025-03-31",
       "open": 43.55,
       "high": 44.65,
@@ -4400,6 +4389,17 @@
       "value": 11330238463.0,
       "change": -2.8,
       "change_pct": -2.94
+    },
+    {
+      "date": "2026-11-18",
+      "open": 94.0,
+      "high": 95.1,
+      "low": 89.2,
+      "close": 93.0,
+      "volume": 100256936,
+      "value": 9248513431.0,
+      "change": 0.6,
+      "change_pct": 0.65
     }
   ],
   "fundamentals": [
@@ -5305,23 +5305,16 @@
       "pe": 13.65,
       "pb": 2.46,
       "dividend_yield": 2.82
+    },
+    {
+      "date": "2026-11-18",
+      "eps_ttm": 6.77,
+      "pe": 13.74,
+      "pb": 2.48,
+      "dividend_yield": 2.81
     }
   ],
   "chips": [
-    {
-      "date": "2026-08-12",
-      "foreign_buy": 36281,
-      "foreign_sell": 30605,
-      "foreign_net": 5677,
-      "trust_buy": 1631,
-      "trust_sell": 10284,
-      "trust_net": -8653,
-      "dealer_buy": 4579,
-      "dealer_sell": 1119,
-      "dealer_net": 3460,
-      "margin_balance": 158957,
-      "short_balance": 2435
-    },
     {
       "date": "2026-08-13",
       "foreign_buy": 63481,
@@ -6217,11 +6210,25 @@
       "dealer_net": 2517,
       "margin_balance": 121583,
       "short_balance": 2038
+    },
+    {
+      "date": "2026-11-18",
+      "foreign_buy": 43798,
+      "foreign_sell": 48576,
+      "foreign_net": -4778,
+      "trust_buy": 3437,
+      "trust_sell": 2139,
+      "trust_net": 1298,
+      "dealer_buy": 4285,
+      "dealer_sell": 3498,
+      "dealer_net": 787,
+      "margin_balance": 121504,
+      "short_balance": 1435
     }
   ],
   "ownership": {
-    "foreign_pct": 38.62,
-    "date": "2026-11-17"
+    "foreign_pct": 38.58,
+    "date": "2026-11-18"
   },
   "monthly_revenue": [
     {
@@ -6465,5 +6472,5 @@
       "revenue_last_y": 18787670
     }
   ],
-  "exported_at": "2026-11-17 21:55"
+  "exported_at": "2026-11-18 21:57"
 }
