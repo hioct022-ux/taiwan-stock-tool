@@ -2,17 +2,6 @@
   "code": "3042",
   "prices": [
     {
-      "date": "2025-03-31",
-      "open": 93.0,
-      "high": 93.2,
-      "low": 91.8,
-      "close": 92.0,
-      "volume": 1414820,
-      "value": 130724934.0,
-      "change": -2.4,
-      "change_pct": -2.54
-    },
-    {
       "date": "2025-04-01",
       "open": 92.3,
       "high": 93.5,
@@ -4400,6 +4389,17 @@
       "value": 681246219.0,
       "change": 2.5,
       "change_pct": 1.98
+    },
+    {
+      "date": "2026-11-19",
+      "open": 126.5,
+      "high": 127.0,
+      "low": 116.0,
+      "close": 117.0,
+      "volume": 5488531,
+      "value": 654509533.0,
+      "change": -11.5,
+      "change_pct": -8.95
     }
   ],
   "fundamentals": [
@@ -5312,23 +5312,16 @@
       "pe": 20.24,
       "pb": 2.63,
       "dividend_yield": 3.74
+    },
+    {
+      "date": "2026-11-19",
+      "eps_ttm": 6.35,
+      "pe": 18.43,
+      "pb": 2.39,
+      "dividend_yield": 4.1
     }
   ],
   "chips": [
-    {
-      "date": "2026-08-13",
-      "foreign_buy": 5380,
-      "foreign_sell": 4702,
-      "foreign_net": 679,
-      "trust_buy": 0,
-      "trust_sell": 0,
-      "trust_net": 0,
-      "dealer_buy": 621,
-      "dealer_sell": 349,
-      "dealer_net": 272,
-      "margin_balance": 17599,
-      "short_balance": 230
-    },
     {
       "date": "2026-08-14",
       "foreign_buy": 2452,
@@ -6224,11 +6217,25 @@
       "dealer_net": 277,
       "margin_balance": 8188,
       "short_balance": 714
+    },
+    {
+      "date": "2026-11-19",
+      "foreign_buy": 2738,
+      "foreign_sell": 2216,
+      "foreign_net": 522,
+      "trust_buy": 97,
+      "trust_sell": 294,
+      "trust_net": -197,
+      "dealer_buy": 116,
+      "dealer_sell": 154,
+      "dealer_net": -38,
+      "margin_balance": 7731,
+      "short_balance": 723
     }
   ],
   "ownership": {
-    "foreign_pct": 23.63,
-    "date": "2026-11-18"
+    "foreign_pct": 23.78,
+    "date": "2026-11-19"
   },
   "monthly_revenue": [
     {
@@ -6472,5 +6479,5 @@
       "revenue_last_y": 1035631
     }
   ],
-  "exported_at": "2026-11-18 21:57"
+  "exported_at": "2026-11-19 21:55"
 }
