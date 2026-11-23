@@ -2,17 +2,6 @@
   "code": "2308",
   "prices": [
     {
-      "date": "2025-04-02",
-      "open": 365.0,
-      "high": 373.5,
-      "low": 364.0,
-      "close": 369.5,
-      "volume": 3560122,
-      "value": 1316138816.0,
-      "change": -1.5,
-      "change_pct": -0.4
-    },
-    {
       "date": "2025-04-07",
       "open": 333.0,
       "high": 333.0,
@@ -4400,6 +4389,17 @@
       "value": 18493725448.0,
       "change": -100.0,
       "change_pct": -10.0
+    },
+    {
+      "date": "2026-11-23",
+      "open": 864.0,
+      "high": 990.0,
+      "low": 864.0,
+      "close": 990.0,
+      "volume": 31464403,
+      "value": 29423858339.0,
+      "change": 90.0,
+      "change_pct": 10.0
     }
   ],
   "fundamentals": [
@@ -5326,23 +5326,16 @@
       "pe": 27.03,
       "pb": 7.35,
       "dividend_yield": 1.29
+    },
+    {
+      "date": "2026-11-23",
+      "eps_ttm": 33.3,
+      "pe": 29.73,
+      "pb": 8.08,
+      "dividend_yield": 1.17
     }
   ],
   "chips": [
-    {
-      "date": "2026-08-17",
-      "foreign_buy": 7990,
-      "foreign_sell": 6621,
-      "foreign_net": 1368,
-      "trust_buy": 355,
-      "trust_sell": 1156,
-      "trust_net": -801,
-      "dealer_buy": 406,
-      "dealer_sell": 298,
-      "dealer_net": 108,
-      "margin_balance": 8000,
-      "short_balance": 56
-    },
     {
       "date": "2026-08-18",
       "foreign_buy": 6431,
@@ -6238,11 +6231,25 @@
       "dealer_net": 625,
       "margin_balance": 9755,
       "short_balance": 28
+    },
+    {
+      "date": "2026-11-23",
+      "foreign_buy": 17604,
+      "foreign_sell": 16561,
+      "foreign_net": 1043,
+      "trust_buy": 695,
+      "trust_sell": 521,
+      "trust_net": 174,
+      "dealer_buy": 871,
+      "dealer_sell": 1607,
+      "dealer_net": -736,
+      "margin_balance": 11856,
+      "short_balance": 79
     }
   ],
   "ownership": {
-    "foreign_pct": 58.42,
-    "date": "2026-11-20"
+    "foreign_pct": 58.44,
+    "date": "2026-11-23"
   },
   "monthly_revenue": [
     {
@@ -6486,5 +6493,5 @@
       "revenue_last_y": 33648554
     }
   ],
-  "exported_at": "2026-11-20 22:20"
+  "exported_at": "2026-11-23 23:26"
 }
