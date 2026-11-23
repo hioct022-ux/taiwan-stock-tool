@@ -5775,7 +5775,8 @@ def _fetch_taiex_futures():
     從 FinMind API 抓取台指期（TX）日盤 + 夜盤最新行情。
     回傳 {'day': {...}, 'night': {...}}，失敗的 session 不含對應 key。
     每 5 分鐘快取一次。
-    spread / spread_per：夜盤相對於當日日盤結算的漲跌點 / %。
+    spread / spread_per：夜盤相對於「前一交易日」日盤結算的漲跌點 / %（陷阱58）。
+    'night' 只在它晚於最新日盤時才回傳；否則回傳 'night_pending'（今晚夜盤尚未公布）。
     FinMind 偶有回應緩慢（ReadTimeout），故加重試 + 拉長 timeout，避免單次逾時就整個區塊消失。
     """
     try:
@@ -5815,29 +5816,48 @@ def _fetch_taiex_futures():
         if not rows:
             return {}
 
-        # 取最新有資料的日期
-        latest_date = max(row['date'] for row in rows)
-        latest_rows = [row for row in rows if row['date'] == latest_date]
+        # 🚨 2026-11-23 修正（陷阱58）：FinMind 把夜盤標成「結束的那一天」。
+        # 標著 D 的夜盤 = 前一交易日 15:00 ~ D 05:00 那一場，spread 是對前一交易日日盤結算，
+        # 而 D 的日盤在它之後才開，早已反映它。實測（2026-11-13~11-23 每一天）：
+        #   11/23 夜盤 33919、spread -1881 ⇒ 基準 35800 ＝ 11/20 日盤結算（不是 11/23）
+        # 舊版把同一天的日盤與夜盤並排、還拿夜盤 -5.25% 計入 Signal 9 Bear+3
+        # ⇒ 把一場已經被隔天日盤（+2.17%）消化掉的夜盤當成「明天開盤會跳空」。
+        # ⇒ 夜盤只有在「日期晚於最新日盤」時才是新的（隔天凌晨後、日盤開盤前）。
+        def _front(rows_of_day):
+            ym = _dt.now().strftime('%Y%m')
+            cs = [r for r in rows_of_day if '/' not in str(r['contract_date'])]
+            ok = [r for r in cs if r['contract_date'] >= ym] or cs
+            if not ok:
+                return []
+            f = min(r['contract_date'] for r in ok)
+            return [r for r in ok if r['contract_date'] == f]
 
-        # 近月合約（contract_date >= 當月，取最小）
-        today_ym = _dt.now().strftime('%Y%m')
-        valid = [row for row in latest_rows if row['contract_date'] >= today_ym]
-        if not valid:
-            valid = latest_rows
-        front_month = min(valid, key=lambda x: x['contract_date'])['contract_date']
+        by_date = {}
+        for row in rows:
+            by_date.setdefault(row['date'], []).append(row)
+        day_rows, night_rows = {}, {}
+        for d_, rs in by_date.items():
+            for row in _front(rs):
+                (night_rows if row['trading_session'] == 'after_market' else day_rows)[d_] = row
+        if not day_rows and not night_rows:
+            return {}
+
+        def _pack(row, d_):
+            return {'close': row['close'], 'chg': row['spread'], 'chg_pct': row['spread_per'],
+                    'contract': row['contract_date'], 'date': d_}
 
         result = {}
-        for row in latest_rows:
-            if row['contract_date'] != front_month:
-                continue
-            key = 'night' if row['trading_session'] == 'after_market' else 'day'
-            result[key] = {
-                'close':    row['close'],
-                'chg':      row['spread'],       # 夜盤：vs 日盤差；日盤：vs 前日差
-                'chg_pct':  row['spread_per'],
-                'contract': front_month,
-                'date':     latest_date,
-            }
+        last_day = max(day_rows) if day_rows else ''
+        if last_day:
+            result['day'] = _pack(day_rows[last_day], last_day)
+        last_night = max(night_rows) if night_rows else ''
+        if last_night and last_night > last_day:
+            # 新的夜盤：發生在 last_day 日盤收盤之後，對照的是 last_day 日盤結算
+            result['night'] = _pack(night_rows[last_night], last_night)
+            result['night']['session_of'] = last_day
+        else:
+            # 最新日盤之後的夜盤 FinMind 還沒公布（通常隔天凌晨 5 點收盤後才有）
+            result['night_pending'] = last_day
         return result
     except Exception:
         return {}
@@ -5956,9 +5976,14 @@ def render_market():
         if not _txf and not IS_LOCAL:
             st.caption('🇹🇼 台指期夜盤資料需 FinMind Token，僅本機版可用')
         if _txf:
-            _txf_contract = next(iter(_txf.values())).get('contract', '')
-            _txf_date     = next(iter(_txf.values())).get('date', '')
-            st.caption(f'🇹🇼 台指期 {_txf_contract}（{_txf_date}，資料來源：FinMind）')
+            _txf_any      = _txf.get('day') or _txf.get('night') or {}
+            _txf_contract = _txf_any.get('contract', '')
+            _txf_date     = _txf_any.get('date', '')
+            if 'night' in _txf:
+                _nt_note = f'夜盤＝{_txf["night"]["session_of"]} 收盤後那一場，尚未被日盤反映'
+            else:
+                _nt_note = f'{_txf.get("night_pending", _txf_date)} 收盤後的夜盤尚未公布（FinMind 約隔天凌晨後更新）'
+            st.caption(f'🇹🇼 台指期 {_txf_contract}（日盤 {_txf_date}；{_nt_note}；資料來源：FinMind）')
             _txf_cols = st.columns(4)
             for _col_i, (_skey, _slabel) in enumerate([('day', '台指期 日盤'), ('night', '台指期 夜盤')]):
                 if _skey in _txf:
@@ -5972,7 +5997,7 @@ def render_market():
                         f'<div style="font-size:11px;color:{_tcolor}">{_td["chg"]:+.0f}pts&nbsp;（{_tc:+.2f}%）</div>'
                         f'</div>',
                         unsafe_allow_html=True)
-            # 夜盤 vs 日盤：直接用 night['chg']（FinMind spread 已是夜盤-日盤差）
+            # 夜盤 vs 前一場日盤：FinMind spread 是對 session_of 那天的日盤結算（陷阱58）
             if 'night' in _txf:
                 _ngt    = _txf['night']
                 _diff   = _ngt['chg']
@@ -5980,7 +6005,7 @@ def render_market():
                 _d_color = '#ef4444' if _diff > 0 else '#22c55e' if _diff < 0 else '#94a3b8'
                 _txf_cols[2].markdown(
                     f'<div style="background:#141720;border:1px solid #252a38;border-radius:8px;padding:10px 14px;margin-bottom:4px">'
-                    f'<div style="font-size:11px;color:#8892a4;margin-bottom:2px">夜盤 vs 日盤</div>'
+                    f'<div style="font-size:11px;color:#8892a4;margin-bottom:2px">夜盤 vs {_ngt["session_of"][5:]} 日盤結算</div>'
                     f'<div style="font-size:18px;font-weight:700;color:{_d_color}">{_diff:+.0f} 點</div>'
                     f'<div style="font-size:11px;color:{_d_color}">{_diff_p:+.2f}%</div>'
                     f'</div>',
@@ -6342,7 +6367,8 @@ def render_market():
                 _bull_msgs.append(('🟢', f'近3日成交量放大 {_vol_trend:.0f}%，市場積極度提升'))
 
         # ══ Signal 9：外部市場（台指期夜盤 / 美股 / 費半 / TSM ADR / VIX）══
-        # 台指期夜盤（FinMind spread 已是夜盤 vs 日盤差，最直接反映次日開盤）
+        # 台指期夜盤：只在「最新日盤之後」的那場才計分（陷阱58）。舊版會把已被日盤
+        # 反映過的前一晚夜盤再計一次 Bear/Bull +3。
         _txf_score_data = _txf   # 共用已抓的快取，不重複請求
         if 'night' in _txf_score_data:
             _txf_ngt   = _txf_score_data['night']
