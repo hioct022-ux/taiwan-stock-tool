@@ -685,6 +685,25 @@ tabs = st.tabs(['📊 技術面', '💰 基本面', '📈 估值分析',
 
 ---
 
+### 個股頁「🧩 主力產品」（2026-11-24 新增，**純資訊、不計分**）
+
+位置：「💰 基本面」頁籤、月營收 YoY 之前。兩個來源**分開存、分開顯示**：
+
+| | 來源 | 特性 |
+|---|---|---|
+| 官方 | 公開資訊觀測站 `t05st03`「主要經營業務」（`fetcher.fetch_company_business()`，POST `mopsov.twse.com.tw/mops/web/ajax_t05st03`）| 自動、中文、全市場都有；**只有產品清單、沒有營收比重**，一年才改一次 |
+| 手動 | 個股頁 expander「✏️ 手動填寫」 | 使用者從年報／法說會抄「主力產品＋比重」；最準但要自己維護 |
+
+- 表 `company_profile(code PK, main_business, business_fetched, products, products_updated)`；
+  `save_company_business()` 與 `save_company_products()` 各自只動自己的欄位（upsert）。
+- 懶加載照陷阱54 的兩條：**沒資料或超過 `PROFILE_REFRESH_DAYS`(90) 天**才抓；
+  每個 session 每檔只試一次；失敗原因寫進 `st.session_state['_prof_err_{code}']` 並顯示。
+- 解析守衛（陷阱41）：回應要同時含「主要經營業務」與要求的公司代號，否則不寫入。
+- 雲端：個股 JSON 加 `profile` 欄位（與月營收同做法，不另開大盤層級 JSON）。
+- 診斷：`check_company_profile.py 2492 2330`（只印、不寫入）。
+- ⚠️ 2026-11-24 寫成時沙盒連不到 MOPS，**解析器只用合成 HTML 測過**，
+  第一次實際使用要先跑診斷腳本確認版面。
+
 ### _check_consolidation_pattern(prices) — 量縮整理型態掃描（2026-07 新增）
 
 定義在模組頂層（`_CHART_CONFIG` 上方）。自選股側邊欄每支股票渲染時呼叫，符合條件者在按鈕標籤前顯示 🎯。

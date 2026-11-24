@@ -309,6 +309,19 @@ def init_db():
         )
     ''')
 
+    # ── 公司主力產品（2026-11-24 新增，純資訊顯示，不計入評分）──
+    #   main_business：公開資訊觀測站「主要經營業務」官方文字（自動抓）
+    #   products     ：使用者手動填的主力產品／營收比重（年報、法說會抄來的）
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS company_profile (
+            code              TEXT PRIMARY KEY,
+            main_business     TEXT,
+            business_fetched  TEXT,
+            products          TEXT,
+            products_updated  TEXT
+        )
+    ''')
+
     # ── 欄位 migration（舊版 DB 相容）──
     migrations = [
         'ALTER TABLE exdividend ADD COLUMN is_confirmed INTEGER DEFAULT 0',
@@ -327,6 +340,41 @@ def init_db():
     conn.commit()
     conn.close()
     print('資料庫初始化完成')
+
+# ── 公司主力產品（2026-11-24 新增）──────────
+def get_company_profile(code):
+    """回傳 {'main_business','business_fetched','products','products_updated'} 或 None。"""
+    conn = get_conn()
+    row = conn.execute('SELECT main_business, business_fetched, products, products_updated '
+                       'FROM company_profile WHERE code=?', (code,)).fetchone()
+    conn.close()
+    if not row:
+        return None
+    cols = ['main_business', 'business_fetched', 'products', 'products_updated']
+    return dict(zip(cols, row))
+
+
+def save_company_business(code, text):
+    """寫入公開資訊觀測站的「主要經營業務」，不動使用者手動填的 products。"""
+    conn = get_conn()
+    conn.execute('INSERT INTO company_profile (code, main_business, business_fetched) VALUES (?,?,?) '
+                 'ON CONFLICT(code) DO UPDATE SET main_business=excluded.main_business, '
+                 'business_fetched=excluded.business_fetched',
+                 (code, text, datetime.now().strftime('%Y-%m-%d')))
+    conn.commit()
+    conn.close()
+
+
+def save_company_products(code, text):
+    """寫入使用者手動填的主力產品／營收比重，不動官方文字。空字串＝清除。"""
+    conn = get_conn()
+    conn.execute('INSERT INTO company_profile (code, products, products_updated) VALUES (?,?,?) '
+                 'ON CONFLICT(code) DO UPDATE SET products=excluded.products, '
+                 'products_updated=excluded.products_updated',
+                 (code, text.strip(), datetime.now().strftime('%Y-%m-%d')))
+    conn.commit()
+    conn.close()
+
 
 # ── 價格資料 ────────────────────────────
 def save_prices(code, rows):

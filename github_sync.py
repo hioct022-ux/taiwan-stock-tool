@@ -159,6 +159,7 @@ def export_to_json(code=None):
         try:
             from database import get_ownership as _get_own
             from database import get_monthly_revenue as _get_rev
+            from database import get_company_profile as _get_prof
             _own_row = _get_own(c)
             stock_data = {
                 'code':         c,
@@ -173,6 +174,8 @@ def export_to_json(code=None):
                 #     後者要改 `init_cloud_data()` 的 skip 名單（第六章規定），
                 #     而月營收本來就是 per-stock 資料。
                 'monthly_revenue': _get_rev(c, limit=24),
+                # ★ 2026-11-24 新增：主力產品（官方「主要經營業務」＋手動填的比重，純資訊）
+                'profile':      _get_prof(c),
                 'exported_at':  datetime.now().strftime('%Y-%m-%d %H:%M')
             }
             path = os.path.join(JSON_DIR, f'{c}.json')

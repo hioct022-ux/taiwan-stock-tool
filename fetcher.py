@@ -3383,3 +3383,55 @@ def fetch_market_volume(months=12):
 
 if __name__ == '__main__':
     fetch_all()
+
+
+# ── 公司主要經營業務（2026-11-24 新增，純資訊顯示）──────────
+_MOPS_T05ST03_URL = 'https://mopsov.twse.com.tw/mops/web/ajax_t05st03'
+
+
+def _parse_t05st03(html, code):
+    """從公開資訊觀測站「公司基本資料」頁取出「主要經營業務」。
+
+    回傳 (text, err)。守衛（陷阱41 的教訓：回傳的必須是要求的那一家）：
+      ① 頁面要出現「主要經營業務」
+      ② 頁面要出現要求的公司代號，否則當成查錯公司、不寫入
+    """
+    import re as _re
+    import html as _html
+    if '查詢過於頻繁' in html or 'TOO MANY' in html.upper():
+        return None, '公開資訊觀測站回「查詢過於頻繁」，稍後再試'
+    if '主要經營業務' not in html:
+        return None, '回應裡找不到「主要經營業務」（網站改版或查無此公司）'
+    if code not in html:
+        return None, f'回應裡找不到公司代號 {code}，可能查到別家，不寫入'
+    m = _re.search(r'主要經營業務\s*</t[hd]>\s*<td[^>]*>(.*?)</td>', html, _re.S)
+    if not m:
+        return None, '找到「主要經營業務」標題，但解析不到內容（版面可能改了）'
+    txt = _re.sub(r'<br\s*/?>', '\n', m.group(1), flags=_re.I)
+    txt = _re.sub(r'<[^>]+>', '', txt)
+    txt = _html.unescape(txt).replace('\xa0', ' ')
+    lines = [' '.join(l.split()) for l in txt.splitlines()]
+    txt = '\n'.join(l for l in lines if l)
+    if not txt:
+        return None, '「主要經營業務」欄位是空的'
+    return txt, None
+
+
+def fetch_company_business(code):
+    """抓單一公司的「主要經營業務」並存進 company_profile。回傳 (text, err)。"""
+    from database import save_company_business
+    form = {'encodeURIComponent': 1, 'step': 1, 'firstin': 1, 'off': 1,
+            'queryName': 'co_id', 'inpuType': 'co_id', 'TYPEK': 'all', 'co_id': code}
+    try:
+        r = requests.post(_MOPS_T05ST03_URL, data=form, headers=HEADERS, timeout=20)
+    except Exception as e:
+        return None, f'連線失敗：{e}'
+    if r.status_code != 200:
+        return None, f'HTTP {r.status_code}'
+    html = r.content.decode('utf-8', errors='replace')
+    if '主要經營業務' not in html:                     # 舊頁面偶爾是 Big5
+        html = r.content.decode('cp950', errors='replace')
+    txt, err = _parse_t05st03(html, code)
+    if txt:
+        save_company_business(code, txt)
+    return txt, err

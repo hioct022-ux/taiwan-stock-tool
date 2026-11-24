@@ -833,6 +833,26 @@ def _monthly_revenue_for(code, limit=24):
         return []
 
 
+def _company_profile_for(code):
+    """主力產品（2026-11-24 新增，純資訊）。本機讀 DB、雲端讀個股 JSON 的 'profile'。"""
+    if IS_LOCAL:
+        try:
+            from database import get_company_profile as _gcp
+            return _gcp(code)
+        except Exception:
+            return None
+    try:
+        import json as _jp
+        with open(os.path.join('data', 'json', f'{code}.json'), encoding='utf-8') as _f:
+            return _jp.load(_f).get('profile')
+    except Exception:
+        return None
+
+
+# 公開資訊觀測站「主要經營業務」多久重抓一次。這段文字通常一年才改一次。
+PROFILE_REFRESH_DAYS = 90
+
+
 # 雲端模式初始化：用 exported_at 當版本號，每次新部署（sync 後）才重新匯入
 def _get_meta_version():
     try:
@@ -2061,6 +2081,68 @@ def render_fundamental(result, code, name):
     #     (a) 優勢約 0.5pp/月，而持 5 檔的運氣波動是 ±8pp/月 ⇒ 完全看不見
     #     (b) 動能交互作用：動能最弱那組 YoY 幾乎沒用（t=+1.42）
     #   要當規則必須先照十五章的流程回測「現有策略 + YoY 篩選」。
+    # ── 主力產品（2026-11-24 新增，純資訊顯示）──────────
+    # 兩個來源分開存、分開顯示：
+    #   ① 公開資訊觀測站「主要經營業務」：自動抓、官方，但只有產品清單、沒有比重，一年才改一次
+    #   ② 使用者手動填的主力產品／營收比重（年報、法說會抄來的）：最準，但要自己維護
+    # 懶加載照陷阱54 的兩條：條件是「沒資料或已過期」（不是只有沒資料），失敗要看得見。
+    _prof = _company_profile_for(code) or {}
+    if IS_LOCAL:
+        _need = not _prof.get('main_business')
+        if not _need and _prof.get('business_fetched'):
+            try:
+                _need = (datetime.now() - datetime.strptime(_prof['business_fetched'], '%Y-%m-%d')).days \
+                        >= PROFILE_REFRESH_DAYS
+            except Exception:
+                _need = True
+        _lock = f'_prof_tried_{code}'
+        if _need and not st.session_state.get(_lock):
+            st.session_state[_lock] = True
+            try:
+                from fetcher import fetch_company_business as _fcb
+                with st.spinner('抓取公開資訊觀測站「主要經營業務」…'):
+                    _txt, _err = _fcb(code)
+                if _txt:
+                    _prof = _company_profile_for(code) or {}
+                else:
+                    st.session_state[f'_prof_err_{code}'] = _err
+            except Exception as _e:
+                st.session_state[f'_prof_err_{code}'] = str(_e)
+
+    st.markdown('---')
+    st.markdown('#### 🧩 主力產品')
+    if _prof.get('products'):
+        st.markdown(_prof['products'].replace('\n', '  \n'))
+        st.caption(f'↑ 手動填寫（{_prof.get("products_updated", "")}）')
+    if _prof.get('main_business'):
+        _mb = _prof['main_business']
+        if _prof.get('products'):
+            with st.expander('公開資訊觀測站登記的主要經營業務'):
+                st.text(_mb)
+        else:
+            st.text(_mb)
+        st.caption(f'↑ 來源：公開資訊觀測站「主要經營業務」（{_prof.get("business_fetched", "")} 抓取）。'
+                   '這是公司登記的業務項目，不含營收比重，一年才更新一次。')
+    if not _prof.get('products') and not _prof.get('main_business'):
+        _perr = st.session_state.get(f'_prof_err_{code}')
+        if _perr:
+            st.caption(f'⚠️ 抓不到公開資訊觀測站資料：{_perr}。'
+                       f'可在 Terminal 執行 `python3 check_company_profile.py {code}` 看詳細原因。')
+        else:
+            st.caption('尚無主力產品資料。')
+    if IS_LOCAL:
+        with st.expander('✏️ 手動填寫主力產品／營收比重'):
+            st.caption('建議從年報「主要產品營收比重」或最近一次法說會抄，例如：'
+                       'MLCC 60%、晶片電阻 25%、其他 15%（2025 年報）。留空並儲存＝清除。')
+            _ptxt = st.text_area('主力產品', value=_prof.get('products') or '',
+                                 key=f'prod_txt_{code}', height=100, label_visibility='collapsed')
+            if st.button('💾 儲存', key=f'prod_save_{code}'):
+                from database import save_company_products as _scp
+                _scp(code, _ptxt)
+                st.success('已儲存。下次「🚀 更新並同步到雲端」後雲端也看得到。')
+                st.rerun()
+    st.caption('主力產品為純資訊參考，不計入評分、不影響進場門檻。')
+
     _rev = _monthly_revenue_for(code, limit=24)
     if _rev:
         st.markdown('---')
