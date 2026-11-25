@@ -2,17 +2,6 @@
   "code": "3532",
   "prices": [
     {
-      "date": "2025-04-08",
-      "open": 67.3,
-      "high": 70.0,
-      "low": 67.3,
-      "close": 69.1,
-      "volume": 1470548,
-      "value": 99697465.0,
-      "change": -5.6,
-      "change_pct": -7.5
-    },
-    {
       "date": "2025-04-09",
       "open": 67.5,
       "high": 67.6,
@@ -4400,6 +4389,17 @@
       "value": 63300647.0,
       "change": 16.5,
       "change_pct": 9.82
+    },
+    {
+      "date": "2026-11-25",
+      "open": 167.5,
+      "high": 176.0,
+      "low": 166.5,
+      "close": 176.0,
+      "volume": 3583424,
+      "value": 608629288.0,
+      "change": -8.5,
+      "change_pct": -4.61
     }
   ],
   "fundamentals": [
@@ -5340,23 +5340,16 @@
       "pe": 163.27,
       "pb": 2.93,
       "dividend_yield": 0.54
+    },
+    {
+      "date": "2026-11-25",
+      "eps_ttm": 1.13,
+      "pe": 155.75,
+      "pb": 2.79,
+      "dividend_yield": 0.57
     }
   ],
   "chips": [
-    {
-      "date": "2026-08-19",
-      "foreign_buy": 1754,
-      "foreign_sell": 2169,
-      "foreign_net": -415,
-      "trust_buy": 14,
-      "trust_sell": 188,
-      "trust_net": -174,
-      "dealer_buy": 483,
-      "dealer_sell": 209,
-      "dealer_net": 274,
-      "margin_balance": 8232,
-      "short_balance": 263
-    },
     {
       "date": "2026-08-20",
       "foreign_buy": 12438,
@@ -6252,11 +6245,25 @@
       "dealer_net": 36,
       "margin_balance": 3351,
       "short_balance": 53
+    },
+    {
+      "date": "2026-11-25",
+      "foreign_buy": 1612,
+      "foreign_sell": 297,
+      "foreign_net": 1315,
+      "trust_buy": 9,
+      "trust_sell": 674,
+      "trust_net": -665,
+      "dealer_buy": 1101,
+      "dealer_sell": 383,
+      "dealer_net": 719,
+      "margin_balance": 3196,
+      "short_balance": 47
     }
   ],
   "ownership": {
-    "foreign_pct": 45.41,
-    "date": "2026-11-23"
+    "foreign_pct": 45.66,
+    "date": "2026-11-25"
   },
   "monthly_revenue": [
     {
@@ -6500,5 +6507,11 @@
       "revenue_last_y": 1346020
     }
   ],
-  "exported_at": "2026-11-24 21:03"
+  "profile": {
+    "main_business": "矽晶圓電子材料之製造及銷售進出口業務\n前項原材料之買賣及進出口業務\n除許可業務外，得經營非法令非禁止或限制之業務",
+    "business_fetched": "2026-11-24",
+    "products": null,
+    "products_updated": null
+  },
+  "exported_at": "2026-11-25 23:18"
 }

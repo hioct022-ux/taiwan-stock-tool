@@ -2,17 +2,6 @@
   "code": "2359",
   "prices": [
     {
-      "date": "2025-04-08",
-      "open": 117.5,
-      "high": 117.5,
-      "low": 117.5,
-      "close": 117.5,
-      "volume": 747851,
-      "value": 87872284.0,
-      "change": -13.0,
-      "change_pct": -9.96
-    },
-    {
       "date": "2025-04-09",
       "open": 106.0,
       "high": 106.0,
@@ -4400,6 +4389,17 @@
       "value": 29107489.0,
       "change": 7.1,
       "change_pct": 9.9
+    },
+    {
+      "date": "2026-11-25",
+      "open": 78.8,
+      "high": 78.8,
+      "low": 71.0,
+      "close": 71.9,
+      "volume": 1349950,
+      "value": 100994905.0,
+      "change": -6.9,
+      "change_pct": -8.76
     }
   ],
   "fundamentals": [
@@ -5340,23 +5340,16 @@
       "pe": 13.05,
       "pb": 2.09,
       "dividend_yield": 1.27
+    },
+    {
+      "date": "2026-11-25",
+      "eps_ttm": 6.04,
+      "pe": 11.9,
+      "pb": 1.91,
+      "dividend_yield": 1.39
     }
   ],
   "chips": [
-    {
-      "date": "2026-08-19",
-      "foreign_buy": 4658,
-      "foreign_sell": 8645,
-      "foreign_net": -3988,
-      "trust_buy": 0,
-      "trust_sell": 0,
-      "trust_net": 0,
-      "dealer_buy": 150,
-      "dealer_sell": 384,
-      "dealer_net": -235,
-      "margin_balance": 9626,
-      "short_balance": 489
-    },
     {
       "date": "2026-08-20",
       "foreign_buy": 4794,
@@ -6252,11 +6245,25 @@
       "dealer_net": 0,
       "margin_balance": 3230,
       "short_balance": 137
+    },
+    {
+      "date": "2026-11-25",
+      "foreign_buy": 536,
+      "foreign_sell": 765,
+      "foreign_net": -229,
+      "trust_buy": 0,
+      "trust_sell": 0,
+      "trust_net": 0,
+      "dealer_buy": 14,
+      "dealer_sell": 22,
+      "dealer_net": -8,
+      "margin_balance": 3247,
+      "short_balance": 72
     }
   ],
   "ownership": {
-    "foreign_pct": 5.49,
-    "date": "2026-11-23"
+    "foreign_pct": 5.33,
+    "date": "2026-11-25"
   },
   "monthly_revenue": [
     {
@@ -6500,5 +6507,6 @@
       "revenue_last_y": 236029
     }
   ],
-  "exported_at": "2026-11-24 21:03"
+  "profile": null,
+  "exported_at": "2026-11-25 23:18"
 }

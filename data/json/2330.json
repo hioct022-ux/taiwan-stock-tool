@@ -2,17 +2,6 @@
   "code": "2330",
   "prices": [
     {
-      "date": "2025-04-08",
-      "open": 797.0,
-      "high": 843.0,
-      "low": 797.0,
-      "close": 816.0,
-      "volume": 136580582,
-      "value": 111279830476.0,
-      "change": -32.0,
-      "change_pct": -3.77
-    },
-    {
       "date": "2025-04-09",
       "open": 809.0,
       "high": 826.0,
@@ -4400,6 +4389,17 @@
       "value": 29465076970.0,
       "change": 200.0,
       "change_pct": 9.85
+    },
+    {
+      "date": "2026-11-25",
+      "open": 2150.0,
+      "high": 2170.0,
+      "low": 2020.0,
+      "close": 2150.0,
+      "volume": 84911914,
+      "value": 179487749840.0,
+      "change": -80.0,
+      "change_pct": -3.59
     }
   ],
   "fundamentals": [
@@ -5340,23 +5340,16 @@
       "pe": 22.7,
       "pb": 8.26,
       "dividend_yield": 0.99
+    },
+    {
+      "date": "2026-11-25",
+      "eps_ttm": 98.26,
+      "pe": 21.88,
+      "pb": 7.97,
+      "dividend_yield": 1.02
     }
   ],
   "chips": [
-    {
-      "date": "2026-08-19",
-      "foreign_buy": 10343,
-      "foreign_sell": 17761,
-      "foreign_net": -7418,
-      "trust_buy": 476,
-      "trust_sell": 1144,
-      "trust_net": -668,
-      "dealer_buy": 1154,
-      "dealer_sell": 435,
-      "dealer_net": 719,
-      "margin_balance": 28422,
-      "short_balance": 29
-    },
     {
       "date": "2026-08-20",
       "foreign_buy": 12652,
@@ -6252,11 +6245,25 @@
       "dealer_net": 388,
       "margin_balance": 31287,
       "short_balance": 52
+    },
+    {
+      "date": "2026-11-25",
+      "foreign_buy": 25236,
+      "foreign_sell": 52208,
+      "foreign_net": -26972,
+      "trust_buy": 4904,
+      "trust_sell": 113,
+      "trust_net": 4791,
+      "dealer_buy": 2598,
+      "dealer_sell": 3037,
+      "dealer_net": -439,
+      "margin_balance": 29305,
+      "short_balance": 46
     }
   ],
   "ownership": {
-    "foreign_pct": 67.76,
-    "date": "2026-11-23"
+    "foreign_pct": 67.65,
+    "date": "2026-11-25"
   },
   "monthly_revenue": [
     {
@@ -6500,5 +6507,6 @@
       "revenue_last_y": 206026179
     }
   ],
-  "exported_at": "2026-11-24 21:03"
+  "profile": null,
+  "exported_at": "2026-11-25 23:18"
 }

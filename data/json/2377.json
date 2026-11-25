@@ -2,17 +2,6 @@
   "code": "2377",
   "prices": [
     {
-      "date": "2025-04-08",
-      "open": 137.0,
-      "high": 137.0,
-      "low": 137.0,
-      "close": 137.0,
-      "volume": 3394069,
-      "value": 464989722.0,
-      "change": -15.0,
-      "change_pct": -9.87
-    },
-    {
       "date": "2025-04-09",
       "open": 123.5,
       "high": 123.5,
@@ -4400,6 +4389,17 @@
       "value": 971767174.0,
       "change": 11.5,
       "change_pct": 9.47
+    },
+    {
+      "date": "2026-11-25",
+      "open": 125.5,
+      "high": 127.0,
+      "low": 120.0,
+      "close": 124.0,
+      "volume": 6720220,
+      "value": 832020892.0,
+      "change": -9.0,
+      "change_pct": -6.77
     }
   ],
   "fundamentals": [
@@ -5340,23 +5340,16 @@
       "pe": 9.3,
       "pb": 1.8,
       "dividend_yield": 3.16
+    },
+    {
+      "date": "2026-11-25",
+      "eps_ttm": 14.3,
+      "pe": 8.67,
+      "pb": 1.68,
+      "dividend_yield": 3.39
     }
   ],
   "chips": [
-    {
-      "date": "2026-08-19",
-      "foreign_buy": 3700,
-      "foreign_sell": 8945,
-      "foreign_net": -5244,
-      "trust_buy": 0,
-      "trust_sell": 8,
-      "trust_net": -8,
-      "dealer_buy": 551,
-      "dealer_sell": 100,
-      "dealer_net": 451,
-      "margin_balance": 15274,
-      "short_balance": 0
-    },
     {
       "date": "2026-08-20",
       "foreign_buy": 3324,
@@ -6252,11 +6245,25 @@
       "dealer_net": -148,
       "margin_balance": 10266,
       "short_balance": 98
+    },
+    {
+      "date": "2026-11-25",
+      "foreign_buy": 2398,
+      "foreign_sell": 3401,
+      "foreign_net": -1003,
+      "trust_buy": 1061,
+      "trust_sell": 105,
+      "trust_net": 956,
+      "dealer_buy": 330,
+      "dealer_sell": 226,
+      "dealer_net": 104,
+      "margin_balance": 10016,
+      "short_balance": 45
     }
   ],
   "ownership": {
-    "foreign_pct": 21.82,
-    "date": "2026-11-23"
+    "foreign_pct": 21.04,
+    "date": "2026-11-25"
   },
   "monthly_revenue": [
     {
@@ -6500,5 +6507,11 @@
       "revenue_last_y": 18064202
     }
   ],
-  "exported_at": "2026-11-24 21:03"
+  "profile": {
+    "main_business": "有關各種電腦硬體軟體之設計及其成品與零組件製造買賣業務\n電子零件之製造買賣業務\n有關前項業務之進出口貿易業務",
+    "business_fetched": "2026-11-24",
+    "products": null,
+    "products_updated": null
+  },
+  "exported_at": "2026-11-25 23:18"
 }

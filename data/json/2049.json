@@ -2,17 +2,6 @@
   "code": "2049",
   "prices": [
     {
-      "date": "2025-04-08",
-      "open": 198.5,
-      "high": 198.5,
-      "low": 198.5,
-      "close": 198.5,
-      "volume": 1946148,
-      "value": 386310669.0,
-      "change": -22.0,
-      "change_pct": -9.98
-    },
-    {
       "date": "2025-04-09",
       "open": 179.0,
       "high": 183.0,
@@ -4400,6 +4389,17 @@
       "value": 2481586153.0,
       "change": 6.5,
       "change_pct": 2.44
+    },
+    {
+      "date": "2026-11-25",
+      "open": 258.5,
+      "high": 276.5,
+      "low": 252.5,
+      "close": 263.5,
+      "volume": 3881084,
+      "value": 1027412104.0,
+      "change": -9.5,
+      "change_pct": -3.48
     }
   ],
   "fundamentals": [
@@ -5340,23 +5340,16 @@
       "pe": 30.95,
       "pb": 2.38,
       "dividend_yield": 0.73
+    },
+    {
+      "date": "2026-11-25",
+      "eps_ttm": 8.82,
+      "pe": 29.88,
+      "pb": 2.3,
+      "dividend_yield": 0.76
     }
   ],
   "chips": [
-    {
-      "date": "2026-08-19",
-      "foreign_buy": 2620,
-      "foreign_sell": 3082,
-      "foreign_net": -461,
-      "trust_buy": 1238,
-      "trust_sell": 4,
-      "trust_net": 1234,
-      "dealer_buy": 213,
-      "dealer_sell": 374,
-      "dealer_net": -162,
-      "margin_balance": 3480,
-      "short_balance": 144
-    },
     {
       "date": "2026-08-20",
       "foreign_buy": 3942,
@@ -6252,11 +6245,25 @@
       "dealer_net": 40,
       "margin_balance": 3451,
       "short_balance": 45
+    },
+    {
+      "date": "2026-11-25",
+      "foreign_buy": 2255,
+      "foreign_sell": 1611,
+      "foreign_net": 644,
+      "trust_buy": 0,
+      "trust_sell": 0,
+      "trust_net": 0,
+      "dealer_buy": 100,
+      "dealer_sell": 110,
+      "dealer_net": -11,
+      "margin_balance": 3218,
+      "short_balance": 36
     }
   ],
   "ownership": {
-    "foreign_pct": 38.62,
-    "date": "2026-11-23"
+    "foreign_pct": 38.05,
+    "date": "2026-11-25"
   },
   "monthly_revenue": [
     {
@@ -6500,5 +6507,11 @@
       "revenue_last_y": 1912063
     }
   ],
-  "exported_at": "2026-11-24 21:03"
+  "profile": {
+    "main_business": "CB01010機械設備製造業。\nCB01990其他機械製造業(許可及限制業務除外)。\nCC01010發電、輸電、配電機械製造業。",
+    "business_fetched": "2026-11-24",
+    "products": null,
+    "products_updated": null
+  },
+  "exported_at": "2026-11-25 23:18"
 }

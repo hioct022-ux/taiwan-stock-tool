@@ -2,17 +2,6 @@
   "code": "2308",
   "prices": [
     {
-      "date": "2025-04-08",
-      "open": 300.5,
-      "high": 311.0,
-      "low": 300.0,
-      "close": 305.0,
-      "volume": 28828129,
-      "value": 8725188107.0,
-      "change": -28.0,
-      "change_pct": -8.41
-    },
-    {
       "date": "2025-04-09",
       "open": 293.0,
       "high": 304.5,
@@ -4400,6 +4389,17 @@
       "value": 1726252360.0,
       "change": 95.0,
       "change_pct": 9.6
+    },
+    {
+      "date": "2026-11-25",
+      "open": 1095.0,
+      "high": 1115.0,
+      "low": 989.0,
+      "close": 1055.0,
+      "volume": 39535893,
+      "value": 41922999805.0,
+      "change": -30.0,
+      "change_pct": -2.76
     }
   ],
   "fundamentals": [
@@ -5340,23 +5340,16 @@
       "pe": 32.58,
       "pb": 8.86,
       "dividend_yield": 1.07
+    },
+    {
+      "date": "2026-11-25",
+      "eps_ttm": 33.3,
+      "pe": 31.68,
+      "pb": 8.61,
+      "dividend_yield": 1.1
     }
   ],
   "chips": [
-    {
-      "date": "2026-08-19",
-      "foreign_buy": 6359,
-      "foreign_sell": 8675,
-      "foreign_net": -2316,
-      "trust_buy": 275,
-      "trust_sell": 207,
-      "trust_net": 68,
-      "dealer_buy": 870,
-      "dealer_sell": 1061,
-      "dealer_net": -191,
-      "margin_balance": 8020,
-      "short_balance": 40
-    },
     {
       "date": "2026-08-20",
       "foreign_buy": 5263,
@@ -6252,11 +6245,25 @@
       "dealer_net": 29,
       "margin_balance": 11288,
       "short_balance": 79
+    },
+    {
+      "date": "2026-11-25",
+      "foreign_buy": 20034,
+      "foreign_sell": 21457,
+      "foreign_net": -1423,
+      "trust_buy": 1909,
+      "trust_sell": 105,
+      "trust_net": 1804,
+      "dealer_buy": 791,
+      "dealer_sell": 930,
+      "dealer_net": -140,
+      "margin_balance": 9200,
+      "short_balance": 66
     }
   ],
   "ownership": {
-    "foreign_pct": 58.44,
-    "date": "2026-11-23"
+    "foreign_pct": 58.36,
+    "date": "2026-11-25"
   },
   "monthly_revenue": [
     {
@@ -6500,5 +6507,11 @@
       "revenue_last_y": 33648554
     }
   ],
-  "exported_at": "2026-11-24 21:03"
+  "profile": {
+    "main_business": "電源供應系統、無刷直流風扇、散熱系統、微型化關鍵零組件、\n電動車電源相關系統、工業自動化、視訊顯示、資訊、網路通訊\n消費性電子、可再生能源應用、智慧樓宇管理與控制解決方案等",
+    "business_fetched": "2026-11-24",
+    "products": null,
+    "products_updated": null
+  },
+  "exported_at": "2026-11-25 23:18"
 }
