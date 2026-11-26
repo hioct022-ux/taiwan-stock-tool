@@ -2,17 +2,6 @@
   "code": "2308",
   "prices": [
     {
-      "date": "2025-04-09",
-      "open": 293.0,
-      "high": 304.5,
-      "low": 275.0,
-      "close": 280.5,
-      "volume": 17454496,
-      "value": 5044888760.0,
-      "change": -24.5,
-      "change_pct": -8.03
-    },
-    {
       "date": "2025-04-10",
       "open": 308.5,
       "high": 308.5,
@@ -4400,6 +4389,17 @@
       "value": 41922999805.0,
       "change": -30.0,
       "change_pct": -2.76
+    },
+    {
+      "date": "2026-11-26",
+      "open": 1110.0,
+      "high": 1140.0,
+      "low": 1065.0,
+      "close": 1120.0,
+      "volume": 21537500,
+      "value": 23902485620.0,
+      "change": 65.0,
+      "change_pct": 6.16
     }
   ],
   "fundamentals": [
@@ -5347,23 +5347,16 @@
       "pe": 31.68,
       "pb": 8.61,
       "dividend_yield": 1.1
+    },
+    {
+      "date": "2026-11-26",
+      "eps_ttm": 33.3,
+      "pe": 33.63,
+      "pb": 9.14,
+      "dividend_yield": 1.04
     }
   ],
   "chips": [
-    {
-      "date": "2026-08-20",
-      "foreign_buy": 5263,
-      "foreign_sell": 5748,
-      "foreign_net": -486,
-      "trust_buy": 167,
-      "trust_sell": 757,
-      "trust_net": -590,
-      "dealer_buy": 720,
-      "dealer_sell": 727,
-      "dealer_net": -7,
-      "margin_balance": 8195,
-      "short_balance": 43
-    },
     {
       "date": "2026-08-21",
       "foreign_buy": 3998,
@@ -6259,11 +6252,25 @@
       "dealer_net": -140,
       "margin_balance": 9200,
       "short_balance": 66
+    },
+    {
+      "date": "2026-11-26",
+      "foreign_buy": 8477,
+      "foreign_sell": 12890,
+      "foreign_net": -4413,
+      "trust_buy": 1208,
+      "trust_sell": 14,
+      "trust_net": 1193,
+      "dealer_buy": 323,
+      "dealer_sell": 221,
+      "dealer_net": 102,
+      "margin_balance": 9493,
+      "short_balance": 62
     }
   ],
   "ownership": {
-    "foreign_pct": 58.36,
-    "date": "2026-11-25"
+    "foreign_pct": 58.2,
+    "date": "2026-11-26"
   },
   "monthly_revenue": [
     {
@@ -6513,5 +6520,5 @@
     "products": null,
     "products_updated": null
   },
-  "exported_at": "2026-11-25 23:29"
+  "exported_at": "2026-11-26 21:24"
 }

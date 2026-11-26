@@ -2,17 +2,6 @@
   "code": "1503",
   "prices": [
     {
-      "date": "2025-04-09",
-      "open": 117.0,
-      "high": 120.5,
-      "low": 113.5,
-      "close": 113.5,
-      "volume": 3831449,
-      "value": 445023018.0,
-      "change": -12.5,
-      "change_pct": -9.92
-    },
-    {
       "date": "2025-04-10",
       "open": 124.5,
       "high": 124.5,
@@ -4400,6 +4389,17 @@
       "value": 210038193.0,
       "change": -8.5,
       "change_pct": -5.26
+    },
+    {
+      "date": "2026-11-26",
+      "open": 158.0,
+      "high": 163.0,
+      "low": 156.0,
+      "close": 162.0,
+      "volume": 1171993,
+      "value": 188035748.0,
+      "change": 9.0,
+      "change_pct": 5.88
     }
   ],
   "fundamentals": [
@@ -5347,23 +5347,16 @@
       "pe": 20.26,
       "pb": 2.06,
       "dividend_yield": 3.27
+    },
+    {
+      "date": "2026-11-26",
+      "eps_ttm": 7.55,
+      "pe": 21.46,
+      "pb": 2.18,
+      "dividend_yield": 3.09
     }
   ],
   "chips": [
-    {
-      "date": "2026-08-20",
-      "foreign_buy": 869,
-      "foreign_sell": 494,
-      "foreign_net": 375,
-      "trust_buy": 0,
-      "trust_sell": 15,
-      "trust_net": -15,
-      "dealer_buy": 75,
-      "dealer_sell": 110,
-      "dealer_net": -35,
-      "margin_balance": 2876,
-      "short_balance": 27
-    },
     {
       "date": "2026-08-21",
       "foreign_buy": 571,
@@ -6259,11 +6252,25 @@
       "dealer_net": -45,
       "margin_balance": 1918,
       "short_balance": 10
+    },
+    {
+      "date": "2026-11-26",
+      "foreign_buy": 684,
+      "foreign_sell": 338,
+      "foreign_net": 346,
+      "trust_buy": 0,
+      "trust_sell": 1,
+      "trust_net": -1,
+      "dealer_buy": 69,
+      "dealer_sell": 49,
+      "dealer_net": 20,
+      "margin_balance": 1867,
+      "short_balance": 12
     }
   ],
   "ownership": {
-    "foreign_pct": 30.53,
-    "date": "2026-11-25"
+    "foreign_pct": 30.59,
+    "date": "2026-11-26"
   },
   "monthly_revenue": [
     {
@@ -6508,5 +6515,5 @@
     }
   ],
   "profile": null,
-  "exported_at": "2026-11-25 23:29"
+  "exported_at": "2026-11-26 21:24"
 }

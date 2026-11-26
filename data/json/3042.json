@@ -2,17 +2,6 @@
   "code": "3042",
   "prices": [
     {
-      "date": "2025-04-09",
-      "open": 78.6,
-      "high": 80.1,
-      "low": 74.1,
-      "close": 75.4,
-      "volume": 2548800,
-      "value": 195768489.0,
-      "change": -3.4,
-      "change_pct": -4.31
-    },
-    {
       "date": "2025-04-10",
       "open": 82.9,
       "high": 82.9,
@@ -4400,6 +4389,17 @@
       "value": 570229694.0,
       "change": -8.0,
       "change_pct": -6.58
+    },
+    {
+      "date": "2026-11-26",
+      "open": 117.0,
+      "high": 123.5,
+      "low": 117.0,
+      "close": 123.0,
+      "volume": 3422113,
+      "value": 414449217.0,
+      "change": 9.5,
+      "change_pct": 8.37
     }
   ],
   "fundamentals": [
@@ -5347,23 +5347,16 @@
       "pe": 17.87,
       "pb": 2.32,
       "dividend_yield": 4.23
+    },
+    {
+      "date": "2026-11-26",
+      "eps_ttm": 6.35,
+      "pe": 19.37,
+      "pb": 2.51,
+      "dividend_yield": 3.9
     }
   ],
   "chips": [
-    {
-      "date": "2026-08-20",
-      "foreign_buy": 10137,
-      "foreign_sell": 15260,
-      "foreign_net": -5123,
-      "trust_buy": 0,
-      "trust_sell": 0,
-      "trust_net": 0,
-      "dealer_buy": 698,
-      "dealer_sell": 746,
-      "dealer_net": -48,
-      "margin_balance": 13636,
-      "short_balance": 424
-    },
     {
       "date": "2026-08-21",
       "foreign_buy": 12759,
@@ -6259,11 +6252,25 @@
       "dealer_net": -44,
       "margin_balance": 6827,
       "short_balance": 684
+    },
+    {
+      "date": "2026-11-26",
+      "foreign_buy": 1168,
+      "foreign_sell": 1351,
+      "foreign_net": -183,
+      "trust_buy": 1,
+      "trust_sell": 83,
+      "trust_net": -82,
+      "dealer_buy": 161,
+      "dealer_sell": 107,
+      "dealer_net": 54,
+      "margin_balance": 6868,
+      "short_balance": 684
     }
   ],
   "ownership": {
-    "foreign_pct": 23.56,
-    "date": "2026-11-25"
+    "foreign_pct": 23.5,
+    "date": "2026-11-26"
   },
   "monthly_revenue": [
     {
@@ -6508,5 +6515,5 @@
     }
   ],
   "profile": null,
-  "exported_at": "2026-11-25 23:29"
+  "exported_at": "2026-11-26 21:24"
 }

@@ -2,17 +2,6 @@
   "code": "1303",
   "prices": [
     {
-      "date": "2025-04-09",
-      "open": 28.2,
-      "high": 29.15,
-      "low": 26.8,
-      "close": 26.85,
-      "volume": 23740577,
-      "value": 662221172.0,
-      "change": -2.0,
-      "change_pct": -6.93
-    },
-    {
       "date": "2025-04-10",
       "open": 29.5,
       "high": 29.5,
@@ -4400,6 +4389,17 @@
       "value": 29824742144.0,
       "change": -22.5,
       "change_pct": -9.04
+    },
+    {
+      "date": "2026-11-26",
+      "open": 236.0,
+      "high": 248.0,
+      "low": 235.0,
+      "close": 244.0,
+      "volume": 84542602,
+      "value": 20454081643.0,
+      "change": 17.5,
+      "change_pct": 7.73
     }
   ],
   "fundamentals": [
@@ -5347,23 +5347,16 @@
       "pe": 21.19,
       "pb": 3.37,
       "dividend_yield": 0.35
+    },
+    {
+      "date": "2026-11-26",
+      "eps_ttm": 10.69,
+      "pe": 22.83,
+      "pb": 3.63,
+      "dividend_yield": 0.33
     }
   ],
   "chips": [
-    {
-      "date": "2026-08-20",
-      "foreign_buy": 24101,
-      "foreign_sell": 32661,
-      "foreign_net": -8559,
-      "trust_buy": 3803,
-      "trust_sell": 129,
-      "trust_net": 3674,
-      "dealer_buy": 468,
-      "dealer_sell": 3485,
-      "dealer_net": -3017,
-      "margin_balance": 42885,
-      "short_balance": 2344
-    },
     {
       "date": "2026-08-21",
       "foreign_buy": 17034,
@@ -6259,11 +6252,25 @@
       "dealer_net": 1808,
       "margin_balance": 36154,
       "short_balance": 1142
+    },
+    {
+      "date": "2026-11-26",
+      "foreign_buy": 24255,
+      "foreign_sell": 27582,
+      "foreign_net": -3327,
+      "trust_buy": 6256,
+      "trust_sell": 1075,
+      "trust_net": 5181,
+      "dealer_buy": 3069,
+      "dealer_sell": 1856,
+      "dealer_net": 1213,
+      "margin_balance": 36972,
+      "short_balance": 1378
     }
   ],
   "ownership": {
-    "foreign_pct": 27.87,
-    "date": "2026-11-25"
+    "foreign_pct": 27.84,
+    "date": "2026-11-26"
   },
   "monthly_revenue": [
     {
@@ -6508,5 +6515,5 @@
     }
   ],
   "profile": null,
-  "exported_at": "2026-11-25 23:29"
+  "exported_at": "2026-11-26 21:24"
 }

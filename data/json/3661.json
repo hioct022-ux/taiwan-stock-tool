@@ -2,17 +2,6 @@
   "code": "3661",
   "prices": [
     {
-      "date": "2025-04-09",
-      "open": 1945.0,
-      "high": 2070.0,
-      "low": 1945.0,
-      "close": 1945.0,
-      "volume": 5066887,
-      "value": 10040884255.0,
-      "change": -215.0,
-      "change_pct": -9.95
-    },
-    {
       "date": "2025-04-10",
       "open": 2135.0,
       "high": 2135.0,
@@ -4400,6 +4389,17 @@
       "value": 18781950745.0,
       "change": -310.0,
       "change_pct": -7.92
+    },
+    {
+      "date": "2026-11-26",
+      "open": 3780.0,
+      "high": 3895.0,
+      "low": 3695.0,
+      "close": 3735.0,
+      "volume": 3443706,
+      "value": 13045791960.0,
+      "change": 130.0,
+      "change_pct": 3.61
     }
   ],
   "fundamentals": [
@@ -5347,23 +5347,16 @@
       "pe": 39.9,
       "pb": 4.88,
       "dividend_yield": 0.9
+    },
+    {
+      "date": "2026-11-26",
+      "eps_ttm": 90.35,
+      "pe": 41.34,
+      "pb": 5.06,
+      "dividend_yield": 0.87
     }
   ],
   "chips": [
-    {
-      "date": "2026-08-20",
-      "foreign_buy": 827,
-      "foreign_sell": 789,
-      "foreign_net": 38,
-      "trust_buy": 5,
-      "trust_sell": 0,
-      "trust_net": 5,
-      "dealer_buy": 61,
-      "dealer_sell": 27,
-      "dealer_net": 34,
-      "margin_balance": 6219,
-      "short_balance": 34
-    },
     {
       "date": "2026-08-21",
       "foreign_buy": 496,
@@ -6259,13 +6252,27 @@
       "dealer_net": -46,
       "margin_balance": 3841,
       "short_balance": 39
+    },
+    {
+      "date": "2026-11-26",
+      "foreign_buy": 1058,
+      "foreign_sell": 1724,
+      "foreign_net": -666,
+      "trust_buy": 124,
+      "trust_sell": 0,
+      "trust_net": 124,
+      "dealer_buy": 120,
+      "dealer_sell": 80,
+      "dealer_net": 40,
+      "margin_balance": 4025,
+      "short_balance": 34
     }
   ],
   "ownership": {
-    "foreign_pct": 50.74,
-    "date": "2026-11-25"
+    "foreign_pct": 49.97,
+    "date": "2026-11-26"
   },
   "monthly_revenue": [],
   "profile": null,
-  "exported_at": "2026-11-25 23:29"
+  "exported_at": "2026-11-26 21:24"
 }

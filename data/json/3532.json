@@ -2,17 +2,6 @@
   "code": "3532",
   "prices": [
     {
-      "date": "2025-04-09",
-      "open": 67.5,
-      "high": 67.6,
-      "low": 62.2,
-      "close": 62.6,
-      "volume": 1060249,
-      "value": 68402337.0,
-      "change": -6.5,
-      "change_pct": -9.41
-    },
-    {
       "date": "2025-04-10",
       "open": 68.8,
       "high": 68.8,
@@ -4400,6 +4389,17 @@
       "value": 608629288.0,
       "change": -8.5,
       "change_pct": -4.61
+    },
+    {
+      "date": "2026-11-26",
+      "open": 177.0,
+      "high": 186.5,
+      "low": 170.0,
+      "close": 184.5,
+      "volume": 1411749,
+      "value": 254846216.0,
+      "change": 8.5,
+      "change_pct": 4.83
     }
   ],
   "fundamentals": [
@@ -5347,23 +5347,16 @@
       "pe": 155.75,
       "pb": 2.79,
       "dividend_yield": 0.57
+    },
+    {
+      "date": "2026-11-26",
+      "eps_ttm": 1.13,
+      "pe": 163.27,
+      "pb": 2.93,
+      "dividend_yield": 0.54
     }
   ],
   "chips": [
-    {
-      "date": "2026-08-20",
-      "foreign_buy": 12438,
-      "foreign_sell": 2605,
-      "foreign_net": 9833,
-      "trust_buy": 593,
-      "trust_sell": 403,
-      "trust_net": 190,
-      "dealer_buy": 139,
-      "dealer_sell": 316,
-      "dealer_net": -177,
-      "margin_balance": 8523,
-      "short_balance": 740
-    },
     {
       "date": "2026-08-21",
       "foreign_buy": 1366,
@@ -6259,11 +6252,25 @@
       "dealer_net": 719,
       "margin_balance": 3196,
       "short_balance": 47
+    },
+    {
+      "date": "2026-11-26",
+      "foreign_buy": 717,
+      "foreign_sell": 249,
+      "foreign_net": 468,
+      "trust_buy": 0,
+      "trust_sell": 1,
+      "trust_net": -1,
+      "dealer_buy": 42,
+      "dealer_sell": 368,
+      "dealer_net": -326,
+      "margin_balance": 3166,
+      "short_balance": 55
     }
   ],
   "ownership": {
-    "foreign_pct": 45.66,
-    "date": "2026-11-25"
+    "foreign_pct": 45.76,
+    "date": "2026-11-26"
   },
   "monthly_revenue": [
     {
@@ -6513,5 +6520,5 @@
     "products": null,
     "products_updated": null
   },
-  "exported_at": "2026-11-25 23:29"
+  "exported_at": "2026-11-26 21:24"
 }
