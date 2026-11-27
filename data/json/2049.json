@@ -2,17 +2,6 @@
   "code": "2049",
   "prices": [
     {
-      "date": "2025-04-10",
-      "open": 196.5,
-      "high": 196.5,
-      "low": 191.0,
-      "close": 196.5,
-      "volume": 10810767,
-      "value": 2114421084.0,
-      "change": 17.5,
-      "change_pct": 9.78
-    },
-    {
       "date": "2025-04-11",
       "open": 180.0,
       "high": 191.0,
@@ -4400,6 +4389,17 @@
       "value": 569948556.0,
       "change": 13.0,
       "change_pct": 4.93
+    },
+    {
+      "date": "2026-11-27",
+      "open": 273.5,
+      "high": 278.5,
+      "low": 272.0,
+      "close": 274.0,
+      "volume": 1281283,
+      "value": 353085382.0,
+      "change": -2.5,
+      "change_pct": -0.9
     }
   ],
   "fundamentals": [
@@ -5354,23 +5354,16 @@
       "pe": 31.35,
       "pb": 2.41,
       "dividend_yield": 0.72
+    },
+    {
+      "date": "2026-11-27",
+      "eps_ttm": 8.82,
+      "pe": 31.07,
+      "pb": 2.39,
+      "dividend_yield": 0.73
     }
   ],
   "chips": [
-    {
-      "date": "2026-08-21",
-      "foreign_buy": 1214,
-      "foreign_sell": 2902,
-      "foreign_net": -1688,
-      "trust_buy": 540,
-      "trust_sell": 3,
-      "trust_net": 537,
-      "dealer_buy": 148,
-      "dealer_sell": 268,
-      "dealer_net": -120,
-      "margin_balance": 3585,
-      "short_balance": 101
-    },
     {
       "date": "2026-08-24",
       "foreign_buy": 1114,
@@ -6266,11 +6259,25 @@
       "dealer_net": -7,
       "margin_balance": 3380,
       "short_balance": 41
+    },
+    {
+      "date": "2026-11-27",
+      "foreign_buy": 810,
+      "foreign_sell": 661,
+      "foreign_net": 149,
+      "trust_buy": 0,
+      "trust_sell": 0,
+      "trust_net": 0,
+      "dealer_buy": 46,
+      "dealer_sell": 22,
+      "dealer_net": 24,
+      "margin_balance": 3347,
+      "short_balance": 41
     }
   ],
   "ownership": {
-    "foreign_pct": 38.06,
-    "date": "2026-11-26"
+    "foreign_pct": 38.1,
+    "date": "2026-11-27"
   },
   "monthly_revenue": [
     {
@@ -6520,5 +6527,5 @@
     "products": null,
     "products_updated": null
   },
-  "exported_at": "2026-11-26 21:24"
+  "exported_at": "2026-11-27 22:31"
 }
